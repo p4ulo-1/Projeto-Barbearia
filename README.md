@@ -284,18 +284,3 @@ O projeto está sujeito à evolução contínua durante o semestre, acompanhando
 A aplicação atualmente possui integração funcional entre React, API ASP.NET Core e SQLite, além de autenticação, regras de negócio, persistência e testes.
 As próximas etapas envolvem principalmente a organização final do repositório, evolução do histórico Git, documentação acadêmica, modelo de classes, registro das evidências e preparação para apresentação e defesa.
 
-Agora sim eu preservei **todos os tópicos principais do README original**:
-
-`Identificação` → mantido  
-`Sobre o Projeto Integrador` → mantido  
-`Tema` → mantido  
-`Estrutura do Projeto` → mantido  
-`Tecnologias Utilizadas` → mantido  
-`Evolução do Projeto` → mantido  
-`Estado Atual` → mantido  
-`Objetivos do Projeto` → mantido  
-`Estratégia de Versionamento` → mantido  
-`Desenvolvimento Colaborativo` → mantido  
-`Projeto Acadêmico` → mantido  
-
-Só atualizei o conteúdo que já não correspondia mais ao sistema atual, principalmente o **Estado Atual**, porque API, banco, integraçã
