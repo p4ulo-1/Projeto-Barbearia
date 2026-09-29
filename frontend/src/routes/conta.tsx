@@ -6,10 +6,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { AppointmentListSkeleton } from "@/components/site/Skeletons";
+import { AppointmentListSkeleton, SlotsSkeleton } from "@/components/site/Skeletons";
 import { ConfirmDialog } from "@/components/site/ConfirmDialog";
-import { barberById, brl, serviceById } from "@/lib/shop";
-import { buildSlots, useStore, type Appointment } from "@/lib/store";
+import { brl } from "@/lib/shop";
+import { useStore, type Appointment } from "@/lib/store";
 import { formatDate } from "./agendamento";
 
 export const Route = createFileRoute("/conta")({
@@ -35,7 +35,10 @@ function Account() {
   const {
     ready,
     user,
+    services,
+    barbers,
     appointments,
+    getAvailability,
     cancelAppointment,
     rescheduleAppointment,
     updateProfile,
@@ -48,6 +51,8 @@ function Account() {
   const [rescheduleTarget, setRescheduleTarget] = useState<Appointment | null>(null);
   const [newDate, setNewDate] = useState("");
   const [newTime, setNewTime] = useState("");
+  const [rescheduleSlots, setRescheduleSlots] = useState<string[]>([]);
+  const [loadingRescheduleSlots, setLoadingRescheduleSlots] = useState(false);
   const [pwOpen, setPwOpen] = useState(false);
   const [newPassword, setNewPassword] = useState("");
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -57,9 +62,39 @@ function Account() {
   useEffect(() => {
     if (!ready) return;
     setProfile({ name: user?.name ?? "", email: user?.email ?? "", phone: user?.phone ?? "" });
-    const t = setTimeout(() => setLoading(false), 700);
-    return () => clearTimeout(t);
+    setLoading(false);
   }, [ready, user]);
+
+  useEffect(() => {
+    if (!rescheduleTarget || !newDate) {
+      setRescheduleSlots([]);
+      return;
+    }
+
+    let active = true;
+    setLoadingRescheduleSlots(true);
+    getAvailability(
+      rescheduleTarget.serviceId,
+      rescheduleTarget.barberId,
+      newDate,
+      rescheduleTarget.id,
+    )
+      .then((available) => {
+        if (active) setRescheduleSlots(available);
+      })
+      .catch((error) => {
+        if (!active) return;
+        setRescheduleSlots([]);
+        toast.error(error instanceof Error ? error.message : "Não foi possível consultar horários.");
+      })
+      .finally(() => {
+        if (active) setLoadingRescheduleSlots(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [getAvailability, newDate, rescheduleTarget]);
 
   if (ready && !user) {
     return (
@@ -79,13 +114,8 @@ function Account() {
     .filter((a) => a.userId === user?.id)
     .sort((a, b) => (a.date + a.time < b.date + b.time ? 1 : -1));
 
-  const rescheduleSlots = (() => {
-    if (!rescheduleTarget || !newDate) return [];
-    const barber = barberById(rescheduleTarget.barberId);
-    const service = serviceById(rescheduleTarget.serviceId);
-    if (!barber || !service) return [];
-    return buildSlots(barber, newDate, service.duration, appointments);
-  })();
+  const serviceById = (id: string) => services.find((service) => service.id === id);
+  const barberById = (id: string) => barbers.find((barber) => barber.id === id);
 
   return (
     <motion.section
@@ -262,8 +292,8 @@ function Account() {
           try {
             await cancelAppointment(cancelTarget.id);
             toast.success("Agendamento cancelado.");
-          } catch {
-            toast.error("Não foi possível cancelar.");
+          } catch (error) {
+            toast.error(error instanceof Error ? error.message : "Não foi possível cancelar.");
           } finally {
             setCancelTarget(null);
           }
@@ -286,8 +316,8 @@ function Account() {
             await rescheduleAppointment(rescheduleTarget.id, newDate, newTime);
             toast.success("Agendamento remarcado.");
             setRescheduleTarget(null);
-          } catch {
-            toast.error("Não foi possível remarcar.");
+          } catch (error) {
+            toast.error(error instanceof Error ? error.message : "Não foi possível remarcar.");
           }
         }}
       >
@@ -306,7 +336,9 @@ function Account() {
             />
           </div>
           <div className="max-h-40 overflow-y-auto">
-            {rescheduleSlots.length === 0 ? (
+            {loadingRescheduleSlots ? (
+              <SlotsSkeleton />
+            ) : rescheduleSlots.length === 0 ? (
               <p className="text-xs text-muted-foreground">
                 Sem horários livres nessa data.
               </p>

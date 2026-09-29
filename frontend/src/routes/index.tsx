@@ -5,16 +5,10 @@ import gsap from "gsap";
 import { useGSAP } from "@gsap/react";
 import { Clock, MapPin, Quote, Star } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { GallerySkeleton } from "@/components/site/Skeletons";
+import { GallerySkeleton, TableRowsSkeleton } from "@/components/site/Skeletons";
 import heroImg from "@/assets/hero.jpg";
-import {
-  BARBERS,
-  GALLERY,
-  SERVICES,
-  SHOP,
-  TESTIMONIALS,
-  brl,
-} from "@/lib/shop";
+import { GALLERY, SHOP, TESTIMONIALS, brl } from "@/lib/shop";
+import { useStore } from "@/lib/store";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -143,6 +137,7 @@ function Hero() {
 
 function Services() {
   const reduce = useReducedMotion();
+  const { services, catalogLoading } = useStore();
   return (
     <section id="servicos" className="mx-auto max-w-6xl px-4 py-20 sm:px-6">
       <motion.div {...fadeUp}>
@@ -151,7 +146,11 @@ function Services() {
       </motion.div>
 
       <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {SERVICES.map((s, i) => (
+        {catalogLoading ? (
+          <div className="sm:col-span-2 lg:col-span-3">
+            <TableRowsSkeleton cols={3} rows={2} />
+          </div>
+        ) : services.map((s, i) => (
           <motion.article
             key={s.id}
             initial={{ opacity: 0, y: 18 }}
@@ -188,6 +187,7 @@ function Services() {
 }
 
 function Team() {
+  const { barbers, catalogLoading } = useStore();
   return (
     <section className="border-y border-border/70 bg-card/30 py-20">
       <div className="mx-auto max-w-6xl px-4 sm:px-6">
@@ -197,7 +197,11 @@ function Team() {
         </motion.div>
 
         <div className="mt-10 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-          {BARBERS.map((b, i) => (
+          {catalogLoading ? (
+            <div className="sm:col-span-2 lg:col-span-3">
+              <TableRowsSkeleton cols={3} rows={3} />
+            </div>
+          ) : barbers.map((b, i) => (
             <motion.div
               key={b.id}
               initial={{ opacity: 0, y: 18 }}

@@ -6,8 +6,8 @@ import { Check, ChevronLeft, Clock, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SlotsSkeleton } from "@/components/site/Skeletons";
 import { ConfirmDialog } from "@/components/site/ConfirmDialog";
-import { BARBERS, SERVICES, barberById, brl, serviceById } from "@/lib/shop";
-import { buildSlots, barberWorksOn, useStore } from "@/lib/store";
+import { brl } from "@/lib/shop";
+import { barberWorksOn, useStore } from "@/lib/store";
 
 export const Route = createFileRoute("/agendamento")({
   head: () => ({
@@ -44,7 +44,7 @@ function nextDays(count: number) {
 }
 
 function Booking() {
-  const { user, appointments, book } = useStore();
+  const { user, services, barbers, catalogLoading, getAvailability, book } = useStore();
   const navigate = useNavigate();
 
   const [step, setStep] = useState(0);
@@ -52,23 +52,44 @@ function Booking() {
   const [barberId, setBarberId] = useState<string | null>(null);
   const [date, setDate] = useState<string | null>(null);
   const [time, setTime] = useState<string | null>(null);
-  const [loadingSlots, setLoadingSlots] = useState(false);
+  const [slots, setSlots] = useState<string[]>([]);
+  const [loadedAvailabilityKey, setLoadedAvailabilityKey] = useState<string | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [done, setDone] = useState(false);
 
-  const service = serviceId ? serviceById(serviceId) : undefined;
-  const barber = barberId ? barberById(barberId) : undefined;
+  const service = serviceId ? services.find((item) => item.id === serviceId) : undefined;
+  const barber = barberId ? barbers.find((item) => item.id === barberId) : undefined;
   const days = useMemo(() => nextDays(14), []);
+  const availabilityKey =
+    step === 2 && date && serviceId && barberId
+      ? `${serviceId}:${barberId}:${date}`
+      : null;
+  const loadingSlots = availabilityKey !== null && loadedAvailabilityKey !== availabilityKey;
 
   useEffect(() => {
-    if (step !== 2 || !date) return;
-    setLoadingSlots(true);
-    const t = setTimeout(() => setLoadingSlots(false), 700);
-    return () => clearTimeout(t);
-  }, [step, date, barberId, serviceId]);
-
-  const slots =
-    barber && date && service ? buildSlots(barber, date, service.duration, appointments) : [];
+    if (!availabilityKey || !date || !serviceId || !barberId) {
+      setSlots([]);
+      setLoadedAvailabilityKey(null);
+      return;
+    }
+    let active = true;
+    getAvailability(serviceId, barberId, date)
+      .then((available) => {
+        if (active) {
+          setSlots(available);
+          setLoadedAvailabilityKey(availabilityKey);
+        }
+      })
+      .catch((error) => {
+        if (!active) return;
+        setSlots([]);
+        setLoadedAvailabilityKey(availabilityKey);
+        toast.error(error instanceof Error ? error.message : "Não foi possível consultar horários.");
+      });
+    return () => {
+      active = false;
+    };
+  }, [availabilityKey, date, barberId, serviceId, getAvailability]);
 
   async function confirm() {
     if (!service || !barber || !date || !time) return;
@@ -153,7 +174,11 @@ function Booking() {
         >
           {step === 0 && (
             <div className="grid gap-3 sm:grid-cols-2">
-              {SERVICES.map((s) => (
+              {catalogLoading ? (
+                <div className="sm:col-span-2">
+                  <SlotsSkeleton />
+                </div>
+              ) : services.map((s) => (
                 <button
                   key={s.id}
                   onClick={() => {
@@ -180,7 +205,11 @@ function Booking() {
 
           {step === 1 && (
             <div className="grid gap-3 sm:grid-cols-3">
-              {BARBERS.map((b) => (
+              {catalogLoading ? (
+                <div className="sm:col-span-3">
+                  <SlotsSkeleton />
+                </div>
+              ) : barbers.map((b) => (
                 <button
                   key={b.id}
                   onClick={() => {

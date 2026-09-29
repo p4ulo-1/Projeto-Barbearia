@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TableRowsSkeleton } from "@/components/site/Skeletons";
 import { ConfirmDialog } from "@/components/site/ConfirmDialog";
-import { SERVICES, barberById, brl, serviceById, type Service } from "@/lib/shop";
+import { brl, type Service } from "@/lib/shop";
 import { useStore, type Appointment } from "@/lib/store";
 import { formatDate } from "./agendamento";
 
@@ -32,17 +32,27 @@ export const Route = createFileRoute("/admin")({
 });
 
 function Admin() {
-  const { ready, user, users, appointments, completeAppointment, removeAppointment } =
-    useStore();
+  const {
+    ready,
+    user,
+    clients,
+    services: apiServices,
+    barbers,
+    appointments,
+    completeAppointment,
+    removeAppointment,
+    updateService,
+    removeService,
+  } = useStore();
   const [loading, setLoading] = useState(true);
-  const [services, setServices] = useState<Service[]>(SERVICES);
+  const [services, setServices] = useState<Service[]>([]);
   const [removeTarget, setRemoveTarget] = useState<Appointment | null>(null);
   const [serviceTarget, setServiceTarget] = useState<Service | null>(null);
 
   useEffect(() => {
-    const t = setTimeout(() => setLoading(false), 700);
-    return () => clearTimeout(t);
-  }, []);
+    setServices(apiServices);
+    if (ready) setLoading(false);
+  }, [apiServices, ready]);
 
   if (ready && user?.role !== "admin") {
     return (
@@ -61,6 +71,8 @@ function Admin() {
   const agenda = [...appointments].sort((a, b) =>
     a.date + a.time > b.date + b.time ? 1 : -1,
   );
+  const serviceById = (id: string) => services.find((service) => service.id === id);
+  const barberById = (id: string) => barbers.find((barber) => barber.id === id);
 
   return (
     <motion.section
@@ -112,8 +124,12 @@ function Admin() {
                           size="sm"
                           variant="outline"
                           onClick={async () => {
-                            await completeAppointment(a.id);
-                            toast.success("Atendimento concluído.");
+                            try {
+                              await completeAppointment(a.id);
+                              toast.success("Atendimento concluído.");
+                            } catch (error) {
+                              toast.error(error instanceof Error ? error.message : "Erro ao concluir.");
+                            }
                           }}
                         >
                           Concluir
@@ -170,7 +186,20 @@ function Admin() {
                     <Button
                       size="sm"
                       variant="outline"
-                      onClick={() => toast.success(`${s.name} salvo por ${brl(s.price)}.`)}
+                      onClick={async () => {
+                        try {
+                          await updateService(s.id, {
+                            name: s.name,
+                            description: s.description,
+                            price: s.price,
+                            duration: s.duration,
+                            highlight: s.highlight,
+                          });
+                          toast.success(`${s.name} salvo por ${brl(s.price)}.`);
+                        } catch (error) {
+                          toast.error(error instanceof Error ? error.message : "Erro ao salvar.");
+                        }
+                      }}
                     >
                       Salvar
                     </Button>
@@ -189,16 +218,14 @@ function Admin() {
             <TableRowsSkeleton cols={3} rows={4} />
           ) : (
             <div className="space-y-3">
-              {users
-                .filter((u) => u.role === "client")
-                .map((u) => (
+              {clients.map((u) => (
                   <div key={u.id} className="surface-card rounded-xl p-4">
                     <p className="font-medium">{u.name}</p>
                     <p className="text-sm text-muted-foreground">
                       {u.email} · {u.phone}
                     </p>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      {appointments.filter((a) => a.userId === u.id).length} agendamento(s)
+                      {u.appointmentCount} agendamento(s)
                     </p>
                   </div>
                 ))}
@@ -218,16 +245,15 @@ function Admin() {
         }
         confirmLabel="Excluir"
         destructive
-        requirePassword
-        onConfirm={async (password) => {
-          if (password !== user?.password) {
-            toast.error("Senha incorreta.");
-            return;
-          }
+        onConfirm={async () => {
           if (!removeTarget) return;
-          await removeAppointment(removeTarget.id);
-          toast.success("Agendamento excluído.");
-          setRemoveTarget(null);
+          try {
+            await removeAppointment(removeTarget.id);
+            toast.success("Agendamento excluído.");
+            setRemoveTarget(null);
+          } catch (error) {
+            toast.error(error instanceof Error ? error.message : "Erro ao excluir.");
+          }
         }}
       />
 
@@ -240,15 +266,15 @@ function Admin() {
         }
         confirmLabel="Remover"
         destructive
-        requirePassword
-        onConfirm={async (password) => {
-          if (password !== user?.password) {
-            toast.error("Senha incorreta.");
-            return;
+        onConfirm={async () => {
+          if (!serviceTarget) return;
+          try {
+            await removeService(serviceTarget.id);
+            toast.success("Serviço removido da carta.");
+            setServiceTarget(null);
+          } catch (error) {
+            toast.error(error instanceof Error ? error.message : "Erro ao remover.");
           }
-          setServices((prev) => prev.filter((p) => p.id !== serviceTarget?.id));
-          toast.success("Serviço removido da carta.");
-          setServiceTarget(null);
         }}
       />
     </motion.section>
