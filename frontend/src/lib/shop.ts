@@ -5,6 +5,7 @@ import gallery1 from "@/assets/gallery-1.jpg";
 import gallery2 from "@/assets/gallery-2.jpg";
 import gallery3 from "@/assets/gallery-3.jpg";
 import gallery4 from "@/assets/gallery-4.jpg";
+import type { ApiBarber, Service } from "@/services/api";
 
 export const SHOP = {
   name: "New Age",
@@ -22,105 +23,52 @@ export const SHOP = {
   ],
 };
 
-export type Service = {
-  id: string;
-  name: string;
-  description: string;
-  price: number;
-  duration: number; // minutos
-  highlight?: boolean;
-};
+export type { Service } from "@/services/api";
 
-export const SERVICES: Service[] = [
-  {
-    id: "corte-classico",
-    name: "Corte Clássico",
-    description: "Tesoura e máquina, finalização com pomada e toalha quente.",
-    price: 35,
-    duration: 45,
-  },
-  {
-    id: "corte-navalhado",
-    name: "Corte Navalhado",
-    description: "Fade fechado com acabamento na navalha e contorno milimétrico.",
-    price: 40,
-    duration: 60,
-    highlight: true,
-  },
-  {
-    id: "barba-terapia",
-    name: "Barba Terapia",
-    description: "Toalha quente, óleo essencial, navalha e balm calmante.",
-    price: 35,
-    duration: 40,
-  },
-  {
-    id: "combo-premium",
-    name: "Combo Premium",
-    description: "Corte navalhado + barba terapia, com dose de whisky por conta da casa.",
-    price: 70,
-    duration: 90,
-    highlight: true,
-  },
-  {
-    id: "pigmentacao",
-    name: "Pigmentação de Barba",
-    description: "Correção de falhas com pigmento à prova d'água.",
-    price: 30,
-    duration: 30,
-  },
-  {
-    id: "kids",
-    name: "Corte Infantil",
-    description: "Para os cavalheiros de até 10 anos, com paciência inclusa.",
-    price: 25,
-    duration: 30,
-  },
+const SERVICE_ORDER = [
+  "corte-classico",
+  "corte-navalhado",
+  "barba-terapia",
+  "combo-premium",
+  "pigmentacao",
+  "kids",
 ];
 
-export type Barber = {
-  id: string;
-  name: string;
-  role: string;
-  bio: string;
+export function orderServices(services: Service[]) {
+  return [...services].sort((left, right) => {
+    const leftIndex = SERVICE_ORDER.indexOf(left.id);
+    const rightIndex = SERVICE_ORDER.indexOf(right.id);
+    if (leftIndex === -1 && rightIndex === -1) return left.name.localeCompare(right.name);
+    if (leftIndex === -1) return 1;
+    if (rightIndex === -1) return -1;
+    return leftIndex - rightIndex;
+  });
+}
+
+export type Barber = Omit<ApiBarber, "workDays"> & {
   photo: string;
   workdays: number[]; // 0 = domingo
-  start: string;
-  end: string;
 };
 
-export const BARBERS: Barber[] = [
-  {
-    id: "rafael",
-    name: "Rafael Nunes",
-    role: "Master barber & sócio",
-    bio: "18 anos de ofício. Especialista em cortes clássicos e barba desenhada.",
-    photo: barber1,
-    workdays: [2, 3, 4, 5, 6],
-    start: "09:00",
-    end: "20:00",
-  },
-  {
-    id: "tiago",
-    name: "Tiago Marques",
-    role: "Barbeiro sênior",
-    bio: "Referência em fades e degradês navalhados de alta precisão.",
-    photo: barber2,
-    workdays: [2, 3, 4, 5, 6],
-    start: "10:00",
-    end: "20:00",
-  },
-  {
-    id: "helena",
-    name: "Helena Duarte",
-    role: "Barbeira & colorista",
-    bio: "Cortes texturizados, pigmentação e cuidados com cabelos cacheados.",
-    photo: barber3,
-    workdays: [3, 4, 5, 6],
-    start: "09:00",
-    end: "18:00",
-  },
-];
+const BARBER_VISUALS: Record<string, { photo: string; order: number }> = {
+  rafael: { photo: barber1, order: 0 },
+  tiago: { photo: barber2, order: 1 },
+  helena: { photo: barber3, order: 2 },
+};
+
+export function decorateBarbers(barbers: ApiBarber[]): Barber[] {
+  return barbers
+    .map(({ workDays, ...barber }) => ({
+      ...barber,
+      workdays: workDays,
+      photo: BARBER_VISUALS[barber.id]?.photo ?? barber1,
+    }))
+    .sort((left, right) => {
+      const leftOrder = BARBER_VISUALS[left.id]?.order ?? Number.MAX_SAFE_INTEGER;
+      const rightOrder = BARBER_VISUALS[right.id]?.order ?? Number.MAX_SAFE_INTEGER;
+      return leftOrder - rightOrder || left.name.localeCompare(right.name);
+    });
+}
 
 export const GALLERY = [
   { src: gallery1, alt: "Barbeiro finalizando um degradê com máquina" },
@@ -152,6 +100,3 @@ export const TESTIMONIALS = [
 
 export const brl = (value: number) =>
   value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-
-export const serviceById = (id: string) => SERVICES.find((s) => s.id === id);
-export const barberById = (id: string) => BARBERS.find((b) => b.id === id);

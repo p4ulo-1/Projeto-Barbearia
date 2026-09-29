@@ -1,37 +1,34 @@
 import { createContext } from "react";
-
-export type User = {
-  id: string;
-  name: string;
-  email: string;
-  phone: string;
-  password: string;
-  role: "client" | "admin";
-};
-
-export type Appointment = {
-  id: string;
-  userId: string;
-  userName: string;
-  serviceId: string;
-  barberId: string;
-  date: string; // yyyy-mm-dd
-  time: string; // HH:mm
-  status: "confirmado" | "cancelado" | "concluido";
-  createdAt: string;
-};
+import type { Barber } from "./shop";
+import type {
+  AdminClient,
+  Appointment,
+  RegisterInput,
+  Service,
+  ServiceUpdateInput,
+  User,
+} from "@/services/api";
 
 export type Ctx = {
   ready: boolean;
+  catalogLoading: boolean;
   user: User | null;
-  users: User[];
+  clients: AdminClient[];
+  services: Service[];
+  barbers: Barber[];
   appointments: Appointment[];
   signIn: (email: string, password: string) => Promise<User>;
-  signUp: (data: Omit<User, "id" | "role">) => Promise<User>;
+  signUp: (data: RegisterInput) => Promise<User>;
   signOut: () => void;
   updateProfile: (data: Pick<User, "name" | "email" | "phone">) => Promise<void>;
   changePassword: (current: string, next: string) => Promise<void>;
   deleteAccount: (password: string) => Promise<void>;
+  getAvailability: (
+    serviceId: string,
+    barberId: string,
+    date: string,
+    appointmentId?: string,
+  ) => Promise<string[]>;
   book: (input: {
     serviceId: string;
     barberId: string;
@@ -42,6 +39,8 @@ export type Ctx = {
   rescheduleAppointment: (id: string, date: string, time: string) => Promise<void>;
   completeAppointment: (id: string) => Promise<void>;
   removeAppointment: (id: string) => Promise<void>;
+  updateService: (id: string, input: ServiceUpdateInput) => Promise<void>;
+  removeService: (id: string) => Promise<void>;
 };
 
 // Mantido em módulo próprio (sem componentes) para o contexto sobreviver ao HMR.
