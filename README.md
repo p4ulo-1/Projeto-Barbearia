@@ -1,11 +1,11 @@
-# 💈 Projeto-Barbearia
+# 💈 New Age Barbearia
 
 <p align="center">
   <strong>Projeto Integrador — Design e Programação Orientados a Objetos</strong>
 </p>
 
 <p align="center">
-  Aplicação web para gerenciamento de uma barbearia, desenvolvida como projeto acadêmico colaborativo.
+  Aplicação web completa para gerenciamento de uma barbearia, desenvolvida como projeto acadêmico colaborativo.
 </p>
 
 <p align="center">
@@ -13,6 +13,8 @@
   <img src="https://img.shields.io/badge/Projeto-Acad%C3%AAmico-blue?style=for-the-badge" />
   <img src="https://img.shields.io/badge/React-TypeScript-61DAFB?style=for-the-badge&logo=react&logoColor=white" />
   <img src="https://img.shields.io/badge/C%23-ASP.NET%20Core-512BD4?style=for-the-badge&logo=.net&logoColor=white" />
+  <img src="https://img.shields.io/badge/.NET-10.0-512BD4?style=for-the-badge&logo=.net&logoColor=white" />
+  <img src="https://img.shields.io/badge/SQLite-003B57?style=for-the-badge&logo=sqlite&logoColor=white" />
 </p>
 
 ---
@@ -26,232 +28,131 @@
 | **Disciplina** | Design e Programação Orientados a Objetos |
 | **Professor** | André Campos |
 | **Projeto** | New Age Barbearia |
-| **Integrantes** | **Nome** |
-| **1** | Gabriel Guerra |
-| **2** | *Preencha seu nome* |
-| **3** | *Preencha seu nome* |
-| **4** | *Preencha seu nome* |
-| **5** | *Preencha seu nome* |
-| **6** | *Preencha seu nome* |
+
+### 👥 Integrantes
+
+| Integrante | Matrícula |
+|---|---|
+| Paulo Vitor Mendes Perez | 06014680 |
+| João Pedro Rocha Andrade | 06014599 |
+| Rikelv Ferraz da Rocha | 06015108 |
+| Gabriel Guerra | 06021409 |
+| Guilherme Henrique Quintanilha | 06013890 |
+| Vitor Alexandre Rocha de Souza | 06014670 |
 
 ---
 
-## 📌 Sobre o Projeto Integrador
+## 📌 Sobre o Projeto
 
-O Projeto-Barbearia é uma aplicação web desenvolvida como projeto integrador da disciplina de **Design e Programação Orientados a Objetos**.
+O **New Age Barbearia** é uma aplicação web desenvolvida como Projeto Integrador da disciplina de **Design e Programação Orientados a Objetos**.
 
-O projeto tem como objetivo representar um processo concreto do domínio de uma barbearia por meio de uma aplicação que envolva usuários, informações, regras de negócio, estados, comportamentos e interação entre diferentes objetos.
+O sistema representa um processo real de atendimento em uma barbearia, permitindo que clientes consultem serviços e profissionais, criem agendamentos, acompanhem seus horários e realizem operações como cancelamento e remarcação.
 
-Mais do que reunir operações de cadastro, o sistema busca representar um processo de negócio com decisões, mudanças de estado, regras e relacionamentos entre os elementos do domínio.
+Além das funcionalidades voltadas ao cliente, o sistema possui uma área administrativa responsável pelo acompanhamento dos usuários, serviços e agendamentos.
 
-A aplicação é desenvolvida de forma incremental ao longo da disciplina, permitindo que o grupo evolua desde uma primeira versão funcional até a integração entre **interface, API, regras de negócio e persistência de dados**.
-
----
-
-## 💈 Tema: Sistema de Gerenciamento de Barbearia
-
-O tema escolhido pelo grupo é o desenvolvimento de um sistema para uma **barbearia**, permitindo organizar e acompanhar os principais processos envolvidos no atendimento aos clientes.
-
-A aplicação contempla a interação entre diferentes elementos do domínio, como clientes, profissionais, serviços e agendamentos.
-
-Entre os principais processos previstos estão:
-
-- cadastro e gerenciamento de clientes;
-- cadastro e gerenciamento de profissionais;
-- gerenciamento de serviços;
-- realização e acompanhamento de agendamentos;
-- controle dos estados dos agendamentos;
-- aplicação de regras relacionadas à disponibilidade e aos atendimentos.
-
-O recorte do domínio será desenvolvido progressivamente durante a disciplina, de acordo com os requisitos e decisões definidos pelo grupo.
+O projeto foi desenvolvido buscando aplicar conceitos de orientação a objetos, separação de responsabilidades, regras de negócio, persistência de dados, autenticação, testes e integração entre frontend e backend.
 
 ---
 
-## 🏗️ Estrutura do Projeto
+# 💈 Funcionalidades
 
-O repositório está organizado separando a aplicação cliente da aplicação servidora:
+## 👤 Cliente
 
-```text
-Projeto-Barbearia/
-│
-├── frontend/
-│   ├── src/
-│   ├── public/
-│   ├── package.json
-│   └── ...
-│
-├── backend/
-│   ├── Projeto.Api/
-│   ├── Projeto.Tests/
-│   └── ...
-│
-├── docs/
-│   └── ...
-│
-└── README.md
-```
+O usuário pode:
 
-### `frontend/`
-
-Contém a interface da aplicação, desenvolvida com React e TypeScript.
-
-É responsável pela apresentação das informações, navegação, interação com o usuário e comunicação com a API.
-
-### `backend/`
-
-Contém a aplicação responsável pelas regras de negócio, processamento das requisições HTTP e persistência dos dados.
-
-Será desenvolvido utilizando C# e ASP.NET Core Web API.
-
-### `docs/`
-
-Reúne documentos relacionados ao planejamento, especificação, decisões e acompanhamento do projeto.
+- criar uma conta;
+- realizar login;
+- manter sua sessão autenticada;
+- consultar seu perfil;
+- atualizar informações pessoais;
+- alterar sua senha;
+- excluir sua conta;
+- visualizar serviços disponíveis;
+- visualizar barbeiros;
+- consultar horários disponíveis;
+- criar um agendamento;
+- visualizar seus próprios agendamentos;
+- remarcar um atendimento;
+- cancelar um atendimento.
 
 ---
 
-## 🛠️ Tecnologias Utilizadas
+## 🛡️ Administrador
 
-### Frontend
+O administrador pode:
 
-- React
-- TypeScript
-- Vite
-- TanStack Router
-- TanStack Start
-- Tailwind CSS
-- Radix UI
-- React Hook Form
-- Zod
-- Git
+- realizar login com permissões administrativas;
+- consultar clientes cadastrados;
+- consultar todos os agendamentos;
+- editar serviços;
+- desativar serviços;
+- concluir atendimentos;
+- excluir agendamentos;
+- acompanhar a agenda da barbearia.
 
-### Backend
-
-- C#
-- ASP.NET Core Web API
-- Entity Framework Core
-- Banco de dados relacional
-- SQLite
-- REST API
-- JSON
-
-### Testes e desenvolvimento
-
-- Git
-- GitHub
-- xUnit ou tecnologia equivalente definida para a disciplina
-- Visual Studio Code
-
-A arquitetura técnica do projeto segue a base indicada para o projeto integrador: React/TypeScript/Vite no frontend, ASP.NET Core Web API em C#, comunicação HTTP/REST/JSON e persistência utilizando Entity Framework Core e banco relacional.
+As permissões administrativas são protegidas no backend por autenticação JWT e roles.
 
 ---
 
-## 🔄 Evolução do Projeto
+# 🧠 Domínio da Aplicação
 
-O desenvolvimento do projeto ocorre de forma incremental.
+O sistema atualmente trabalha com os seguintes conceitos principais de domínio:
 
-A primeira etapa consiste na construção de uma interface funcional que permita validar a navegação, a organização das telas e os principais fluxos da aplicação.
+### `User`
 
-A partir dessa base, o sistema evolui progressivamente com a implementação da API, das regras de negócio, da persistência de dados e da integração entre as diferentes partes da aplicação.
+Representa um usuário do sistema.
 
-```text
-Frontend funcional
-       │
-       ▼
-Modelagem do domínio
-       │
-       ▼
-Backend / API
-       │
-       ▼
-Regras de negócio
-       │
-       ▼
-Persistência
-       │
-       ▼
-Integração completa
-       │
-       ▼
-Testes e evolução
-```
+Responsável por informações como:
+
+- nome;
+- e-mail;
+- telefone;
+- perfil de acesso (`client` ou `admin`).
 
 ---
 
-## 📊 Estado Atual
+### `Service`
 
-**Status:** 🚧 Em desenvolvimento
+Representa um serviço oferecido pela barbearia.
 
-### Concluído
+Possui informações como:
 
-- [x] Definição inicial do tema
-- [x] Desenvolvimento da interface inicial
-- [x] Estruturação do repositório do projeto
-- [x] Separação entre frontend e backend
-- [x] Configuração inicial do ambiente de desenvolvimento
+- nome;
+- descrição;
+- preço;
+- duração;
+- estado ativo/inativo.
 
-### Em desenvolvimento
-
-- [ ] Definição detalhada do domínio
-- [ ] Modelagem das entidades
-- [ ] Definição das regras de negócio
-- [ ] Implementação da API
-- [ ] Persistência de dados
-- [ ] Integração frontend + backend
-- [ ] Implementação dos fluxos de negócio
-- [ ] Testes
-- [ ] Documentação final
+A exclusão de um serviço é lógica através de `IsActive`, preservando o histórico dos agendamentos anteriores.
 
 ---
 
-## 🎯 Objetivos do Projeto
+### `Barber`
 
-O desenvolvimento busca aplicar, na prática, os principais conceitos trabalhados na disciplina, incluindo:
+Representa um profissional da barbearia.
 
-- identificação de objetos do domínio;
-- identidade, estado e comportamento;
-- distribuição de responsabilidades;
-- encapsulamento de regras;
-- colaboração entre objetos;
-- relacionamentos entre objetos;
-- mudanças de estado;
-- tratamento de situações de sucesso e falha;
-- persistência de dados;
-- testes e depuração;
-- integração entre frontend, API e banco de dados.
+Possui informações como:
 
-A proposta da disciplina enfatiza que o projeto deve ir além de um conjunto de telas ou de um CRUD isolado, trabalhando efetivamente com domínio, regras, estados, colaboração entre objetos e persistência.
+- nome;
+- cargo;
+- descrição;
+- jornada de trabalho.
 
 ---
 
-## 🌿 Estratégia de Versionamento
+### `BarberSchedule`
 
-O desenvolvimento é realizado de forma colaborativa utilizando **Git e GitHub**.
+Representa a jornada de trabalho pertencente ao barbeiro.
 
-As alterações devem ser desenvolvidas preferencialmente em branches próprias e integradas à branch principal após revisão.
+É responsável por regras como:
 
-Exemplo:
+- identificar os dias em que o barbeiro trabalha;
+- verificar início e fim do expediente;
+- verificar se determinado atendimento cabe dentro da jornada.
 
-```text
-main
-│
-├── feature/estrutura-inicial
-├── feature/backend-clientes
-├── feature/backend-agendamentos
-└── feature/integracao-frontend
-```
+Exemplos de comportamento:
 
-O histórico do Git será utilizado para acompanhar a evolução do projeto, registrar decisões e preservar os principais marcos do desenvolvimento.
+```csharp
+schedule.WorksOn(date);
 
----
-
-## 👥 Desenvolvimento Colaborativo
-
-O projeto é desenvolvido em grupo, com compartilhamento de conhecimento entre os integrantes.
-
----
-
-## 📚 Projeto Acadêmico
-
-Este repositório foi desenvolvido exclusivamente para fins acadêmicos como parte das atividades da disciplina de **Design e Programação Orientados a Objetos**.
-
-O projeto está sujeito à evolução contínua durante o semestre, acompanhando os requisitos, decisões técnicas e marcos estabelecidos para a disciplina.
+schedule.FitsWithinSchedule(time, duration);
