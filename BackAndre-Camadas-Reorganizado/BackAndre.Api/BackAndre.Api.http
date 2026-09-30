@@ -1,0 +1,33 @@
+@host = http://localhost:5071
+@token = COLE_O_TOKEN_AQUI
+
+GET {{host}}/api/services
+Accept: application/json
+
+###
+
+GET {{host}}/api/appointments/availability?serviceId=combo-premium&barberId=rafael&date=2026-10-01
+Accept: application/json
+
+###
+
+# Na remarcação, appointmentId só é aceito para o proprietário ou um admin autenticado.
+GET {{host}}/api/appointments/availability?serviceId=combo-premium&barberId=rafael&date=2026-10-01&appointmentId=a-1
+Authorization: Bearer {{token}}
+Accept: application/json
+
+###
+
+POST {{host}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "cliente@exemplo.com",
+  "password": "cliente123"
+}
+
+###
+
+GET {{host}}/api/users/me
+Authorization: Bearer {{token}}
+Accept: application/json
