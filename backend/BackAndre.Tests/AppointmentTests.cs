@@ -1,4 +1,4 @@
-using BackAndre.Models;
+using BackAndre.Domain.Models;
 
 namespace BackAndre.Tests;
 

@@ -1,155 +1,157 @@
-# BackAndre — API da Barbearia New Age
+# BackAndre — arquitetura em camadas
 
-Backend acadêmico para autenticação, clientes, serviços, barbeiros e agendamentos da New Age. O projeto usa práticas reais de mercado sem adicionar camadas desnecessárias.
+Backend reorganizado para separar fisicamente as responsabilidades em projetos distintos, mantendo o fluxo solicitado:
 
-## Tecnologias
-
-- .NET 10 e ASP.NET Core Web API
-- Entity Framework Core 10 e SQLite
-- JWT Bearer Authentication e `PasswordHasher<User>`
-- Swagger/OpenAPI
-- xUnit
+```text
+Controller -> Service -> Repository -> AppDbContext -> SQLite
+```
 
 ## Estrutura
 
 ```text
-Controllers/       Endpoints HTTP e coordenação das operações
-Data/              AppDbContext e dados iniciais
-DTOs/              Contratos separados de entrada e saída
-Middleware/        Tratamento centralizado de erros
-Models/            Entidades e regras de domínio
-Services/          Geração do JWT
-Migrations/        Histórico do esquema SQLite
-BackAndre.Tests/   Testes unitários das regras de domínio
+BackAndre-Camadas-Reorganizado/
+├── BackAndre.Api/
+│   ├── Controllers/
+│   ├── Middleware/
+│   ├── Program.cs
+│   ├── appsettings.json
+│   └── BackAndre.Api.csproj
+│
+├── BackAndre.Application/
+│   ├── DTOs/
+│   ├── Services/
+│   └── BackAndre.Application.csproj
+│
+├── BackAndre.Domain/
+│   ├── Models/
+│   └── BackAndre.Domain.csproj
+│
+├── BackAndre.Infrastructure/
+│   ├── Data/
+│   ├── Repositories/
+│   ├── Migrations/
+│   ├── Security/
+│   └── BackAndre.Infrastructure.csproj
+│
+├── BackAndre.Tests/
+│   └── BackAndre.Tests.csproj
+│
+└── BackAndre.sln
 ```
 
-Os controllers acessam diretamente o `AppDbContext`. Não há Repository Pattern, CQRS, MediatR, AutoMapper ou Unit of Work adicional.
+## Responsabilidade de cada camada
 
-## Restaurar e preparar
+### BackAndre.Api
+Entrada HTTP da aplicação.
 
-```powershell
-dotnet tool restore
-dotnet restore
-dotnet restore BackAndre.Tests\BackAndre.Tests.csproj
+- Controllers
+- Middleware
+- configuração da aplicação
+- autenticação/autorização
+- CORS
+- Swagger
+- Dependency Injection
+
+### BackAndre.Application
+Casos de uso e coordenação da aplicação.
+
+- Services
+- DTOs
+
+Os Services usam os Repositories e chamam os comportamentos das entidades quando necessário.
+
+### BackAndre.Domain
+Núcleo do domínio.
+
+- User
+- Service
+- Barber
+- BarberSchedule
+- Appointment
+- DomainRuleException
+
+Regras que pertencem ao próprio objeto continuam no domínio, como `Cancel`, `Reschedule`, `Complete`, `WorksOn` e `FitsWithinSchedule`.
+
+### BackAndre.Infrastructure
+Acesso a recursos externos e persistência.
+
+- AppDbContext
+- DbInitializer
+- Repositories
+- migrations do Entity Framework Core
+- geração de JWT
+
+### BackAndre.Tests
+Testes automatizados do domínio.
+
+## Observação sobre interfaces
+
+Esta versão foi montada conforme solicitado, **sem interfaces de Service ou Repository**.
+
+Por isso `BackAndre.Application` referencia diretamente `BackAndre.Infrastructure` para utilizar os Repositories concretos. É uma arquitetura em camadas simples e adequada ao objetivo acadêmico de demonstrar:
+
+```text
+Controller -> Service -> Repository
 ```
 
-## Migrations e SQLite
+Não é uma implementação de Clean Architecture estrita.
 
-```powershell
-dotnet tool run dotnet-ef migrations add NomeDaMigration
-dotnet tool run dotnet-ef database update
-```
+## Comandos de validação
 
-O segundo comando cria ou atualiza `barbearia.db`. A API também chama `Database.MigrateAsync()` ao iniciar, e o `DbInitializer` inclui os dados demonstrativos quando as tabelas estão vazias.
+A partir da pasta do backend:
 
-## Compilar, testar e executar
-
-```powershell
-dotnet build
-dotnet test BackAndre.Tests\BackAndre.Tests.csproj
-dotnet run
-```
-
-- API: `http://localhost:5071`
-- Swagger: `http://localhost:5071/swagger`
-
-## Credenciais de demonstração
-
-- Cliente: `cliente@exemplo.com` / `cliente123`
-- Administrador: `admin@newagebarber.com.br` / `newage123`
-
-As senhas são persistidas somente como hash.
-
-## JWT e Bearer Token
-
-1. Envie e-mail e senha para `POST /api/auth/login`.
-2. O backend verifica o hash da senha.
-3. A resposta contém usuário, expiração e JWT com ID e role.
-4. No Swagger, clique em **Authorize** e informe `Bearer {token}`.
-5. Os endpoints identificam o usuário pelas claims; IDs e roles enviados pelo cliente não são aceitos como identidade.
-
-`[Authorize]` protege operações autenticadas e `[Authorize(Roles = "admin")]` protege operações administrativas.
-
-## Configuração local do JWT
-
-A chave de `appsettings.json` é apenas demonstrativa. Para sobrescrevê-la por variável de ambiente:
-
-```powershell
-$env:Jwt__Key = "uma-chave-local-longa-e-segura"
-dotnet run
-```
-
-Ou por User Secrets:
-
-```powershell
-dotnet user-secrets init
-dotnet user-secrets set "Jwt:Key" "uma-chave-local-longa-e-segura"
-```
-
-Em produção, a chave deve vir de configuração protegida, nunca do repositório.
-
-## Fluxo de agendamento
-
-1. O cliente envia serviço, barbeiro, data e horário.
-2. O controller valida autenticação, existência, atividade e disponibilidade no banco.
-3. `BarberSchedule` verifica dia trabalhado e encaixe no expediente.
-4. A agenda verifica sobreposição usando a duração completa dos serviços.
-5. `Appointment` nasce confirmado e define internamente `CreatedAt`.
-6. O EF Core persiste o agendamento no SQLite.
-
-Remarcação, cancelamento e conclusão são coordenados pelo controller, mas executados pela entidade `Appointment`.
-
-## Consulta de disponibilidade
-
-```http
-GET /api/appointments/availability?serviceId=combo-premium&barberId=rafael&date=2026-10-01
-```
-
-A resposta contém somente a data e os horários livres. Não expõe usuários nem dados dos agendamentos. A consulta considera serviço e barbeiro ativos, jornada, duração completa, conflitos e antecedência mínima.
-
-Na remarcação, o parâmetro opcional `appointmentId` permite retirar o próprio agendamento do cálculo. Ele somente é aceito quando o JWT identifica o proprietário do agendamento ou um administrador; solicitações anônimas ou de outro cliente recebem `403 Forbidden`.
-
-## Regras principais
-
-- Serviço e barbeiro precisam existir e estar ativos.
-- A data não pode estar no passado.
-- Para hoje, exige-se antecedência mínima de 30 minutos.
-- O barbeiro precisa trabalhar no dia escolhido.
-- O serviço precisa caber integralmente no expediente.
-- Conflitos consideram início, fim e duração completa.
-- Cancelados e concluídos não bloqueiam horários.
-- A remarcação ignora o próprio agendamento na consulta de conflito.
-- Cliente acessa apenas seus próprios agendamentos.
-- Admin pode listar todos, concluir e excluir.
-
-## Estados de Appointment
-
-- `confirmado`
-- `cancelado`
-- `concluido`
-
-| Estado atual | Operação | Resultado |
-|---|---|---|
-| confirmado | cancelar | cancelado |
-| confirmado | concluir, se não for futuro | concluido |
-| confirmado | remarcar | permanece confirmado |
-| cancelado | cancelar, concluir ou remarcar | rejeitado |
-| concluido | cancelar, concluir ou remarcar | rejeitado |
-
-`Status`, `Date`, `Time` e `CreatedAt` não possuem setter público. As transições passam por `Cancel()`, `Complete(...)` e `Reschedule(...)`.
-
-## Testes automatizados
-
-```powershell
+```cmd
+dotnet restore BackAndre.sln
+dotnet build BackAndre.sln
 dotnet test BackAndre.Tests\BackAndre.Tests.csproj
 ```
 
-Os testes cobrem criação de agendamento, transições válidas e inválidas, dias trabalhados, expediente e construção inválida de jornada.
+O estado anterior do projeto possuía 15 testes. O esperado após a reorganização é continuar com:
 
-## Limitações conhecidas
+```text
+15 aprovados
+0 falhas
+```
 
-- Não há refresh token ou revogação antecipada do JWT.
-- Não há feriados, folgas específicas ou intervalo de almoço.
-- A API usa a hora local do servidor nas regras de data e antecedência.
-- O conflito é validado pela aplicação; requisições perfeitamente simultâneas ainda podem disputar um horário.
-- Fotos dos barbeiros continuam sob responsabilidade do frontend.
+## Executar a API
+
+```cmd
+dotnet run --project BackAndre.Api\BackAndre.Api.csproj
+```
+
+Swagger em desenvolvimento:
+
+```text
+http://localhost:5071/swagger
+```
+
+## Entity Framework Core
+
+Como `AppDbContext` e as migrations agora estão no projeto Infrastructure, novos comandos do EF devem indicar o projeto de migrations e o projeto de inicialização.
+
+Exemplo:
+
+```cmd
+dotnet ef migrations list --project BackAndre.Infrastructure\BackAndre.Infrastructure.csproj --startup-project BackAndre.Api\BackAndre.Api.csproj
+```
+
+Nenhuma migration nova foi criada nesta reorganização. As migrations existentes apenas foram movidas para `BackAndre.Infrastructure` e tiveram os namespaces ajustados.
+
+## O que foi preservado
+
+- endpoints existentes
+- DTOs e formatos das respostas
+- JWT e roles
+- CORS
+- SQLite
+- migrations existentes
+- regras do domínio
+- seed de demonstração
+- middleware de exceções
+- testes existentes
+
+O frontend não faz parte deste pacote e não precisa mudar apenas por causa dessa reorganização.
+
+## Antes de fazer merge
+
+Execute `dotnet build`, `dotnet test` e valide os endpoints pelo Swagger. Só depois faça commit/push da branch de refatoração e abra o PR para a `main`.

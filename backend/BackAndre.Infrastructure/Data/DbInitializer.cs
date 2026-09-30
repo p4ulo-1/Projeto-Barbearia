@@ -1,6 +1,7 @@
 using BackAndre.Domain.Models;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace BackAndre.Infrastructure.Data;
 

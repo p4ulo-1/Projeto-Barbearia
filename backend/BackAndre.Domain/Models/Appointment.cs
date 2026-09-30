@@ -39,7 +39,7 @@ public class Appointment
         CreatedAt = DateTime.UtcNow;
     }
 
-    internal Appointment(
+    public Appointment(
         string id,
         string userId,
         string serviceId,
