@@ -1,4 +1,4 @@
-# 💈 Projeto-Barbearia
+# 💈 New Age Barbearia
 
 <p align="center">
   <strong>Projeto Integrador — Design e Programação Orientados a Objetos</strong>
@@ -12,341 +12,377 @@
   <img src="https://img.shields.io/badge/Status-Em%20Desenvolvimento-yellow?style=for-the-badge" />
   <img src="https://img.shields.io/badge/Projeto-Acad%C3%AAmico-blue?style=for-the-badge" />
   <img src="https://img.shields.io/badge/React-TypeScript-61DAFB?style=for-the-badge&logo=react&logoColor=white" />
-  <img src="https://img.shields.io/badge/C%23-ASP.NET%20Core-512BD4?style=for-the-badge&logo=.net&logoColor=white" />
+  <img src="https://img.shields.io/badge/C%23-.NET%2010-512BD4?style=for-the-badge&logo=.net&logoColor=white" />
 </p>
 
 ---
 
 ## 🎓 Identificação
 
-| Informação | Dados |
-|---|---|
-| **Instituição** | UNIFESO |
-| **Curso** | Ciência da Computação |
-| **Disciplina** | Design e Programação Orientados a Objetos |
-| **Professor** | André Campos |
-| **Projeto** | New Age Barbearia |
+| Informação      | Dados                                     |
+| --------------- | ----------------------------------------- |
+| **Instituição** | UNIFESO                                   |
+| **Curso**       | Ciência da Computação                     |
+| **Disciplina**  | Design e Programação Orientados a Objetos |
+| **Professor**   | André Campos                              |
+| **Projeto**     | New Age Barbearia                         |
 
 ### Integrantes
 
-| Integrante | Matrícula |
-|---|---|
-| Paulo Vitor Mendes Perez | 06014680 |
-| João Pedro Rocha Andrade | 06014599 |
-| Rikelv Ferraz da Rocha | 06015108 |
-| Gabriel Guerra | 06021409 |
-| Guilherme Henrique Quintanilha | 06013890 |
-| Vitor Alexandre Rocha de Souza | 06014670 |
+| Integrante                     | Matrícula |
+| ------------------------------ | --------- |
+| Paulo Vitor Mendes Perez       | 06014680  |
+| João Pedro Rocha Andrade       | 06014599  |
+| Rikelv Ferraz da Rocha         | 06015108  |
+| Gabriel Guerra                 | 06021409  |
+| Guilherme Henrique Quintanilha | 06013890  |
+| Vitor Alexandre Rocha de Souza | 06014670  |
 
 ---
 
-## 📌 Sobre o Projeto Integrador
+## 📌 Sobre o Projeto
 
-O Projeto-Barbearia é uma aplicação web desenvolvida como projeto integrador da disciplina de **Design e Programação Orientados a Objetos**.
+A New Age Barbearia é uma aplicação web desenvolvida como projeto integrador da disciplina de **Design e Programação Orientados a Objetos**.
 
-O projeto tem como objetivo representar um processo concreto do domínio de uma barbearia por meio de uma aplicação que envolva usuários, informações, regras de negócio, estados, comportamentos e interação entre diferentes objetos.
+O sistema representa processos de uma barbearia por meio de uma aplicação envolvendo usuários, serviços, profissionais, horários e agendamentos.
 
-Mais do que reunir operações de cadastro, o sistema busca representar um processo de negócio com decisões, mudanças de estado, regras e relacionamentos entre os elementos do domínio.
+O projeto busca aplicar conceitos de orientação a objetos e desenvolvimento de sistemas, incluindo:
 
-A aplicação é desenvolvida de forma incremental ao longo da disciplina, evoluindo desde uma interface funcional até uma aplicação integrada entre **frontend, API, regras de negócio e persistência de dados**.
+* identidade, estado e comportamento;
+* encapsulamento;
+* responsabilidades e colaboração entre objetos;
+* regras de negócio;
+* transições de estado;
+* persistência de dados;
+* autenticação e autorização;
+* testes automatizados;
+* integração entre frontend e backend.
 
-Atualmente, o frontend já está integrado ao backend, utilizando a API para autenticação, serviços, barbeiros, usuários, agendamentos e operações administrativas.
+Atualmente, o sistema possui **frontend integrado a uma API ASP.NET Core**, com persistência em SQLite.
 
 ---
 
-## 💈 Tema: Sistema de Gerenciamento de Barbearia
+## 💈 Funcionalidades
 
-O tema escolhido pelo grupo é o desenvolvimento de um sistema para uma **barbearia**, permitindo organizar e acompanhar os principais processos envolvidos no atendimento aos clientes.
+A aplicação contempla os principais processos do sistema de gerenciamento da barbearia:
 
-A aplicação contempla a interação entre diferentes elementos do domínio, como clientes, profissionais, serviços, jornadas de trabalho e agendamentos.
-
-Entre os principais processos estão:
-
-- cadastro e gerenciamento de clientes;
-- autenticação de clientes e administradores;
-- gerenciamento de profissionais;
-- gerenciamento de serviços;
-- consulta de disponibilidade de horários;
-- realização e acompanhamento de agendamentos;
-- remarcação e cancelamento de atendimentos;
-- conclusão de atendimentos;
-- controle dos estados dos agendamentos;
-- aplicação de regras relacionadas à disponibilidade e aos atendimentos;
-- gerenciamento administrativo de clientes, serviços e agenda.
-
-O domínio continua sendo desenvolvido e refinado ao longo da disciplina, de acordo com os requisitos e decisões definidos pelo grupo.
+* cadastro de clientes;
+* autenticação de clientes e administradores;
+* gerenciamento de usuários;
+* gerenciamento de serviços;
+* consulta de barbeiros;
+* consulta de disponibilidade;
+* criação de agendamentos;
+* consulta dos próprios agendamentos;
+* remarcação de agendamentos;
+* cancelamento de agendamentos;
+* conclusão de atendimentos;
+* controle de estados dos agendamentos;
+* gerenciamento administrativo de clientes;
+* gerenciamento administrativo de serviços;
+* autenticação baseada em JWT;
+* autorização por função.
 
 ---
 
 ## 🏗️ Estrutura do Projeto
 
-O projeto é organizado separando a aplicação cliente da aplicação servidora.
-
-A estrutura prevista para o repositório completo é:
+O repositório separa a aplicação cliente da aplicação servidora:
 
 ```text
 Projeto-Barbearia/
 │
 ├── frontend/
 │   ├── src/
-│   │   ├── components/
-│   │   ├── lib/
-│   │   ├── routes/
-│   │   └── services/
 │   ├── public/
 │   ├── package.json
+│   ├── bunfig.toml
 │   └── ...
 │
 ├── backend/
-│   ├── Controllers/
-│   ├── Data/
-│   ├── DTOs/
-│   ├── Middleware/
-│   ├── Models/
-│   ├── Services/
-│   ├── Migrations/
+│   ├── BackAndre.Api/
+│   │   ├── Controllers/
+│   │   ├── Middleware/
+│   │   ├── Program.cs
+│   │   ├── appsettings.json
+│   │   └── BackAndre.Api.csproj
+│   │
+│   ├── BackAndre.Application/
+│   │   ├── DTOs/
+│   │   ├── Services/
+│   │   └── BackAndre.Application.csproj
+│   │
+│   ├── BackAndre.Domain/
+│   │   ├── Models/
+│   │   └── BackAndre.Domain.csproj
+│   │
+│   ├── BackAndre.Infrastructure/
+│   │   ├── Data/
+│   │   ├── Repositories/
+│   │   ├── Migrations/
+│   │   ├── Security/
+│   │   └── BackAndre.Infrastructure.csproj
+│   │
 │   ├── BackAndre.Tests/
-│   └── ...
-│
-├── docs/
+│   │   └── ...
+│   │
+│   ├── ARQUITETURA.md
 │   └── ...
 │
 └── README.md
 ```
-### `frontend/`
-
-Contém a interface da aplicação, desenvolvida com React e TypeScript.
-
-É responsável pela apresentação das informações, navegação, interação com o usuário e comunicação com a API.
-
-### `backend/`
-
-Contém a aplicação responsável pelas regras de negócio, processamento das requisições HTTP e persistência dos dados.
-
-Será desenvolvido utilizando C# e ASP.NET Core Web API.
-
-### `docs/`
-
-Reúne documentos relacionados ao planejamento, especificação, decisões e acompanhamento do projeto.
 
 ---
 
-## 🛠️ Tecnologias Utilizadas
+## 🎨 Frontend
 
-### Frontend
+O frontend é responsável pela interface da aplicação, navegação, interação com o usuário e comunicação com a API.
 
-- React
-- TypeScript
-- Vite
-- TanStack Router
-- TanStack Start
-- Tailwind CSS
-- Radix UI
-- React Hook Form
-- Zod
-- Git
+### Tecnologias
+
+* React
+* TypeScript
+* Vite
+* TanStack Router
+* TanStack Start
+* Tailwind CSS
+* Radix UI
+* React Hook Form
+* Zod
+
+A comunicação com o backend é realizada por HTTP utilizando a API REST.
+
+O endereço da API pode ser configurado por meio da variável:
+
+```env
+VITE_API_URL=http://localhost:5071/api
+```
+
+Na ausência dessa variável, o frontend utiliza o endereço local da API como fallback de desenvolvimento.
+
+Mais informações estão disponíveis em [`frontend/README.md`](frontend/README.md).
+
+---
+
+## ⚙️ Backend
+
+O backend é uma API REST desenvolvida em **C# com ASP.NET Core**, utilizando uma arquitetura em camadas.
+
+A organização atual é:
+
+```text
+Controller
+    ↓
+Service
+    ↓
+Repository
+    ↓
+AppDbContext
+    ↓
+SQLite
+```
+
+As responsabilidades são distribuídas entre:
+
+* **BackAndre.Api** — entrada HTTP, controllers, middleware e configuração;
+* **BackAndre.Application** — casos de uso, serviços e DTOs;
+* **BackAndre.Domain** — entidades e regras de domínio;
+* **BackAndre.Infrastructure** — persistência, repositories, migrations e segurança;
+* **BackAndre.Tests** — testes automatizados.
+
+O backend utiliza:
+
+* C#
+* .NET 10
+* ASP.NET Core Web API
+* Entity Framework Core
+* SQLite
+* JWT Bearer Authentication
+* ASP.NET Core PasswordHasher
+* Swagger / OpenAPI
+* xUnit
+
+Mais informações estão disponíveis em [`backend/README.md`](backend/README.md).
+
+---
+
+## 🔄 Integração
+
+O frontend e o backend funcionam como partes integradas da mesma aplicação.
+
+```text
+┌──────────────────────┐
+│      Frontend        │
+│ React + TypeScript   │
+└──────────┬───────────┘
+           │ HTTP / JSON
+           ▼
+┌──────────────────────┐
+│      BackAndre.Api   │
+│    ASP.NET Core      │
+└──────────┬───────────┘
+           ▼
+┌──────────────────────┐
+│   Application        │
+│      Services        │
+└──────────┬───────────┘
+           ▼
+┌──────────────────────┐
+│   Infrastructure     │
+│ Repositories / EF    │
+└──────────┬───────────┘
+           ▼
+┌──────────────────────┐
+│       SQLite         │
+└──────────────────────┘
+```
+
+A API fornece os dados reais utilizados pela interface.
+
+O navegador mantém apenas o token JWT necessário para a sessão. Os dados de domínio são persistidos no backend.
+
+---
+
+## 🔐 Autenticação
+
+A autenticação utiliza **JWT Bearer**.
+
+O backend fornece endpoints para:
+
+* registro;
+* login;
+* consulta do usuário autenticado;
+* atualização dos dados do usuário;
+* alteração de senha;
+* exclusão da conta.
+
+As permissões são controladas de acordo com a função do usuário, incluindo clientes e administradores.
+
+---
+
+## 🗄️ Persistência
+
+Os dados são armazenados em um banco SQLite.
+
+O Entity Framework Core é utilizado para:
+
+* mapeamento das entidades;
+* acesso ao banco;
+* migrations;
+* criação e atualização da estrutura do banco.
+
+O backend também possui um processo de inicialização que cria dados de demonstração quando necessário.
+
+---
+
+## 🧪 Testes
+
+O projeto possui testes automatizados utilizando xUnit.
+
+Os testes abrangem principalmente regras do domínio, incluindo comportamentos relacionados a:
+
+* agendamentos;
+* estados dos agendamentos;
+* cancelamento;
+* conclusão;
+* remarcação;
+* jornada de trabalho dos barbeiros.
+
+Para executar os testes:
+
+```powershell
+dotnet test .\backend\BackAndre.Tests\BackAndre.Tests.csproj
+```
+
+---
+
+## ▶️ Executando o projeto
 
 ### Backend
 
-- C#
-- ASP.NET Core Web API
-- Entity Framework Core
-- Banco de dados relacional
-- SQLite
-- REST API
-- JSON
-- JWT Bearer Authentication
-- ASP.NET Core PasswordHasher
-- Swagger / OpenAPI
+A partir da raiz do repositório:
 
-### Testes e desenvolvimento
+```powershell
+dotnet restore .\backend\BackAndre.Api\BackAndre.Api.csproj
+dotnet build .\backend\BackAndre.Api\BackAndre.Api.csproj
+dotnet run --project .\backend\BackAndre.Api\BackAndre.Api.csproj
+```
 
-- Git
-- GitHub
-- xUnit ou tecnologia equivalente definida para a disciplina
-- Visual Studio Code
-- Swagger
-- Testes HTTP de integração
-
-A arquitetura técnica do projeto segue a base indicada para o projeto integrador: React/TypeScript/Vite no frontend, ASP.NET Core Web API em C#, comunicação HTTP/REST/JSON e persistência utilizando Entity Framework Core e banco relacional.
-
-Atualmente o backend utiliza .NET 10.
-
----
-
-## 🔄 Evolução do Projeto
-
-O desenvolvimento do projeto ocorre de forma incremental.
-
-A primeira etapa consiste na construção de uma interface funcional que permita validar a navegação, a organização das telas e os principais fluxos da aplicação.
-
-A partir dessa base, o sistema evolui progressivamente com a implementação da API, das regras de negócio, da persistência de dados e da integração entre as diferentes partes da aplicação.
+Durante o desenvolvimento, a API fica disponível em:
 
 ```text
-Frontend funcional
-       │
-       ▼
-Modelagem do domínio
-       │
-       ▼
-Backend / API
-       │
-       ▼
-Regras de negócio
-       │
-       ▼
-Persistência
-       │
-       ▼
-Integração completa
-       │
-       ▼
-Testes e evolução
+http://localhost:5071
 ```
+
+O Swagger pode ser acessado em:
+
+```text
+http://localhost:5071/swagger
+```
+
+### Frontend
+
+Em outro terminal:
+
+```powershell
+cd frontend
+bun install
+bun run dev
+```
+
+O endereço apresentado pelo Vite deve ser utilizado para acessar a aplicação.
+
+Para que a integração funcione corretamente, o backend deve estar em execução.
 
 ---
 
 ## 📊 Estado Atual
 
-**Status:** 🚧 Em desenvolvimento — integração funcional concluída
+**Status:** 🚧 Em desenvolvimento — integração frontend/backend funcional
 
 ### Concluído
 
-- [x] Definição inicial do tema
-- [x] Desenvolvimento da interface inicial
-- [x] Estruturação inicial do projeto
-- [x] Separação entre frontend e backend
-- [x] Configuração inicial do ambiente de desenvolvimento
-- [x] Definição do domínio principal
-- [x] Modelagem das principais entidades
-- [x] Definição das principais regras de negócio
-- [x] Implementação da API
-- [x] Autenticação com JWT
-- [x] Controle de permissões entre cliente e administrador
-- [x] Persistência com Entity Framework Core e SQLite
-- [x] Integração frontend + backend
-- [x] Implementação dos principais fluxos de negócio
-- [x] Consulta de disponibilidade de horários
-- [x] Criação de agendamentos
-- [x] Cancelamento de agendamentos
-- [x] Remarcação de agendamentos
-- [x] Conclusão de atendimentos
-- [x] Encapsulamento das transições de estado
-- [x] Jornada de trabalho dos barbeiros
-- [x] Tratamento de erros da API
-- [x] Testes automatizados com xUnit
-- [x] Testes HTTP de integração
-- [x] Integração dos dados reais com a interface
+* [x] Estrutura do repositório
+* [x] Interface do frontend
+* [x] Modelagem do domínio
+* [x] Regras de negócio principais
+* [x] API ASP.NET Core
+* [x] Arquitetura em camadas
+* [x] Persistência com Entity Framework Core e SQLite
+* [x] Migrations
+* [x] Autenticação JWT
+* [x] Autorização por função
+* [x] CRUD e operações de domínio necessárias
+* [x] Integração frontend + backend
+* [x] Seed de dados de demonstração
+* [x] Tratamento de exceções
+* [x] Testes automatizados
+* [x] Validação da API pelo Swagger
+* [x] Validação dos principais fluxos pelo frontend
 
-### Em desenvolvimento
+### Próximas etapas
 
-- [ ] Organização final do repositório único
-- [ ] Evolução e organização do histórico Git
-- [ ] Modelo de classes final
-- [ ] Documentação acadêmica final
-- [ ] Registro das decisões e evidências
-- [ ] Auditoria final do projeto
-- [ ] Preparação para apresentação e defesa
+* [ ] Refinamento da documentação acadêmica
+* [ ] Evolução do modelo de classes conforme os requisitos da disciplina
+* [ ] Registro das decisões técnicas e evidências
+* [ ] Preparação da apresentação e defesa do projeto
+* [ ] Melhorias futuras conforme os requisitos definidos pelo grupo e pelo professor
 
 ---
 
-## 🎯 Objetivos do Projeto
+## 🌿 Versionamento
 
-O desenvolvimento busca aplicar, na prática, os principais conceitos trabalhados na disciplina, incluindo:
+O projeto utiliza **Git e GitHub** para controle de versão e desenvolvimento colaborativo.
 
-- identificação de objetos do domínio;
-- identidade, estado e comportamento;
-- distribuição de responsabilidades;
-- encapsulamento de regras;
-- colaboração entre objetos;
-- relacionamentos entre objetos;
-- composição;
-- mudanças e transições de estado;
-- impedimento de estados inválidos;
-- tratamento de situações de sucesso e falha;
-- persistência de dados;
-- autenticação e autorização;
-- testes e depuração;
-- integração entre frontend, API e banco de dados.
+A branch `main` representa a versão integrada do projeto.
 
-Entre os principais conceitos atualmente representados no domínio estão:
-
-- User;
-- Service;
-- Barber;
-- BarberSchedule;
-- Appointment.
-
-O objeto Appointment protege suas principais transições por meio de comportamentos próprios, enquanto BarberSchedule representa e protege as regras relacionadas à jornada dos profissionais.
-
-A proposta da disciplina enfatiza que o projeto deve ir além de um conjunto de telas ou de um CRUD isolado, trabalhando efetivamente com domínio, regras, estados, colaboração entre objetos e persistência.
+As alterações devem ser organizadas em commits coerentes, permitindo acompanhar a evolução do sistema e as principais decisões técnicas.
 
 ---
 
-## 🌿 Estratégia de Versionamento
-
-O desenvolvimento é realizado de forma colaborativa utilizando **Git e GitHub**.
-
-Frontend e backend serão organizados posteriormente dentro de um único repositório do projeto completo.
-
-As alterações devem ser desenvolvidas preferencialmente em branches próprias e integradas à branch principal após revisão.
-
-Exemplo:
-
-```text
-main
-│
-├── feature/estrutura-inicial
-├── feature/backend-auth
-├── feature/backend-agendamentos
-├── feature/regras-dominio
-├── feature/integracao-frontend
-└── feature/admin
-```
-
-Os commits devem representar mudanças reais e coerentes do projeto.
-
-O histórico do Git será utilizado para:
-
-- acompanhar a evolução do projeto;
-- registrar funcionalidades implementadas;
-- registrar decisões e correções relevantes;
-- identificar contribuições dos integrantes;
-- preservar os principais marcos do desenvolvimento.
-
-Commits excessivamente grandes ou artificiais devem ser evitados, priorizando registros que representem etapas reais da evolução do sistema.
-
----
-
-## 👥 Desenvolvimento Colaborativo
-
-O projeto é desenvolvido em grupo, com compartilhamento de conhecimento entre os integrantes.
-
-Embora tarefas possam ser divididas durante o desenvolvimento, todos os integrantes devem compreender o funcionamento geral da aplicação.
-
-Isso inclui conhecimento sobre:
-
-- frontend;
-- backend;
-- conceitos do domínio;
-- principais regras de negócio;
-- autenticação;
-- integração entre React e API;
-- persistência no banco de dados;
-- testes;
-- principais decisões técnicas.
-
-O objetivo é garantir que o conhecimento sobre o projeto seja compartilhado e não fique restrito apenas ao integrante responsável por uma determinada parte.
-
----
-
-## 📚 Projeto Acadêmico
+## 🎓 Projeto Acadêmico
 
 Este repositório foi desenvolvido exclusivamente para fins acadêmicos como parte das atividades da disciplina de **Design e Programação Orientados a Objetos** do curso de **Ciência da Computação** do **UNIFESO**.
 
-O projeto está sujeito à evolução contínua durante o semestre, acompanhando os requisitos, decisões técnicas e marcos estabelecidos para a disciplina.
-
-A aplicação atualmente possui integração funcional entre React, API ASP.NET Core e SQLite, além de autenticação, regras de negócio, persistência e testes.
-
-As próximas etapas envolvem principalmente a organização final do repositório, evolução do histórico Git, documentação acadêmica, modelo de classes, registro das evidências e preparação para apresentação e defesa.
+O sistema continuará evoluindo de acordo com os requisitos da disciplina e as decisões do grupo.
 
