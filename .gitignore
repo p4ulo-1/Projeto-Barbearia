@@ -19,6 +19,7 @@ Desktop.ini
 .idea/
 *.swp
 *.swo
+.dscode/
 
 # ============================================================
 # .NET / Visual Studio

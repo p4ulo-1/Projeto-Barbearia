@@ -1,154 +1,163 @@
-# 💈 New Age Barbearia
+# Servia — Plataforma SaaS de Gestão e Atendimento para Negócios de Serviços
 
 <p align="center">
-  <strong>Projeto Integrador — Design e Programação Orientados a Objetos</strong>
-</p>
-
-<p align="center">
-  Aplicação web para gerenciamento de uma barbearia, desenvolvida como projeto acadêmico colaborativo.
+  <strong>Gestão, agendamento, presença digital e automação em uma única plataforma</strong>
 </p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/Status-Em%20Desenvolvimento-yellow?style=for-the-badge" />
-  <img src="https://img.shields.io/badge/Projeto-Acad%C3%AAmico-blue?style=for-the-badge" />
+  <img src="https://img.shields.io/badge/Modelo-SaaS%20Multi--tenant-blue?style=for-the-badge" />
   <img src="https://img.shields.io/badge/React-TypeScript-61DAFB?style=for-the-badge&logo=react&logoColor=white" />
   <img src="https://img.shields.io/badge/C%23-.NET%2010-512BD4?style=for-the-badge&logo=.net&logoColor=white" />
 </p>
 
 ---
 
-## 🎓 Identificação
+## 🎓 Identificação Acadêmica
 
-| Informação      | Dados                                     |
-| --------------- | ----------------------------------------- |
-| **Instituição** | UNIFESO                                   |
-| **Curso**       | Ciência da Computação                     |
-| **Disciplina**  | Design e Programação Orientados a Objetos |
-| **Professor**   | André Campos                              |
-| **Projeto**     | New Age Barbearia                         |
+| Informação | Dados |
+| --- | --- |
+| **Instituição** | UNIFESO |
+| **Curso** | Ciência da Computação |
+| **Disciplina** | Design e Programação Orientados a Objetos |
+| **Professor** | André Campos |
+| **Projeto** | Servia (origem: New Age Barbearia) |
 
 ### Integrantes
 
-| Integrante                     | Matrícula |
-| ------------------------------ | --------- |
-| Paulo Vitor Mendes Perez       | 06014680  |
-| João Pedro Rocha Andrade       | 06014599  |
-| Rikelv Ferraz da Rocha         | 06015108  |
-| Gabriel Guerra                 | 06021409  |
-| Guilherme Henrique Quintanilha | 06013890  |
-| Vitor Alexandre Rocha de Souza | 06014670  |
+| Integrante | Matrícula |
+| --- | --- |
+| Paulo Vitor Mendes Perez | 06014680 |
+| João Pedro Rocha Andrade | 06014599 |
+| Rikelv Ferraz da Rocha | 06015108 |
+| Gabriel Guerra | 06021409 |
+| Guilherme Henrique Quintanilha | 06013890 |
+| Vitor Alexandre Rocha de Souza | 06014670 |
+
 
 ---
 
 ## 📌 Sobre o Projeto
 
-A New Age Barbearia é uma aplicação web desenvolvida como projeto integrador da disciplina de **Design e Programação Orientados a Objetos**.
+Plataforma SaaS para negócios que trabalham com serviços agendados: barbearias, salões de beleza, nail designers, clínicas, estúdios de estética, sobrancelhas e cílios, tatuagem, massoterapia, maquiagem, depilação, tranças e outros prestadores.
 
-O sistema representa processos de uma barbearia por meio de uma aplicação envolvendo usuários, serviços, profissionais, horários e agendamentos.
+Cada estabelecimento opera em seu próprio ambiente, com site individual, agendamento online, gestão de clientes e profissionais, controle financeiro e automação de atendimento — tudo sobre uma infraestrutura compartilhada.
 
-O projeto busca aplicar conceitos de orientação a objetos e desenvolvimento de sistemas, incluindo:
+O produto nasceu como projeto acadêmico de uma barbearia e evoluiu para uma plataforma multi-segmento. A documentação de produto, funcionalidades, modelo de classes e decisões de arquitetura está em [`docs/`](docs/).
 
-* identidade, estado e comportamento;
-* encapsulamento;
-* responsabilidades e colaboração entre objetos;
-* regras de negócio;
-* transições de estado;
-* persistência de dados;
-* autenticação e autorização;
-* testes automatizados;
-* integração entre frontend e backend.
+### Proposta de valor
 
-Atualmente, o sistema possui **frontend integrado a uma API ASP.NET Core**, com persistência em SQLite.
+> Tudo o que seu negócio precisa para atender, organizar e crescer em uma única plataforma.
+
+A solução elimina a fragmentação entre agendas, planilhas, conversas no WhatsApp, ferramentas financeiras e sistemas independentes.
 
 ---
 
-## 💈 Funcionalidades
+## 🎯 Escopo do Produto
 
-A aplicação contempla os principais processos do sistema de gerenciamento da barbearia:
+### Funcionalidades universais
 
-* cadastro de clientes;
-* autenticação de clientes e administradores;
-* gerenciamento de usuários;
-* gerenciamento de serviços;
-* consulta de barbeiros;
-* consulta de disponibilidade;
-* criação de agendamentos;
-* consulta dos próprios agendamentos;
-* remarcação de agendamentos;
-* cancelamento de agendamentos;
-* conclusão de atendimentos;
-* controle de estados dos agendamentos;
-* gerenciamento administrativo de clientes;
-* gerenciamento administrativo de serviços;
-* autenticação baseada em JWT;
-* autorização por função.
+Base comum disponível para todos os estabelecimentos:
+
+- cadastro e gestão de clientes com histórico e preferências;
+- catálogo de serviços, categorias, variações e combos;
+- gestão de profissionais, equipes, jornadas e bloqueios;
+- agendamento online com controle de disponibilidade;
+- site individual com presença digital;
+- comunicação e notificações;
+- registro de pagamentos e gestão financeira;
+- relatórios e indicadores.
+
+### Módulos opcionais
+
+Habilitados conforme o plano e o modelo de negócio:
+
+- clubes de assinatura e pacotes de serviços;
+- cobranças recorrentes;
+- comissões e remuneração de profissionais;
+- automação de atendimento pelo WhatsApp;
+- fidelização e recuperação de clientes inativos;
+- geração e personalização de site por inteligência artificial.
+
+### Adaptações por segmento
+
+Configurações que ajustam o comportamento da plataforma sem criar aplicações independentes: durações específicas, sessões prolongadas, sinal para reserva, histórico de procedimentos, pacotes de manutenção e regras de utilização de benefícios.
 
 ---
 
-## 🏗️ Estrutura do Projeto
+## 🏗️ Arquitetura
 
-O repositório separa a aplicação cliente da aplicação servidora:
+O repositório separa a aplicação cliente da aplicação servidora, sobre uma arquitetura em camadas.
 
 ```text
-Projeto-Barbearia/
-│
-├── frontend/
-│   ├── src/
-│   ├── public/
-│   ├── package.json
-│   ├── bunfig.toml
-│   └── ...
-│
-├── backend/
-│   ├── BackAndre.Api/
-│   │   ├── Controllers/
-│   │   ├── Middleware/
-│   │   ├── Program.cs
-│   │   ├── appsettings.json
-│   │   └── BackAndre.Api.csproj
-│   │
-│   ├── BackAndre.Application/
-│   │   ├── DTOs/
-│   │   ├── Services/
-│   │   └── BackAndre.Application.csproj
-│   │
-│   ├── BackAndre.Domain/
-│   │   ├── Models/
-│   │   └── BackAndre.Domain.csproj
-│   │
-│   ├── BackAndre.Infrastructure/
-│   │   ├── Data/
-│   │   ├── Repositories/
-│   │   ├── Migrations/
-│   │   ├── Security/
-│   │   └── BackAndre.Infrastructure.csproj
-│   │
-│   ├── BackAndre.Tests/
-│   │   └── ...
-│   │
-│   ├── ARQUITETURA.md
-│   └── ...
-│
-└── README.md
+┌──────────────────────┐
+│      Frontend        │
+│ React + TypeScript   │
+└──────────┬───────────┘
+           │ HTTP / JSON
+           ▼
+┌──────────────────────┐
+│      Servia.Api      │
+│    ASP.NET Core      │
+└──────────┬───────────┘
+           ▼
+┌──────────────────────┐
+│   Application        │
+│      Services        │
+└──────────┬───────────┘
+           ▼
+┌──────────────────────┐
+│   Infrastructure     │
+│ Repositories / EF    │
+└──────────┬───────────┘
+           ▼
+┌──────────────────────┐
+│      Database        │
+└──────────────────────┘
 ```
+
+### Responsabilidades por camada
+
+| Camada | Responsabilidade |
+| --- | --- |
+| **Servia.Api** | Entrada HTTP, controllers, middleware, autenticação e resolução de tenant |
+| **Servia.Application** | Casos de uso, serviços, DTOs e orquestração de integrações |
+| **Servia.Domain** | Entidades, agregados, objetos de valor e regras de negócio |
+| **Servia.Infrastructure** | Persistência, repositórios, migrations, segurança e integrações externas |
+| **Servia.Tests** | Testes automatizados de domínio e de casos de uso |
+
+> **Nota:** os projetos no código-fonte ainda usam o prefixo `BackAndre.*` (herdado da fase acadêmica). A renomeação física das pastas e namespaces está planejada e será executada em uma etapa própria. Os comandos `dotnet` abaixo apontam para os caminhos atuais.
+
+### Isolamento multi-tenant
+
+Toda entidade de negócio carrega `TenantId`, e o `AppDbContext` aplica filtro global por tenant. A estratégia está detalhada em [`docs/gerenciamento/ARCH.md`](docs/gerenciamento/ARCH.md) e registrada em [`docs/gerenciamento/ADR.md`](docs/gerenciamento/ADR.md).
 
 ---
 
 ## 🎨 Frontend
 
-O frontend é responsável pela interface da aplicação, navegação, interação com o usuário e comunicação com a API.
+Interface da aplicação, navegação, interação com o usuário e comunicação com a API.
 
 ### Tecnologias
 
-* React
-* TypeScript
-* Vite
-* TanStack Router
-* TanStack Start
-* Tailwind CSS
-* Radix UI
-* React Hook Form
-* Zod
+- React
+- TypeScript
+- Vite
+- TanStack Router
+- TanStack Start
+- Tailwind CSS
+- Radix UI
+- React Hook Form
+- Zod
+
+### Superfícies de produto
+
+| Superfície | Público |
+| --- | --- |
+| Site público do estabelecimento | Clientes finais |
+| Agendamento online | Clientes finais |
+| Painel do estabelecimento | Equipe do tenant |
+| Painel da plataforma | Administradores da plataforma |
 
 A comunicação com o backend é realizada por HTTP utilizando a API REST.
 
@@ -166,112 +175,51 @@ Mais informações estão disponíveis em [`frontend/README.md`](frontend/README
 
 ## ⚙️ Backend
 
-O backend é uma API REST desenvolvida em **C# com ASP.NET Core**, utilizando uma arquitetura em camadas.
+API REST desenvolvida em **C# com ASP.NET Core**, utilizando arquitetura em camadas.
 
-A organização atual é:
+### Tecnologias
 
-```text
-Controller
-    ↓
-Service
-    ↓
-Repository
-    ↓
-AppDbContext
-    ↓
-SQLite
-```
+- C#
+- .NET 10
+- ASP.NET Core Web API
+- Entity Framework Core
+- PostgreSQL (produção) / SQLite (desenvolvimento e testes)
+- JWT Bearer Authentication
+- ASP.NET Core PasswordHasher
+- Swagger / OpenAPI
+- xUnit
 
-As responsabilidades são distribuídas entre:
-
-* **BackAndre.Api** — entrada HTTP, controllers, middleware e configuração;
-* **BackAndre.Application** — casos de uso, serviços e DTOs;
-* **BackAndre.Domain** — entidades e regras de domínio;
-* **BackAndre.Infrastructure** — persistência, repositories, migrations e segurança;
-* **BackAndre.Tests** — testes automatizados.
-
-O backend utiliza:
-
-* C#
-* .NET 10
-* ASP.NET Core Web API
-* Entity Framework Core
-* SQLite
-* JWT Bearer Authentication
-* ASP.NET Core PasswordHasher
-* Swagger / OpenAPI
-* xUnit
-
-Mais informações estão disponíveis em [`backend/README.md`](backend/README.md).
+Mais informações estão disponíveis em [`backend/README.md`](backend/README.md) e [`backend/ARQUITETURA.md`](backend/ARQUITETURA.md).
 
 ---
 
-## 🔄 Integração
-
-O frontend e o backend funcionam como partes integradas da mesma aplicação.
-
-```text
-┌──────────────────────┐
-│      Frontend        │
-│ React + TypeScript   │
-└──────────┬───────────┘
-           │ HTTP / JSON
-           ▼
-┌──────────────────────┐
-│      BackAndre.Api   │
-│    ASP.NET Core      │
-└──────────┬───────────┘
-           ▼
-┌──────────────────────┐
-│   Application        │
-│      Services        │
-└──────────┬───────────┘
-           ▼
-┌──────────────────────┐
-│   Infrastructure     │
-│ Repositories / EF    │
-└──────────┬───────────┘
-           ▼
-┌──────────────────────┐
-│       SQLite         │
-└──────────────────────┘
-```
-
-A API fornece os dados reais utilizados pela interface.
-
-O navegador mantém apenas o token JWT necessário para a sessão. Os dados de domínio são persistidos no backend.
-
----
-
-## 🔐 Autenticação
+## 🔐 Autenticação e Autorização
 
 A autenticação utiliza **JWT Bearer**.
 
 O backend fornece endpoints para:
 
-* registro;
-* login;
-* consulta do usuário autenticado;
-* atualização dos dados do usuário;
-* alteração de senha;
-* exclusão da conta.
+- registro;
+- login;
+- consulta do usuário autenticado;
+- atualização dos dados do usuário;
+- alteração de senha;
+- exclusão da conta.
 
-As permissões são controladas de acordo com a função do usuário, incluindo clientes e administradores.
+As permissões são controladas por papel dentro do tenant: proprietário, administrador, profissional, recepcionista e cliente. A verificação é sempre feita no servidor.
 
 ---
 
 ## 🗄️ Persistência
 
-Os dados são armazenados em um banco SQLite.
-
 O Entity Framework Core é utilizado para:
 
-* mapeamento das entidades;
-* acesso ao banco;
-* migrations;
-* criação e atualização da estrutura do banco.
+- mapeamento das entidades;
+- acesso ao banco;
+- migrations;
+- criação e atualização da estrutura do banco.
 
-O backend também possui um processo de inicialização que cria dados de demonstração quando necessário.
+O backend possui um processo de inicialização que cria dados de demonstração em ambiente de desenvolvimento.
 
 ---
 
@@ -279,14 +227,14 @@ O backend também possui um processo de inicialização que cria dados de demons
 
 O projeto possui testes automatizados utilizando xUnit.
 
-Os testes abrangem principalmente regras do domínio, incluindo comportamentos relacionados a:
+Os testes abrangem regras do domínio, incluindo:
 
-* agendamentos;
-* estados dos agendamentos;
-* cancelamento;
-* conclusão;
-* remarcação;
-* jornada de trabalho dos barbeiros.
+- agendamentos;
+- estados dos agendamentos;
+- cancelamento;
+- conclusão;
+- remarcação;
+- jornada de trabalho dos profissionais.
 
 Para executar os testes:
 
@@ -336,37 +284,59 @@ Para que a integração funcione corretamente, o backend deve estar em execuçã
 
 ---
 
+## 📚 Documentação
+
+| Documento | Conteúdo |
+| --- | --- |
+| [`docs/descricao_produto.md`](docs/descricao_produto.md) | Visão de produto, segmentos e proposta de valor |
+| [`docs/levantamento_lacunas.md`](docs/levantamento_lacunas.md) | Inventário do código legado e o que muda na migração (F1.4) |
+| [`docs/funcionalidades.md`](docs/funcionalidades.md) | Catálogo de funcionalidades por categoria |
+| [`docs/classes.md`](docs/classes.md) | Modelo de classes e diagrama Mermaid |
+| [`docs/gerenciamento/Roadmap.md`](docs/gerenciamento/Roadmap.md) | Fases de entrega e critérios de saída |
+| [`docs/gerenciamento/ADR.md`](docs/gerenciamento/ADR.md) | Decisões de arquitetura registradas |
+| [`docs/gerenciamento/ARCH.md`](docs/gerenciamento/ARCH.md) | Arquitetura de solução |
+
+---
+
 ## 📊 Estado Atual
 
-**Status:** 🚧 Em desenvolvimento — integração frontend/backend funcional
+**Status:** 🚧 Em desenvolvimento — sistema single-shop funcional, em transição para plataforma multi-tenant.
 
 ### Concluído
 
-* [x] Estrutura do repositório
-* [x] Interface do frontend
-* [x] Modelagem do domínio
-* [x] Regras de negócio principais
-* [x] API ASP.NET Core
-* [x] Arquitetura em camadas
-* [x] Persistência com Entity Framework Core e SQLite
-* [x] Migrations
-* [x] Autenticação JWT
-* [x] Autorização por função
-* [x] CRUD e operações de domínio necessárias
-* [x] Integração frontend + backend
-* [x] Seed de dados de demonstração
-* [x] Tratamento de exceções
-* [x] Testes automatizados
-* [x] Validação da API pelo Swagger
-* [x] Validação dos principais fluxos pelo frontend
+- [x] Estrutura do repositório
+- [x] Interface do frontend
+- [x] Modelagem do domínio
+- [x] Regras de negócio principais
+- [x] API ASP.NET Core
+- [x] Arquitetura em camadas
+- [x] Persistência com Entity Framework Core
+- [x] Migrations
+- [x] Autenticação JWT
+- [x] Autorização por função
+- [x] CRUD e operações de domínio necessárias
+- [x] Integração frontend + backend
+- [x] Seed de dados de demonstração
+- [x] Tratamento de exceções
+- [x] Testes automatizados
+- [x] Documentação de produto, funcionalidades, classes e arquitetura
 
 ### Próximas etapas
 
-* [ ] Refinamento da documentação acadêmica
-* [ ] Evolução do modelo de classes conforme os requisitos da disciplina
-* [ ] Registro das decisões técnicas e evidências
-* [ ] Preparação da apresentação e defesa do projeto
-* [ ] Melhorias futuras conforme os requisitos definidos pelo grupo e pelo professor
+Decisões estruturais confirmadas em 2026-11-04. Escopo do MVP: completo (F0–F9).
+
+- [ ] Fase F0 — fundação técnica (Docker, CI, PostgreSQL)
+- [ ] Fase F1 — multi-tenancy e migração do sistema atual
+- [ ] Fase F2 — núcleo universal
+- [ ] Fase F3 — site por tenant
+- [ ] Fase F4 — billing da plataforma (Mercado Pago)
+- [ ] Fase F5 — financeiro do tenant
+- [ ] Fase F6 — comunicação e WhatsApp
+- [ ] Fase F7 — módulos opcionais
+- [ ] Fase F8 — IA de site
+- [ ] Fase F9 — escala e operação
+
+O detalhamento está em [`docs/gerenciamento/Roadmap.md`](docs/gerenciamento/Roadmap.md).
 
 ---
 
@@ -380,9 +350,6 @@ As alterações devem ser organizadas em commits coerentes, permitindo acompanha
 
 ---
 
-## 🎓 Projeto Acadêmico
+## 🎓 Nota sobre a Origem
 
-Este repositório foi desenvolvido exclusivamente para fins acadêmicos como parte das atividades da disciplina de **Design e Programação Orientados a Objetos** do curso de **Ciência da Computação** do **UNIFESO**.
-
-O sistema continuará evoluindo de acordo com os requisitos da disciplina e as decisões do grupo.
-
+A identificação acadêmica e a equipe original estão registradas no topo deste documento, na seção [Identificação Acadêmica](#-identificação-acadêmica). O código e as decisões de modelagem da fase acadêmica foram preservados e serviram de base para a evolução para plataforma SaaS.
