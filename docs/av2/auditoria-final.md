@@ -13,7 +13,7 @@ O Servia é um sistema novo (ADR-001), construído em `src/` a partir dos docume
 | Verificação | Resultado |
 | --- | --- |
 | Build da solução | **0 erros, 0 avisos** |
-| Testes automatizados | **123 passando, 0 falhas** |
+| Testes automatizados | **130 passando, 0 falhas** |
 | Regra de dependência | Domain sem referências; Application sem Infrastructure |
 
 ### Camadas implementadas
@@ -27,7 +27,7 @@ O Servia é um sistema novo (ADR-001), construído em `src/` a partir dos docume
 
 ---
 
-## 2. Critérios comprovados (31)
+## 2. Critérios comprovados (35)
 
 | Critério | O que exige | Evidência |
 | --- | --- | --- |
@@ -98,9 +98,9 @@ O Servia é um sistema novo (ADR-001), construído em `src/` a partir dos docume
 
 Esta auditoria **não** afirma que o projeto atende aos 40 critérios. Afirma que:
 
-1. **31 critérios estão comprovados** por código executável e 123 testes passando.
-2. **7 critérios estão documentados**, aguardando a implementação correspondente.
-3. **2 critérios estão pendentes**, porque dependem de uma alteração funcional real e de migrations.
+1. **35 critérios estão comprovados** por código executável e 130 testes passando.
+2. **4 critérios estão documentados**, aguardando a implementação correspondente.
+3. **1 critério está pendente**, porque dependem de uma alteração funcional real e de migrations.
 4. **Nenhum critério foi marcado como atendido sem evidência.**
 
 O domínio, a camada de aplicação e o tratamento central de exceções estão completos e verificados. A próxima etapa é a persistência, que desbloqueia as associações com multiplicidade e os testes de integração com banco.

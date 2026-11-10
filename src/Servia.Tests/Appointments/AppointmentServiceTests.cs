@@ -1,6 +1,7 @@
 using Servia.Application.Appointments;
 using Servia.Domain.Appointments;
 using Servia.Domain.Common;
+using Servia.Domain.Policies;
 
 namespace Servia.Tests.Appointments;
 
@@ -24,8 +25,11 @@ public class AppointmentServiceTests
     private static CreateAppointmentCommand Command(TimeOnly time, int duration = 30) =>
         new(TenantId, CustomerId, ServiceId, ProfessionalId, Date, time, duration);
 
-    private static Appointment Existing(TimeOnly time, int duration = 30) =>
-        Appointment.Create(TenantId, CustomerId, ServiceId, ProfessionalId, Date, time, duration, Now);
+    private static Appointment Existing(
+        TimeOnly time,
+        int duration = 30,
+        IOvernightPolicy? policy = null) =>
+        Appointment.Create(TenantId, CustomerId, ServiceId, ProfessionalId, Date, time, duration, Now, policy);
 
     // ---------- R5-CA2: horário livre ----------
 
@@ -121,8 +125,9 @@ public class AppointmentServiceTests
     public async Task HasOverlap_Detecta_Sobreposicao_Que_Cruza_Meia_Noite()
     {
         // Cenário do DEF-001: 23:50 + 30 min termina em 00:20.
+        // Usa a política de sessão longa, que permite ultrapassar a meia-noite.
         var repository = new FakeAppointmentRepository();
-        repository.Seed(Existing(new TimeOnly(23, 50), 30));
+        repository.Seed(Existing(new TimeOnly(23, 50), 30, new AllowOvernightPolicy()));
         var service = NewService(repository);
 
         var result = await service.CreateAsync(Command(new TimeOnly(23, 55), 30));

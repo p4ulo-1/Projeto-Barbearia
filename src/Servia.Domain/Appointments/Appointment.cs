@@ -1,4 +1,5 @@
 using Servia.Domain.Common;
+using Servia.Domain.Policies;
 
 namespace Servia.Domain.Appointments;
 
@@ -88,7 +89,8 @@ public sealed class Appointment
         DateOnly date,
         TimeOnly time,
         int durationMinutes,
-        DateTimeOffset now)
+        DateTimeOffset now,
+        IOvernightPolicy? overnightPolicy = null)
     {
         if (tenantId == Guid.Empty)
         {
@@ -119,6 +121,11 @@ public sealed class Appointment
         {
             throw new DomainRuleException("A duração do atendimento deve ser maior que zero.");
         }
+
+        // A politica decide se o atendimento pode ultrapassar a meia-noite.
+        // O padrao e restritivo: sem politica explicita, nao permite.
+        var policy = overnightPolicy ?? new NoOvernightPolicy();
+        policy.EnsureAllowed(TimeRange.From(time, durationMinutes));
 
         return new Appointment(
             Guid.NewGuid(),

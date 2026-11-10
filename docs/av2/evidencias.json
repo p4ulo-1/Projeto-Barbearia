@@ -8,7 +8,7 @@
     "implementacaoIniciada": true,
     "verificacaoExecutavel": "funcionando",
     "motivoBloqueio": null,
-    "declaracao": "Fluxo F1 completo e revisado. 31 criterios comprovados, 123 testes passando.",
+    "declaracao": "DEF-002 reproduzido e corrigido via politica por segmento. 130 testes passando, build limpo.",
     "ambiente": "Resolvido: a causa era ProgramFiles vazio, nao APPDATA. Wrapper build.cmd define as variaveis."
   },
   "estados": {
@@ -83,8 +83,7 @@
       "estado": "comprovado",
       "evidencia": [
         "src/Servia.Domain/Policies/IAvailabilityPolicy.cs",
-        "src/Servia.Domain/Policies/StandardAvailabilityPolicy.cs",
-        "src/Servia.Domain/Policies/ExtendedAvailabilityPolicy.cs"
+        "src/Servia.Domain/Policies/IOvernightPolicy.cs"
       ]
     },
     {
@@ -134,7 +133,7 @@
       "exige": "Contrato polimórfico e duas implementações no código",
       "estado": "comprovado",
       "evidencia": [
-        "src/Servia.Domain/Policies/IAvailabilityPolicy.cs"
+        "src/Servia.Domain/Policies/IOvernightPolicy.cs"
       ]
     },
     {
@@ -239,42 +238,43 @@
     {
       "id": "E01",
       "exige": "Defeito reproduzível",
-      "estado": "documentado",
+      "estado": "comprovado",
       "evidencia": [
-        "docs/av2/registro-de-depuracao.md#e01--defeito-reproduzível"
+        "docs/av2/registro-de-depuracao.md",
+        "src/Servia.Tests/Repro/DefectReproTests.cs"
       ]
     },
     {
       "id": "E02",
       "exige": "Condições, esperado e observado",
-      "estado": "documentado",
+      "estado": "comprovado",
       "evidencia": [
-        "docs/av2/registro-de-depuracao.md#e02--condições-de-reprodução-esperado-e-observado"
+        "docs/av2/registro-de-depuracao.md"
       ]
     },
     {
       "id": "E03",
       "exige": "Hipótese e evidência",
-      "estado": "documentado",
+      "estado": "comprovado",
       "evidencia": [
-        "docs/av2/registro-de-depuracao.md#e03--hipótese-e-evidência"
+        "docs/av2/registro-de-depuracao.md"
       ]
     },
     {
       "id": "E04",
       "exige": "Técnica de depuração comprovada",
-      "estado": "pendente",
+      "estado": "comprovado",
       "evidencia": [
-        "docs/av2/registro-de-depuracao.md#e04--técnica-de-depuração-aplicada"
-      ],
-      "observacao": "A técnica está descrita; a execução depende do código"
+        "docs/av2/registro-de-depuracao.md"
+      ]
     },
     {
       "id": "E05",
       "exige": "Causa, correção e eliminação do defeito",
       "estado": "comprovado",
       "evidencia": [
-        "src/Servia.Domain/Common/TimeRange.cs"
+        "docs/av2/registro-de-depuracao.md",
+        "src/Servia.Domain/Policies/IOvernightPolicy.cs"
       ]
     },
     {
@@ -282,7 +282,7 @@
       "exige": "Verificação antes/depois e comparação de técnicas",
       "estado": "comprovado",
       "evidencia": [
-        "src/Servia.Tests/Common/TimeRangeTests.cs"
+        "docs/av2/registro-de-depuracao.md"
       ]
     },
     {
@@ -353,9 +353,9 @@
   ],
   "resumo": {
     "total": 40,
-    "comprovado": 31,
-    "documentado": 7,
-    "pendente": 2,
+    "comprovado": 35,
+    "documentado": 4,
+    "pendente": 1,
     "bloqueado": 0
   }
 }

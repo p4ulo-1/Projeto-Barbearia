@@ -1,120 +1,150 @@
-# Registro de Depuração — Sobreposição de agendamentos no fim do dia
+# Registro de Depuração — Agendamento que ultrapassa a meia-noite
 
 > **Finalidade:** atender aos critérios **E01–E06** — defeito reproduzível, condições de reprodução, hipótese e evidência, técnica de depuração aplicada, causa raiz, correção e comparação de técnicas.
-> **Defeito:** `DEF-001` — agendamentos próximos à meia-noite não são detectados como sobrepostos.
-> **Contexto:** defeito identificado durante a análise do domínio de agendamento. Como o Servia será construído do zero (ADR-001), o defeito é registrado como **risco de desenho a evitar** na implementação nova, e não como correção no código acadêmico.
+> **Defeito:** `DEF-002` — agendamentos que terminam após a meia-noite são aceitos e não conflitam com o dia seguinte.
+> **Natureza:** defeito **real**, encontrado no código implementado do Servia, reproduzido por teste automatizado.
 
 ---
 
 ## E01 — Defeito reproduzível
 
-**Identificador:** `DEF-001`
-**Localização prevista:** `AppointmentService.HasOverlap` — cálculo do intervalo de sobreposição.
-**Natureza:** defeito real, encontrado por inspeção do algoritmo de comparação de intervalos.
+**Identificador:** `DEF-002`
+**Localização:** `src/Servia.Domain/Common/TimeRange.cs`, método `From`.
+**Descoberta:** por inspeção do código durante a busca por defeitos reais.
 
-**Descrição:** o cálculo do horário de término de um agendamento usando `TimeOnly.AddMinutes` **dá a volta à meia-noite**. Um agendamento às 23:50 com duração de 30 minutos produz término às 00:20 do mesmo dia, e a comparação de intervalos passa a ser incorreta.
+**Descrição:** `TimeRange.From` calcula `EndMinutes = StartMinutes + durationMinutes` sem verificar se o resultado ultrapassa o fim do dia (1440 minutos). Um agendamento às 23:50 com duração de 60 minutos produz `EndMinutes = 1490`, que representa 00:50 do dia seguinte — mas o agendamento continua pertencendo ao dia anterior.
+
+**Evidência de reprodução:** `src/Servia.Tests/Repro/DefectReproTests.cs`
+
+```bash
+build.cmd test Servia.Tests --filter FullyQualifiedName~DefectReproTests
+# Passed! - Failed: 0, Passed: 2
+```
+
+Os dois testes passam porque documentam o comportamento **atual**, que é incorreto.
 
 ---
 
 ## E02 — Condições de reprodução, esperado e observado
 
-**Condições de reprodução:**
+### Cenário 1 — agendamento aceito fora do dia
 
 | Elemento | Valor |
 | --- | --- |
-| Profissional | `b-1` |
-| Data | `2026-11-09` |
-| Agendamento existente | 23:50, serviço de 30 minutos |
-| Novo agendamento | 23:55, serviço de 30 minutos |
+| Data | 2026-11-09 |
+| Horário | 23:50 |
+| Duração | 60 minutos |
 
-**Comportamento esperado:** o novo agendamento é **rejeitado**, porque 23:55 está dentro do intervalo 23:50–00:20.
+**Comportamento esperado:** o agendamento é **rejeitado**, porque termina às 00:50 do dia seguinte e não cabe no dia 09.
 
-**Comportamento observado com o algoritmo ingênuo:** o novo agendamento é **aceito**, porque o término calculado do existente é 00:20, que é menor que 23:55 na comparação de `TimeOnly`. A condição `time < existingEnd` resulta falsa.
+**Comportamento observado:** o agendamento é **aceito**. `OccupiedRange.EndMinutes` retorna `1490`, valor maior que `TimeRange.MinutesPerDay` (1440).
 
-**Evidência — o algoritmo que produz o defeito:**
+**Teste:** `DEF002_Agendamento_Que_Ultrapassa_Meia_Noite_Eh_Aceito`
 
-```csharp
-var endTime = time.AddMinutes(duration);
-return appointments.Any(existing =>
-{
-    var existingEnd = existing.Time.AddMinutes(existing.Service.Duration);
-    return time < existingEnd && endTime > existing.Time;
-});
-```
+### Cenário 2 — conflito real não detectado
 
-Para `existing.Time = 23:50` e `Duration = 30`, `existingEnd = 00:20`. A comparação `23:55 < 00:20` é falsa, então a sobreposição não é detectada.
+| Agendamento | Data | Horário | Duração | Ocupa na prática |
+| --- | --- | --- | --- | --- |
+| A | 2026-11-09 | 23:50 | 60 min | 23:50 do dia 09 até 00:50 do dia 10 |
+| B | 2026-11-10 | 00:30 | 30 min | 00:30 até 01:00 do dia 10 |
+
+**Comportamento esperado:** os dois agendamentos se **sobrepõem** no instante real (00:30–00:50 do dia 10), então o segundo deveria ser rejeitado.
+
+**Comportamento observado:** `A.OccupiedRange.Overlaps(B.OccupiedRange)` retorna **falso**. A comparação usa minutos do dia (1430–1490 contra 30–60) e ignora que pertencem a datas diferentes. O conflito **não é detectado**.
+
+**Teste:** `DEF002_Dois_Agendamentos_Em_Dias_Diferentes_Conflitam_Indevidamente`
 
 ---
 
 ## E03 — Hipótese e evidência
 
-**Hipótese H1:** a comparação de intervalos usa `TimeOnly`, que é um tipo cíclico e não representa um instante absoluto. Quando o intervalo cruza a meia-noite, a ordenação deixa de refletir a ordem temporal.
+**Hipótese H1:** `TimeRange` representa um intervalo dentro de **um único dia**, mas `From` não impõe essa invariante. Quando a duração ultrapassa o fim do dia, o valor de `EndMinutes` deixa de ter significado temporal — passa a ser um número maior que 1440 que não corresponde a nenhum horário válido.
 
-**Como confirmar ou descartar:** verificar o comportamento de `TimeOnly.AddMinutes` quando o resultado ultrapassa 23:59.
+**Como confirmar ou descartar:** verificar se `From` valida o limite superior e se `Overlaps` considera a data.
 
 **Evidência coletada:**
 
-| Entrada | `AddMinutes` retorna | Interpretação |
-| --- | --- | --- |
-| `23:50` + 30 | `00:20` | Deu a volta à meia-noite |
-| `23:50` + 5 | `23:55` | Correto |
-| `10:00` + 60 | `11:00` | Correto |
+| Verificação | Resultado |
+| --- | --- |
+| `TimeRange.From(23:50, 60).EndMinutes` | `1490` — maior que 1440 |
+| `TimeRange.From` valida limite superior? | **Não** — só valida `durationMinutes > 0` |
+| `Overlaps` compara datas? | **Não** — compara apenas minutos do dia |
+| `Appointment.Create` valida o término? | **Não** — só valida duração positiva |
 
-**Conclusão:** H1 **confirmada**. O defeito só se manifesta quando o intervalo cruza a meia-noite, o que explica por que não aparece em testes com horários diurnos.
+**Conclusão:** H1 **confirmada**. A causa é a ausência da invariante "o intervalo termina no mesmo dia" em `TimeRange.From`.
 
 **Hipóteses descartadas:**
-- *H2: a navegação `Service` não estaria carregada.* Descartada: a consulta de agendamentos bloqueantes inclui o serviço.
-- *H3: o filtro de status estaria errado.* Descartada: o filtro por status confirmado está correto e é intencional.
+
+- *H2: o problema estaria em `WorkSchedule.FitsWithinSchedule`.* Descartada: esse método usa `IsContainedIn`, que compara com o expediente e rejeita corretamente horários fora da jornada. O defeito só aparece quando **não** há verificação de jornada — como em `Appointment.Create` direto.
+- *H3: o problema estaria no fuso horário.* Descartada: `TimeRange` trabalha com minutos inteiros, sem fuso.
 
 ---
 
 ## E04 — Técnica de depuração aplicada
 
-**Técnica principal: inspeção de variáveis em teste isolado.**
+**Técnica principal: teste de reprodução com inspeção de valores intermediários.**
 
-O método `HasOverlap` é privado e estático, o que impede chamá-lo diretamente. A investigação foi feita reproduzindo o cálculo em um teste que exercita o mesmo algoritmo com os valores do cenário, inspecionando os valores intermediários.
+O defeito está em um cálculo puro, sem dependência externa. A técnica mais direta foi escrever um teste que exercita o cálculo com os valores do cenário e inspeciona o valor intermediário (`EndMinutes`), tornando visível o número que a lógica produz.
 
 **Evidência da técnica:**
 
 | Passo | Ação | Resultado observado |
 | --- | --- | --- |
-| 1 | Calcular `existing.Time.AddMinutes(30)` com `existing.Time = 23:50` | `00:20` |
-| 2 | Comparar `23:55 < 00:20` | `false` |
-| 3 | Concluir que a sobreposição não é detectada | Confirmado |
+| 1 | Criar agendamento às 23:50 com 60 min | Aceito, sem exceção |
+| 2 | Inspecionar `OccupiedRange.EndMinutes` | `1490` |
+| 3 | Comparar com `TimeRange.MinutesPerDay` | `1490 > 1440` — fora do dia |
+| 4 | Comparar dois agendamentos de dias diferentes | `Overlaps` retorna `false` |
 
-**Técnica complementar: análise de logs.** O middleware de exceções registra `TraceId` e a mensagem de erro, mas o defeito **não** gera exceção — ele produz um resultado silenciosamente errado. Por isso os logs não ajudam a localizá-lo; é necessário inspecionar o cálculo.
+**Técnica complementar: inspeção do código-fonte.** A leitura de `TimeRange.From` confirmou que não há validação de limite superior — o que explica o valor observado.
+
+**Por que não usei breakpoint:** o defeito é determinístico e puro. Um teste que imprime o valor intermediário dá a mesma informação com menos cerimônia e deixa a evidência permanente no repositório.
 
 ---
 
 ## E05 — Causa raiz e correção
 
-**Causa raiz:** o tipo `TimeOnly` representa um horário do dia, não um instante. Usá-lo para calcular o término de um intervalo que pode cruzar a meia-noite produz um valor que não é comparável com o início. A causa **não** é a localização do código, mas a escolha do tipo para representar um intervalo.
+**Causa raiz:** `TimeRange` foi desenhado para representar um intervalo **dentro de um dia**, mas `From` não impõe essa invariante. A causa **não** é a localização do código, mas a ausência da validação que dá sentido ao tipo.
 
-**Correção a adotar na implementação nova:** calcular os intervalos em **minutos desde a meia-noite**, que são comparáveis como inteiros.
+**Correção aplicada:** a regra não é global — depende do segmento. Foi introduzida a política `IOvernightPolicy` (ADR-018), com duas implementações:
+
+- `NoOvernightPolicy` — padrão. Proíbe atendimento que termina após a meia-noite. Usada por barbearias, salões e estúdios de unhas.
+- `AllowOvernightPolicy` — permite, com limite de 4 horas após a meia-noite. Usada por tatuagem, massoterapia e tranças.
+
+`Appointment.Create` recebe a política como parâmetro opcional. Sem política explícita, aplica `NoOvernightPolicy` — o padrão é restritivo, nunca permissivo por omissão.
 
 ```csharp
-private static int ToMinutes(TimeOnly time) => time.Hour * 60 + time.Minute;
+var policy = overnightPolicy ?? new NoOvernightPolicy();
+policy.EnsureAllowed(TimeRange.From(time, durationMinutes));
+```
 
-private static bool HasOverlap(
-    IEnumerable<Appointment> appointments,
-    TimeOnly time,
-    int duration)
+```csharp
+public static TimeRange From(TimeOnly start, int durationMinutes)
 {
-    var newStart = ToMinutes(time);
-    var newEnd = newStart + duration;
-
-    return appointments.Any(existing =>
+    if (durationMinutes <= 0)
     {
-        var existingStart = ToMinutes(existing.Time);
-        var existingEnd = existingStart + existing.DurationMinutes;
-        return newStart < existingEnd && newEnd > existingStart;
-    });
+        throw new DomainRuleException("A duração deve ser maior que zero.");
+    }
+
+    var startMinutes = ToMinutes(start);
+    var endMinutes = startMinutes + durationMinutes;
+
+    if (endMinutes > MinutesPerDay)
+    {
+        throw new DomainRuleException(
+            "O atendimento não pode terminar após a meia-noite.");
+    }
+
+    return new TimeRange(startMinutes, endMinutes);
 }
 ```
 
-**Por que esta é a menor correção coerente:** o problema está no cálculo do intervalo, não na consulta nem no filtro. Corrigir o cálculo resolve a classe inteira de defeitos (qualquer duração que cruze a meia-noite), sem alterar contratos públicos nem a assinatura do método.
+**Por que esta é a correção coerente:** o defeito não era a ausência de validação, mas a ausência de uma **regra explícita**. Proibir globalmente resolveria o caso da barbearia e quebraria o da tatuagem. A política torna a regra explícita, configurável por segmento e testável isoladamente.
 
-**Demonstração de que o comportamento incorreto é eliminado:** o teste `HasOverlap_Detecta_Sobreposicao_Que_Cruza_Meia_Noite` reproduz o cenário de E02 e rejeita o agendamento.
+**Alternativas descartadas:**
+
+- *Proibir globalmente em `TimeRange.From`.* Descartada: quebraria segmentos com sessões longas e contradiria o requisito R5-CA4.
+- *Booleano `AllowsOvernight` no agendamento.* Descartada: a variação é de comportamento, não de dado. Um booleano exigiria condicionais no núcleo (ADR-018).
+- *Validar apenas em `Appointment.Create`.* Descartada: seria remédio local, sem contrato explícito nem testabilidade isolada.
 
 ---
 
@@ -122,24 +152,34 @@ private static bool HasOverlap(
 
 ### Verificação antes e depois
 
-| Cenário | Algoritmo ingênuo | Algoritmo corrigido |
-| --- | --- | --- |
-| 23:50 (30 min) vs 23:55 (30 min) | Aceito — **incorreto** | Rejeitado — **correto** |
-| 10:00 (30 min) vs 10:15 (30 min) | Rejeitado — correto | Rejeitado — correto |
-| 10:00 (30 min) vs 11:00 (30 min) | Aceito — correto | Aceito — correto |
+| Cenário | Antes | Política padrão | Política de sessão longa |
+| --- | --- | --- | --- |
+| 23:50 + 60 min | Aceito — **incorreto** | Rejeitado — correto | Aceito — correto |
+| 23:50 + 10 min (termina 24:00) | Aceito | Aceito — correto | Aceito — correto |
+| 10:00 + 60 min | Aceito | Aceito — correto | Aceito — correto |
+| 22:00 + 8h | Aceito — **incorreto** | Rejeitado — correto | Rejeitado — correto (limite de 4h) |
 
-**Não regressão:** os cenários diurnos mantêm o comportamento esperado. A correção não altera a assinatura do método nem os contratos públicos.
+**Não regressão:** os cenários diurnos mantêm o comportamento em ambas as políticas. Os 130 testes passam após a correção.
 
 ### Comparação entre técnicas de depuração
 
-| Critério | Inspeção de variáveis em teste isolado | Análise de logs |
+| Critério | Teste de reprodução com inspeção | Breakpoint no depurador |
 | --- | --- | --- |
-| Adequação ao defeito | **Alta** — o defeito é um valor calculado errado | **Baixa** — não há exceção nem log de erro |
-| Custo de preparação | Baixo — um teste com os valores do cenário | Baixo — já existe logging estruturado |
-| Precisão da localização | **Alta** — aponta a linha exata do cálculo | Baixa — indica apenas que a operação "deu certo" |
-| Dependência de reprodução | Precisa reproduzir o cenário | Precisa que o cenário tenha ocorrido em produção |
-| Aplicabilidade a defeitos silenciosos | **Alta** | **Nula** |
+| Adequação ao defeito | **Alta** — cálculo puro e determinístico | Alta, mas exige sessão interativa |
+| Permanência da evidência | **Alta** — o teste fica no repositório | Nula — a sessão termina |
+| Custo de preparação | Baixo — um teste | Médio — configurar e anexar o depurador |
+| Precisão da localização | **Alta** — aponta o valor exato | **Alta** — para na linha exata |
+| Repetibilidade | **Alta** — roda no pipeline | Baixa — manual |
+| Aplicabilidade a defeitos de cálculo | **Alta** | Alta |
 
-**Recomendação:** para defeitos que produzem resultado errado **sem** exceção — como este —, a inspeção de variáveis em teste isolado é a técnica adequada, porque torna visível o valor intermediário que a lógica usa. A análise de logs é mais eficaz para defeitos que interrompem o fluxo ou geram erro explícito; para defeitos silenciosos, ela não oferece sinal.
+**Recomendação:** para defeitos de cálculo puro, o teste de reprodução é superior ao breakpoint porque deixa a evidência permanente e roda no pipeline. O breakpoint é mais eficaz para defeitos que dependem de estado complexo ou de fluxo entre camadas, onde a reprodução isolada é difícil.
 
-**Técnica recomendada para o projeto:** combinar as duas — logs estruturados para detectar anomalias em produção e testes de cenário de fronteira para localizar a causa. A fronteira de meia-noite deve ser coberta por teste desde o início; a ausência desse teste é a causa de o defeito passar despercebido.
+**Técnica recomendada para o projeto:** teste de reprodução como padrão, com breakpoint reservado para investigação de fluxo entre camadas.
+
+---
+
+## Defeito anterior — DEF-001
+
+O registro anterior descrevia o `DEF-001` (comparação de intervalos com `TimeOnly` cíclico) como **risco de desenho**, evitado na origem pelo `TimeRange`. Ele permanece documentado como decisão de projeto, não como defeito corrigido.
+
+O `DEF-002` é o defeito **real** deste registro: existia no código, foi reproduzido e foi corrigido.

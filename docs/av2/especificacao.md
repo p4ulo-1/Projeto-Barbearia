@@ -193,6 +193,20 @@ O Servia gerencia agendamentos de serviços entre clientes e profissionais. Cada
 | R5-CA3 | Agendamento cancelado não bloqueia o horário | `AppointmentServiceTests.Criar_Ignora_Agendamento_Cancelado` |
 | R5-CA4 | Sobreposição que cruza a meia-noite é detectada | `AppointmentServiceTests.HasOverlap_Detecta_Sobreposicao_Que_Cruza_Meia_Noite` |
 
+**Regra complementar — atendimento noturno (R6):** se o atendimento pode terminar após a meia-noite depende do segmento, por meio da política `IOvernightPolicy` (ADR-018).
+
+| Política | Segmentos | Comportamento |
+| --- | --- | --- |
+| `NoOvernightPolicy` (padrão) | Barbearia, salão, unhas | Proíbe terminar após a meia-noite |
+| `AllowOvernightPolicy` | Tatuagem, massoterapia, tranças | Permite, com limite de 4 horas após a meia-noite |
+
+| # | Critério | Verificação |
+| --- | --- | --- |
+| R6-CA1 | Sem política explícita, o padrão proíbe | `DefectReproTests.DEF002_Sem_Politica_Rejeita_Atendimento_Que_Ultrapassa_Meia_Noite` |
+| R6-CA2 | Política padrão rejeita | `DefectReproTests.DEF002_NoOvernightPolicy_Rejeita_Atendimento_Que_Ultrapassa_Meia_Noite` |
+| R6-CA3 | Política de sessão longa aceita | `DefectReproTests.DEF002_AllowOvernightPolicy_Aceita_Atendimento_Que_Ultrapassa_Meia_Noite` |
+| R6-CA4 | Política de sessão longa respeita o limite | `DefectReproTests.DEF002_AllowOvernightPolicy_Rejeita_Sessao_Acima_Do_Limite` |
+
 ---
 
 ## 4. Estados do agendamento
