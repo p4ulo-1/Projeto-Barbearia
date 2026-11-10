@@ -1,8 +1,9 @@
 # Modelo de Classes — Plataforma SaaS
 
-> **Status:** baseline v1, derivado de `docs/funcionalidades.md`.
+> **Status:** baseline v2, revisado em 2026-11-10 conforme `docs/diretrizes.md`.
 > **Escopo:** modelo de domínio completo da plataforma (multi-tenant), incluindo entidades já existentes e as novas.
 > **Convenção:** entidades de negócio carregam `TenantId`; agregados protegem invariantes por métodos de domínio, não por setters públicos.
+> **Identidade:** não existe identidade global de usuário. Cada tenant tem seus próprios cadastros (diretrizes §3.1).
 
 ---
 
@@ -10,16 +11,16 @@
 
 | Contexto | Responsabilidade | Agregados principais |
 | --- | --- | --- |
-| **Plataforma** | Tenants, planos, assinatura do SaaS, faturamento da plataforma | `Tenant`, `Plan`, `Subscription`, `PlatformInvoice` |
+| **Plataforma** | Tenants, planos, assinatura do SaaS, faturamento da plataforma, consumo tarifado | `Tenant`, `Plan`, `Subscription`, `PlatformInvoice`, `UsageQuota`, `CreditPurchase` |
 | **Identidade e Acesso** | Usuários, papéis, permissões, sessões | `User`, `Role`, `Permission`, `RefreshToken`, `Invitation` |
 | **Catálogo** | Serviços, categorias, combos, vínculo com profissionais | `Service`, `ServiceCategory`, `ServiceVariant`, `ServiceCombo` |
 | **Equipe** | Profissionais, jornada, bloqueios, vínculo com serviços | `Professional`, `WorkSchedule`, `ScheduleBlock`, `ProfessionalService` |
-| **Agendamento** | Disponibilidade, reservas, estados do atendimento | `Appointment`, `AvailabilitySlot`, `WaitlistEntry` |
+| **Agendamento** | Disponibilidade, reservas, estados do atendimento, concorrência | `Appointment`, `AvailabilitySlot`, `WaitlistEntry`, `ScheduleLock` |
 | **Clientes** | Cadastro, histórico, preferências, consentimento | `Customer`, `CustomerPreference`, `ConsentRecord` |
-| **Financeiro** | Pagamentos, receitas, despesas, comissões | `Payment`, `Transaction`, `CommissionRule`, `CommissionEntry` |
+| **Financeiro** | Pagamentos, receitas, despesas, comissões — **domínio independente do billing** | `Payment`, `Transaction`, `CommissionRule`, `CommissionEntry` |
 | **Assinaturas do negócio** | Clubes, pacotes, benefícios | `MembershipPlan`, `Membership`, `ServicePackage`, `PackageUsage` |
 | **Site e Conteúdo** | Site por tenant, páginas, seções, publicação | `Site`, `SitePage`, `SiteSection`, `SitePublication` |
-| **IA** | Geração e personalização de site, guardrails | `AiGenerationRequest`, `AiChangeSet`, `AiOperationLog` |
+| **IA** | Geração e personalização de site, guardrails, cobrança de alteração | `AiGenerationRequest`, `AiChangeSet`, `AiOperationLog`, `SiteChangeCharge` |
 | **Comunicação** | Notificações, templates, conversas WhatsApp | `Notification`, `MessageTemplate`, `Conversation`, `Message` |
 | **Auditoria** | Registro imutável de ações sensíveis | `AuditEntry` |
 
@@ -58,9 +59,14 @@ Plano comercial da plataforma.
 | `Name` | `string` |
 | `MonthlyPrice` | `Money` |
 | `IncludedProfessionals` | `int` |
-| `ExtraProfessionalPrice` | `Money` |
+| `SiteCustomizationLevel` | `SiteCustomizationLevel` |
+| `IncludedAiUnits` | `int` |
 | `IncludedModules` | `IReadOnlyCollection<ModuleType>` |
 | `IsActive` | `bool` |
+
+Métodos: `AllowsProfessionals(count)`, `AllowsCustomization(level)`, `AiAllowance()`.
+
+Invariantes: **não existe preço por profissional excedente** — ao ultrapassar `IncludedProfessionals`, o tenant precisa subir de plano (diretrizes §8.2 / decisão D9). Todos os planos incluem todos os módulos; a diferenciação é quantidade de profissionais, grau de personalização do site e **franquia mensal de IA**. A franquia de WhatsApp **não** é do plano: o consumo é tarifado e a franquia gratuita vem da Meta.
 
 #### `Subscription`
 Assinatura de um tenant a um plano.
@@ -93,6 +99,57 @@ Fatura da plataforma contra o tenant.
 
 Métodos: `MarkPaid(gatewayPaymentId)`, `MarkFailed(reason)`, `IsOverdue(now)`.
 
+#### `UsageQuota`
+Cota de consumo de um recurso medido, por tenant e por período de faturamento.
+
+| Membro | Tipo | Descrição |
+| --- | --- | --- |
+| `Id` | `Guid` | |
+| `TenantId` | `Guid` | |
+| `Resource` | `QuotaResource` | WhatsApp ou IA |
+| `PeriodStart` / `PeriodEnd` | `DateOnly` | Período de faturamento |
+| `Included` | `int` | Franquia do período |
+| `Consumed` | `int` | Consumo acumulado |
+| `PurchasedExtra` | `int` | Créditos comprados antecipadamente |
+| `TenantLimit` | `int?` | Teto definido pelo estabelecimento |
+| `BillingMode` | `ConsumptionBillingMode` | Automática ou créditos |
+
+Métodos: `TryConsume(quantity)`, `Remaining()`, `AddExtra(quantity)`, `SetTenantLimit(limit)`, `Reset(period)`.
+
+Invariantes:
+
+- `TryConsume` retorna falso quando `Consumed + quantity > Included + PurchasedExtra` **ou** quando ultrapassa `TenantLimit`.
+- O consumo nunca ultrapassa o limite sem autorização (diretrizes §7.1).
+- Para WhatsApp, `Included` reflete a **franquia gratuita da Meta repassada ao tenant** — não há subsídio de mensagens com custo.
+- Para IA, `Included` é a **franquia mensal do plano**; o excedente é cobrado adicionalmente.
+- Os dois recursos são contabilizados e cobrados **separadamente**.
+
+#### `ConsumptionBillingMode` (enum)
+`Automatic`, `PrepaidCredits` — modalidade escolhida pelo estabelecimento para o WhatsApp.
+
+#### `CreditPurchase`
+Compra antecipada de créditos de consumo.
+
+| Membro | Tipo |
+| --- | --- |
+| `Id` | `Guid` |
+| `TenantId` | `Guid` |
+| `Resource` | `QuotaResource` |
+| `Quantity` | `int` |
+| `Amount` | `Money` |
+| `PurchasedAt` | `DateTimeOffset` |
+| `PlatformInvoiceId` | `Guid?` |
+
+Métodos: `MarkPaid(invoiceId)`, `ApplyTo(quota)`.
+
+Invariantes: créditos só são aplicados à cota após o pagamento confirmado.
+
+#### `QuotaResource` (enum)
+`WhatsAppMessages`, `AiUnits`. Os dois recursos têm franquias e cobranças independentes.
+
+#### `SiteCustomizationLevel` (enum)
+`Basic`, `Intermediate`, `Advanced`, `Full` — grau de personalização do site permitido pelo plano.
+
 #### `ModuleType` (enum)
 `Membership`, `Packages`, `Commissions`, `WhatsAppAutomation`, `Loyalty`, `AiSiteBuilder`, `OnlinePayments`.
 
@@ -107,14 +164,14 @@ Estados de ciclo de vida do tenant, da assinatura e da fatura.
 ### 2.2. Contexto Identidade e Acesso
 
 #### `User`
-Usuário da plataforma. Pode ser membro da equipe de um tenant ou cliente final.
+Usuário **de um tenant**. Pode ser membro da equipe ou cliente final.
 
 | Membro | Tipo | Descrição |
 | --- | --- | --- |
 | `Id` | `Guid` | |
-| `TenantId` | `Guid?` | Nulo para administradores da plataforma |
+| `TenantId` | `Guid?` | Nulo **apenas** para administradores da plataforma |
 | `Name` | `string` | |
-| `Email` | `string` | Único por tenant |
+| `Email` | `string` | Único **por tenant** |
 | `Phone` | `string?` | |
 | `PasswordHash` | `string` | |
 | `Role` | `Role` | Papel dentro do tenant |
@@ -122,6 +179,8 @@ Usuário da plataforma. Pode ser membro da equipe de um tenant ou cliente final.
 | `LastLoginAt` | `DateTimeOffset?` | |
 
 Métodos: `ChangePassword(newHash)`, `Deactivate()`, `Activate()`, `UpdateProfile(...)`.
+
+Invariantes: **não existe identidade global de usuário** (diretrizes §3.1). A mesma pessoa física que frequenta dois estabelecimentos possui dois registros `User` independentes, sem vínculo, sem e-mail compartilhado e sem qualquer relacionamento automático entre eles. O e-mail é único dentro do tenant, não globalmente.
 
 #### `Role` (enum)
 `PlatformAdmin`, `Owner`, `Administrator`, `Professional`, `Receptionist`, `Customer`.
@@ -310,6 +369,24 @@ Invariantes: só transições a partir de `Confirmed`; `Complete` rejeita data f
 
 #### `AppointmentStatus` (enum)
 `Pending`, `Confirmed`, `Cancelled`, `Completed`, `NoShow`.
+
+#### `ScheduleLock`
+Trava de reserva usada para garantir consistência sob concorrência (diretrizes §4.1).
+
+| Membro | Tipo |
+| --- | --- |
+| `Id` | `Guid` |
+| `TenantId` | `Guid` |
+| `ProfessionalId` | `Guid` |
+| `Date` | `DateOnly` |
+| `StartTime` | `TimeOnly` |
+| `EndTime` | `TimeOnly` |
+| `AppointmentId` | `Guid?` |
+| `ExpiresAt` | `DateTimeOffset` |
+
+Métodos: `IsActive(now)`, `Release()`.
+
+Invariantes: existe **no máximo uma** trava ativa por `(TenantId, ProfessionalId, Date, StartTime)` — garantida por índice único parcial no banco. A criação do agendamento adquire a trava dentro de transação; se a trava já existir, a reserva é rejeitada. A trava expira se a transação não concluir, evitando bloqueio permanente.
 
 #### `AvailabilitySlot`
 Objeto de valor calculado, não persistido.
@@ -609,6 +686,23 @@ Invariantes: nenhuma alteração chega ao site publicado sem `Approve`.
 | `Cost` | `decimal` |
 | `GuardrailViolations` | `json?` |
 
+#### `SiteChangeCharge`
+Cobrança avulsa de uma alteração de site solicitada **após a publicação** (diretrizes §6 / ADR-007).
+
+| Membro | Tipo |
+| --- | --- |
+| `Id` | `Guid` |
+| `TenantId` | `Guid` |
+| `SiteId` | `Guid` |
+| `RequestId` | `Guid` |
+| `Amount` | `Money` |
+| `Status` | `ChargeStatus` |
+| `PlatformInvoiceId` | `Guid?` |
+
+Métodos: `MarkBilled(invoiceId)`, `Waive(reason)`.
+
+Invariantes: a geração inicial e a publicação **não** geram cobrança; apenas alterações posteriores ao lançamento geram `SiteChangeCharge`. A cobrança é registrada **antes** de executar a alteração, com aviso explícito de custo ao tenant.
+
 ---
 
 ### 2.11. Contexto Comunicação
@@ -701,6 +795,14 @@ Somente inserção; sem métodos de alteração ou exclusão.
 | --- | --- |
 | `ITenantScoped` | Marca entidades de negócio que possuem `TenantId`; base do filtro global do EF Core |
 | `ITenantContext` | Resolve o tenant da requisição e alimenta o filtro global |
+| `ITenantMembershipValidator` | Verifica que o usuário autenticado pertence ao tenant em que tenta atuar (diretrizes §3) |
+| `IWhatsAppPartnerGateway` | Abstrai a operação do WhatsApp como Solution Partner da Meta: envio, tarifação e repasse da franquia gratuita |
+| `IConsumptionBillingService` | Apura consumo por recurso e gera linhas de cobrança separadas (WhatsApp e IA) |
+| `IBookingPolicy` | Política de agendamento por segmento: antecedência, sinal, no-show, cancelamento |
+| `IAvailabilityPolicy` | Política de disponibilidade por segmento: granularidade, duração variável, múltiplos blocos |
+| `ICommissionPolicy` | Política de cálculo de comissão |
+| `IBenefitPolicy` | Política de consumo de clube e pacote |
+| `IUsageQuotaService` | Mede e limita consumo por tenant (WhatsApp, alterações de site) |
 | `IPaymentGateway` | Abstrai o gateway de pagamento; implementação confirmada: Mercado Pago (cobrança, assinatura, estorno, webhook) |
 | `IMessagingProvider` | Abstrai Cloud API da Meta e provedores alternativos |
 | `IAiSiteGenerator` | Abstrai o provedor de LLM para geração de site |
@@ -740,8 +842,42 @@ classDiagram
         +string Name
         +Money MonthlyPrice
         +int IncludedProfessionals
-        +Money ExtraProfessionalPrice
+        +SiteCustomizationLevel SiteCustomizationLevel
+        +int IncludedAiUnits
         +bool IsActive
+        +AllowsProfessionals(count) bool
+        +AllowsCustomization(level) bool
+        +AiAllowance() int
+    }
+
+    class UsageQuota {
+        +Guid Id
+        +Guid TenantId
+        +QuotaResource Resource
+        +DateOnly PeriodStart
+        +DateOnly PeriodEnd
+        +int Included
+        +int Consumed
+        +int PurchasedExtra
+        +int? TenantLimit
+        +ConsumptionBillingMode BillingMode
+        +TryConsume(quantity) bool
+        +Remaining() int
+        +AddExtra(quantity)
+        +SetTenantLimit(limit)
+        +Reset(period)
+    }
+
+    class CreditPurchase {
+        +Guid Id
+        +Guid TenantId
+        +QuotaResource Resource
+        +int Quantity
+        +Money Amount
+        +DateTimeOffset PurchasedAt
+        +Guid? PlatformInvoiceId
+        +MarkPaid(invoiceId)
+        +ApplyTo(quota)
     }
 
     class Subscription {
@@ -918,6 +1054,19 @@ classDiagram
         +Reschedule(date, time)
         +MarkNoShow()
         +RegisterDeposit(paymentId)
+    }
+
+    class ScheduleLock {
+        +Guid Id
+        +Guid TenantId
+        +Guid ProfessionalId
+        +DateOnly Date
+        +TimeOnly StartTime
+        +TimeOnly EndTime
+        +Guid? AppointmentId
+        +DateTimeOffset ExpiresAt
+        +IsActive(now) bool
+        +Release()
     }
 
     class AvailabilitySlot {
@@ -1145,6 +1294,18 @@ classDiagram
         +decimal Cost
     }
 
+    class SiteChangeCharge {
+        +Guid Id
+        +Guid TenantId
+        +Guid SiteId
+        +Guid RequestId
+        +Money Amount
+        +ChargeStatus Status
+        +Guid? PlatformInvoiceId
+        +MarkBilled(invoiceId)
+        +Waive(reason)
+    }
+
     %% ===== COMUNICAÇÃO =====
     class Notification {
         +Guid Id
@@ -1205,6 +1366,10 @@ classDiagram
     Tenant "1" --> "1" Subscription : possui
     Plan "1" --> "0..*" Subscription : define
     Subscription "1" --> "0..*" PlatformInvoice : fatura
+    Tenant "1" --> "0..*" UsageQuota : consome
+    Plan "1" --> "0..*" UsageQuota : franquia IA
+    Tenant "1" --> "0..*" CreditPurchase : compra
+    CreditPurchase "0..1" --> "0..1" PlatformInvoice : fatura
     Tenant "1" --> "0..*" User : membros
     User "1" --> "0..*" RefreshToken : sessões
     Tenant "1" --> "0..*" Invitation : convites
@@ -1225,6 +1390,8 @@ classDiagram
     Professional "1" --> "0..*" Appointment : atende
     Service "1" --> "0..*" Appointment : referencia
     Appointment ..> AvailabilitySlot : calcula
+    Appointment "1" --> "0..1" ScheduleLock : reserva
+    Professional "1" --> "0..*" ScheduleLock : trava
     Tenant "1" --> "0..*" WaitlistEntry : fila
 
     Tenant "1" --> "0..*" Customer : clientes
@@ -1259,6 +1426,8 @@ classDiagram
     AiGenerationRequest "1" --> "0..*" AiChangeSet : propõe
     AiGenerationRequest "1" --> "0..*" AiOperationLog : registra
     AiChangeSet ..> SitePublication : aprova
+    AiGenerationRequest "1" --> "0..1" SiteChangeCharge : cobra
+    SiteChangeCharge "0..1" --> "0..1" PlatformInvoice : fatura
 
     Tenant "1" --> "0..*" Notification : notificações
     Tenant "1" --> "0..*" MessageTemplate : templates
@@ -1283,3 +1452,13 @@ classDiagram
 5. **`AuditEntry` somente inserção** — sem métodos de alteração, garantindo imutabilidade do log.
 6. **`Money` como objeto de valor** — evita ambiguidade de moeda e centraliza a regra de valor não negativo.
 7. **`AvailabilitySlot` não é persistido** — é calculado a partir de `WorkSchedule`, `ScheduleBlock` e `Appointment` existentes.
+8. **Não existe identidade global de usuário** (diretrizes §3.1) — a mesma pessoa física tem registros `User` independentes em cada tenant. Não há tabela de identidade compartilhada, não há vínculo entre os registros e o e-mail é único apenas dentro do tenant. Isso é intencional: reforça o isolamento e evita uma entidade global que atravesse a fronteira dos tenants.
+9. **`ScheduleLock` é a garantia de concorrência** (diretrizes §4.1) — a verificação de disponibilidade **não** é suficiente sozinha. A reserva adquire a trava dentro de transação, e o índice único parcial em `(TenantId, ProfessionalId, Date, StartTime)` faz o banco rejeitar a segunda reserva concorrente. A trava tem expiração para não bloquear a agenda em caso de falha.
+10. **`UsageQuota` mede consumo tarifado, não bloqueio de módulo** (diretrizes §7.1) — o consumo é medido por tenant e por período, e `TryConsume` falha ao atingir o limite. O bloqueio acontece no servidor, nunca no cliente. Todos os planos têm acesso a WhatsApp e IA; o que varia é a franquia incluída.
+11. **`SiteChangeCharge` separa geração de alteração** — a geração inicial e a publicação estão incluídas no plano; apenas alterações posteriores ao lançamento geram cobrança avulsa.
+12. **Políticas em vez de condicionais de segmento** (diretrizes §2) — `IBookingPolicy`, `IAvailabilityPolicy`, `ICommissionPolicy` e `IBenefitPolicy` são injetadas no núcleo. O núcleo não consulta `Segment` para decidir comportamento.
+13. **Financeiro e billing são domínios independentes** (diretrizes §8) — `Payment`/`Transaction`/`CommissionEntry` pertencem ao tenant; `PlatformInvoice`/`Subscription`/`SiteChangeCharge` pertencem à plataforma. Nenhum agregado de um contexto referencia o outro em suas regras.
+14. **WhatsApp é operado pelo Servia como Solution Partner** — o Servia centraliza a integração e o pagamento à Meta. O estabelecimento não contrata a Meta diretamente; consome o serviço operado. A operação depende de aprovação e linha de crédito junto à Meta.
+15. **Consumo de WhatsApp é tarifado, sem subsídio** — mensagens com custo **não** são incluídas gratuitamente nos planos. A franquia gratuita da Meta é **repassada** ao tenant (`UsageQuota.Included`), não retida pela plataforma. O estabelecimento escolhe entre cobrança automática (`Automatic`) e compra antecipada de créditos (`PrepaidCredits`), e pode definir `TenantLimit` próprio.
+16. **Franquia de IA é própria do plano** — `Plan.IncludedAiUnits` define a franquia mensal; o excedente é cobrado adicionalmente. A franquia de IA é independente da de WhatsApp.
+17. **WhatsApp e IA são cobrados em linhas separadas** — `IConsumptionBillingService` apura cada recurso e gera linhas distintas na fatura, permitindo ao tenant identificar a origem do custo e controlar gastos.

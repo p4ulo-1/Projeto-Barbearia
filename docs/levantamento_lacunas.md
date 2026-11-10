@@ -1,19 +1,17 @@
-# Inventário do Código Legado — Base para a Migração (F1.4)
+# Inventário do Código Acadêmico — Registro Histórico
 
-> **Status:** documento ativo, enxugado em 2026-11-04.
-> **Propósito:** descrever o que **existe de fato** no repositório hoje. É o insumo da entrega **F1.4 do Roadmap** — "Migração do sistema atual como primeiro tenant".
-> **Não é mais:** registro de lacunas nem de decisões pendentes. O diagnóstico original foi absorvido pelo catálogo `docs/funcionalidades.md`; as decisões estruturais estão em `docs/funcionalidades.md` §0, `docs/gerenciamento/ARCH.md` §13 e nos 14 ADRs.
-> **Atenção:** este documento descreve o **estado atual do código**, não a arquitetura-alvo. Para o alvo, consulte `docs/gerenciamento/ARCH.md`.
+> **Status:** registro histórico. Não é insumo de implementação.
+> **Propósito:** documentar o que existe no código acadêmico em `backend/` e `frontend/`, para preservar a memória da origem do projeto.
+> **Decisão vigente:** o Servia é um **sistema novo** (ADR-001). O código acadêmico **não** é reaproveitado, não é base de implementação e não é fonte de regras.
+> **Atenção:** este documento descreve o **estado do código acadêmico**, não a arquitetura-alvo. Para o alvo, consulte `docs/gerenciamento/ARCH.md`.
 
 ---
 
-## 1. O que existe hoje (código real)
+## 1. O que existe no código acadêmico
 
 ### Backend — C# / .NET 10, 5 projetos em camadas
 
-`Servia.Api → Servia.Application → Servia.Infrastructure → Servia.Domain` (+ `Servia.Tests`)
-
-> Os projetos no código-fonte ainda usam o prefixo `BackAndre.*`, herdado da fase acadêmica. A renomeação física está planejada para uma etapa própria; a documentação já usa `Servia`.
+`BackAndre.Api → BackAndre.Application → BackAndre.Infrastructure → BackAndre.Domain` (+ `BackAndre.Tests`)
 
 | Camada | Conteúdo |
 | --- | --- |
@@ -31,41 +29,45 @@ Persistência: **EF Core + SQLite** (`barbearia.db`), sem Docker, sem CI.
 - Estado: React Context (`StoreProvider`), sem Redux/Zustand.
 - API client tipado com JWT em `localStorage` e evento de 401.
 
-### Documentação existente
+---
 
-- `README.md` raiz — identificação acadêmica no topo (preservada) e visão SaaS da plataforma.
-- `backend/README.md`, `backend/ARQUITETURA.md`, `frontend/README.md`.
-- `docs/descricao_produto.md` — visão SaaS multi-segmento.
-- `docs/funcionalidades.md`, `docs/classes.md`, `docs/gerenciamento/` — documentação SDD da plataforma.
+## 2. Por que não é reaproveitado
+
+O código acadêmico foi construído para um único estabelecimento, com um modelo fixo de barbearia e sem multi-tenancy. Adaptá-lo exigiria:
+
+- refatorar todas as entidades para incluir `TenantId` e isolamento em todas as camadas;
+- substituir a persistência e reescrever as migrations;
+- reescrever o frontend por superfícies de produto;
+- remover decisões do modelo single-shop que contaminariam o desenho novo.
+
+O custo dessa adaptação supera o custo de construir o domínio do zero a partir de `docs/classes.md`, que já define o modelo correto para multi-tenancy e multi-segmento.
+
+**Decisão registrada em:** ADR-001.
 
 ---
 
-## 2. O que precisa mudar no código para a migração (F1.4)
+## 3. O que o código acadêmico demonstra
 
-Resumo operacional do que a entrega F1.4 exige sobre o código acima. O detalhamento de cada item está nas fases correspondentes do `Roadmap.md`.
+O código acadêmico serve como **evidência de domínio mínimo** — mostra quais áreas o Servia precisa cobrir. Não serve como referência de implementação.
 
-| Item existente | Mudança necessária | Fase |
-| --- | --- | --- |
-| `User` com papéis `client`/`admin` | Separar `Customer` de `User`; papéis por tenant (`Owner`, `Administrator`, `Professional`, `Receptionist`, `Customer`) | F1.5, F2.1 |
-| `Barber` + `BarberSchedule` | Generalizar para `Professional` (qualquer segmento) | F2.4 |
-| Entidades sem `TenantId` | Adicionar `TenantId` e implementar `ITenantScoped`; filtro global no EF Core | F1.2, F1.3 |
-| Repositórios concretos sem interfaces | Introduzir interfaces de repositório e `IUnitOfWork` | F1.3 |
-| EF Core + SQLite | Migrar para PostgreSQL; SQLite apenas em testes locais | F0.7 |
-| Sem Docker, sem CI | Dockerfile, `docker-compose` e pipeline no GitHub Actions | F0.1–F0.4 |
-| Landing estática hardcoded | Site por tenant com subdomínio e publicação | F3 |
-| Sem billing | `Tenant`, `Plan`, `Subscription`, `PlatformInvoice` e gateway Mercado Pago | F1.1, F4 |
-| Sem auditoria | `AuditEntry` para ações sensíveis | F1.8 |
-| Testes só de domínio | Testes de isolamento entre tenants obrigatórios no pipeline | F1.3, N01 |
+| Área | O que demonstra |
+| --- | --- |
+| Autenticação e usuários | Login, cadastro, perfil, troca de senha |
+| Catálogo de serviços | Cadastro, preço, duração, ativação |
+| Profissionais e jornada | Profissional com jornada semanal |
+| Agendamento | Disponibilidade, criação, remarcação, cancelamento, conclusão |
+| Site e agendamento público | Landing e wizard de agendamento |
 
 ---
 
-## 3. Referências
+## 4. Referências
 
 | Documento | Papel |
 | --- | --- |
 | `docs/descricao_produto.md` | Visão de produto original |
+| `docs/diretrizes.md` | Diretrizes e conclusões que revisaram o projeto |
 | `docs/funcionalidades.md` | Catálogo de funcionalidades e decisões estruturais |
 | `docs/classes.md` | Modelo de classes e diagrama Mermaid |
 | `docs/gerenciamento/Roadmap.md` | Fases F0–F9 e entregas |
-| `docs/gerenciamento/ADR.md` | 14 decisões arquiteturais aceitas |
+| `docs/gerenciamento/ADR.md` | 21 decisões arquiteturais aceitas |
 | `docs/gerenciamento/ARCH.md` | Arquitetura-alvo da plataforma |

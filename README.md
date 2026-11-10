@@ -23,14 +23,14 @@
 | **Professor** | André Campos |
 | **Projeto** | Servia (origem: New Age Barbearia) |
 
-### Integrantes
+## Integrantes
 
 | Integrante | Matrícula |
 | --- | --- |
 | Paulo Vitor Mendes Perez | 06014680 |
 | João Pedro Rocha Andrade | 06014599 |
 | Rikelv Ferraz da Rocha | 06015108 |
-| Gabriel Guerra | 06021409 |
+| Gabriel Pinheiro da Silva Guerra | 06021409 |
 | Guilherme Henrique Quintanilha | 06013890 |
 | Vitor Alexandre Rocha de Souza | 06014670 |
 

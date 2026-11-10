@@ -1,7 +1,7 @@
 # Funcionalidades — Plataforma SaaS de Gestão e Atendimento para Negócios de Serviços
 
-> **Status:** v1 aprovada — as 12 decisões estruturais foram confirmadas pelo responsável do produto em 2026-11-04.
-> **Fonte:** `docs/descricao_produto.md` (visão de produto) + código existente em `backend/` e `frontend/`.
+> **Status:** v2 — revisada em 2026-11-10 conforme `docs/diretrizes.md`.
+> **Fonte:** `docs/descricao_produto.md` (visão de produto) + `docs/diretrizes.md` (diretrizes e conclusões) + código existente em `backend/` e `frontend/`.
 > **Registro das decisões:** ver seção 0 e `docs/gerenciamento/ADR.md`.
 
 ---
@@ -10,7 +10,7 @@
 
 | # | Decisão | Escolha adotada | Status |
 | --- | --- | --- | --- |
-| P1 | Relação com o código atual | O sistema da barbearia vira o **primeiro tenant** da plataforma; backend e frontend são reaproveitados | ✅ confirmado |
+| P1 | Relação com o código atual | O Servia é um **sistema novo**, construído a partir destes documentos. O código acadêmico em `backend/` e `frontend/` **não** é reaproveitado e permanece apenas como registro histórico | ✅ confirmado (revisado em 2026-11-10) |
 | P2 | Multi-tenancy | **Banco único** com `TenantId` em todas as entidades de negócio + filtro global no EF Core | ✅ confirmado |
 | P3 | Banco de produção | **PostgreSQL**; SQLite apenas em testes locais | ✅ confirmado |
 | P4 | Escopo do MVP | **Escopo completo da descrição de produto** (fases F0–F9) | ✅ confirmado |
@@ -19,17 +19,27 @@
 | P7 | IA de site | LLM via API + biblioteca de componentes controlada pela plataforma; **provedor a definir na fase F8** | ✅ confirmado |
 | P8 | Infra | Docker + GitHub Actions + PaaS na primeira fase | ✅ confirmado |
 | P9 | LGPD | Cada estabelecimento é **controlador** dos dados dos seus clientes finais; a plataforma é **operadora** | ✅ confirmado |
+| P10 | Identidade dos usuários | **Cadastros independentes por tenant**: a mesma pessoa física tem registros distintos em cada estabelecimento, sem identidade global e sem vínculo automático entre eles | ✅ confirmado (diretrizes §3.1) |
+| P11 | Núcleo universal | Funcionalidades compartilhadas num núcleo único; particularidades por **módulos, políticas de negócio e polimorfismo**, nunca por condicionais de segmento no núcleo | ✅ confirmado (diretrizes §2) |
+| P12 | Concorrência no agendamento | A disponibilidade **não** é validada apenas por consulta prévia; a reserva usa controle de concorrência no banco | ✅ confirmado (diretrizes §4.1) |
+| P13 | Contextos financeiros | **Financeiro do estabelecimento** e **billing da plataforma** são domínios independentes, com regras e registros próprios | ✅ confirmado (diretrizes §8) |
+| P14 | Operação do WhatsApp | O Servia **centraliza** a integração e a operação do WhatsApp no modelo **Solution Partner**, pagando a Meta diretamente | ✅ confirmado |
+| P15 | Consumo tarifado | Cada estabelecimento paga pelo consumo que gerar; **não há subsídio** de mensagens com custo dentro dos planos | ✅ confirmado |
+| P16 | Franquia de IA | A IA tem **franquia mensal própria por plano**, com cobrança adicional pelo excedente | ✅ confirmado |
+| P17 | Cobrança separada | Custos de WhatsApp e de IA são contabilizados e cobrados **separadamente** | ✅ confirmado |
 
 ### 0.1. Modelo de planos
 
-**Todos os planos oferecem todos os serviços e módulos.** A diferença entre planos está na quantidade de profissionais incluídos e no grau de personalização do site.
+**Todos os planos oferecem todos os serviços e módulos.** A diferença entre planos está na quantidade de profissionais incluídos, no grau de personalização do site e nas **franquias de consumo** de WhatsApp e IA.
 
-| Plano | Profissionais incluídos | Módulos | Personalização do site | Observação |
-| --- | --- | --- | --- | --- |
-| Essencial | até 3 | Todos | Básica — ajustes limitados de tema e conteúdo | Entrada |
-| Pro | até 7 | Todos | Intermediária — mais seções e variações visuais | Mais vendido |
-| Premium | até 15 | Todos | Avançada — ampla liberdade de layout e identidade | Completo |
-| Business | ilimitado | Todos | Total — máxima liberdade de personalização | Grandes operações |
+| Plano | Profissionais incluídos | Módulos | Personalização do site | Franquia de IA/mês | Observação |
+| --- | --- | --- | --- | --- | --- |
+| Essencial | até 3 | Todos | Básica — ajustes limitados de tema e conteúdo | faixa base | Entrada |
+| Pro | até 7 | Todos | Intermediária — mais seções e variações visuais | faixa intermediária | Mais vendido |
+| Premium | até 15 | Todos | Avançada — ampla liberdade de layout e identidade | faixa ampliada | Completo |
+| Business | ilimitado | Todos | Total — máxima liberdade de personalização | faixa máxima | Grandes operações |
+
+> **Distinção importante:** franquia de consumo **não** é bloqueio de módulo. Todos os planos têm acesso a WhatsApp e IA; o que varia é a quantidade incluída antes de passar a cobrar consumo excedente. Nenhum módulo é desabilitado por plano.
 
 **Regra de cobrança:** a mensalidade do plano já inclui a quantidade de profissionais indicada. Não existe taxa por profissional excedente — ao ultrapassar o limite, o tenant precisa **subir de categoria**.
 
@@ -46,6 +56,49 @@
 - Em caso de inadimplemento: **3 dias de aviso com acesso total**, seguidos de **bloqueio de escrita**.
 - Durante o bloqueio de escrita, leitura e agenda continuam disponíveis por **15 dias**.
 - Após 15 dias de bloqueio, o tenant é suspenso por completo.
+
+### 0.2. Política comercial de WhatsApp e IA
+
+O WhatsApp é funcionalidade **necessária do produto**, não opcional (diretrizes §7.1). A operação é centralizada pelo Servia e o consumo é tarifado por estabelecimento.
+
+#### 0.2.1. Operação do WhatsApp pelo Servia
+
+- O Servia **administra a integração e a operação** do WhatsApp, centralizando o pagamento à Meta pelo modelo **Solution Partner**.
+- A operação depende de **aprovação e linha de crédito** junto à Meta. Enquanto não houver aprovação, a fase F6 não pode entrar em produção.
+- O estabelecimento **não** contrata a Meta diretamente; ele consome o serviço operado pelo Servia.
+
+#### 0.2.2. Consumo tarifado, sem subsídio
+
+- Cada estabelecimento **paga pelo consumo tarifado que gerar**.
+- **Não há subsídio**: mensagens com custo **não** são incluídas gratuitamente nos planos.
+- O uso gratuito disponibilizado pela Meta é **aproveitado dentro dos planos** do Servia — ou seja, a franquia gratuita da Meta é repassada ao tenant, não retida pela plataforma.
+
+#### 0.2.3. Formas de cobrança do WhatsApp
+
+O estabelecimento escolhe, por configuração:
+
+| Modalidade | Como funciona |
+| --- | --- |
+| **Cobrança automática** | O consumo é apurado no período e cobrado na fatura seguinte |
+| **Compra antecipada de créditos** | O estabelecimento compra créditos adicionais antes de consumir |
+
+#### 0.2.4. Controle de gastos pelo estabelecimento
+
+- O estabelecimento define **limites de consumo** próprios, além da franquia do plano.
+- O estabelecimento define **permissões por tipo de mensagem** (quais tipos podem ser enviados e por quem).
+- Ao atingir o limite definido, o envio é **bloqueado no servidor**.
+
+#### 0.2.5. Franquia de IA
+
+- A IA tem **franquia mensal própria**, definida conforme o plano contratado.
+- O consumo excedente à franquia é **cobrado adicionalmente**.
+- A franquia de IA é independente da franquia de WhatsApp.
+
+#### 0.2.6. Cobrança separada e transparência
+
+- Os custos de **WhatsApp** e de **IA** são contabilizados e cobrados **separadamente**.
+- Cada estabelecimento consegue visualizar o consumo de cada recurso e controlar seus gastos.
+- A separação permite identificar a origem do custo e evita que um recurso encubra o outro na fatura.
 
 ---
 
@@ -65,6 +118,7 @@ Recursos disponíveis para todos os tenants, independentemente do segmento.
 | U06 | Alteração de senha | Troca de senha com confirmação da senha atual | ✅ |
 | U07 | Exclusão de conta | Exclusão da própria conta com confirmação por senha | ✅ |
 | U08 | Papéis e permissões | Papéis: proprietário, administrador, profissional, recepcionista, cliente | ⚠️ parcial (client/admin) |
+| U08a | Identidade independente por tenant | Cada estabelecimento tem seus próprios cadastros de usuário; a mesma pessoa física possui registros distintos por tenant, sem identidade global e sem vínculo automático | ❌ |
 | U09 | Convite de membros da equipe | Convite por e-mail com aceite e definição de papel | ❌ |
 | U10 | Sessão e renovação de token | Refresh token com revogação e expiração controlada | ❌ |
 
@@ -72,7 +126,7 @@ Recursos disponíveis para todos os tenants, independentemente do segmento.
 
 | ID | Funcionalidade | Descrição | Existe hoje |
 | --- | --- | --- | --- |
-| U11 | Cadastro de clientes | Nome, contato, data de nascimento, observações | ✅ (via `User`) |
+| U11 | Cadastro de clientes | Nome, contato, data de nascimento, observações; cadastro **específico do tenant** | ✅ (via `User`) |
 | U12 | Histórico do cliente | Atendimentos, serviços contratados, pagamentos e agendamentos | ⚠️ parcial |
 | U13 | Preferências do cliente | Profissional preferido, serviços recorrentes, notas internas | ❌ |
 | U14 | Busca e segmentação | Filtros por nome, telefone, última visita e status | ⚠️ parcial |
@@ -105,6 +159,7 @@ Recursos disponíveis para todos os tenants, independentemente do segmento.
 | --- | --- | --- | --- |
 | U27 | Consulta de disponibilidade | Geração de horários livres por serviço, profissional e data | ✅ |
 | U28 | Criação de agendamento | Reserva de horário com validação de conflito | ✅ |
+| U28a | Reserva sob concorrência | Duas solicitações simultâneas para o mesmo profissional e horário resultam em **uma única** reserva confirmada; a outra é rejeitada | ❌ |
 | U29 | Remarcação | Alteração de data/hora preservando o histórico | ✅ |
 | U30 | Cancelamento | Cancelamento com registro de motivo | ✅ |
 | U31 | Conclusão de atendimento | Marcação de atendimento realizado | ✅ |
@@ -135,6 +190,12 @@ Recursos disponíveis para todos os tenants, independentemente do segmento.
 | U46 | Lembretes | Lembrete antes do horário agendado | ❌ |
 | U47 | Avisos de alteração | Comunicação de remarcação e cancelamento | ❌ |
 | U48 | Canais de notificação | E-mail e WhatsApp; SMS como opcional | ❌ |
+| U48a | Controle de consumo do WhatsApp | Consumo medido por tenant e por período; envio bloqueado no servidor ao atingir o limite | ❌ |
+| U48b | Compra antecipada de créditos de WhatsApp | Estabelecimento compra créditos adicionais antes de consumir | ❌ |
+| U48c | Cobrança automática do consumo de WhatsApp | Consumo apurado no período e cobrado na fatura seguinte | ❌ |
+| U48d | Limites de consumo definidos pelo estabelecimento | Tenant define teto próprio de consumo, além da franquia do plano | ❌ |
+| U48e | Permissões por tipo de mensagem | Tenant define quais tipos de mensagem podem ser enviados e por quem | ❌ |
+| U48f | Aproveitamento do uso gratuito da Meta | Franquia gratuita da Meta é repassada ao tenant dentro do plano | ❌ |
 | U49 | Templates de mensagem | Modelos editáveis por tenant com variáveis | ❌ |
 | U50 | Preferências de comunicação | Controle do cliente sobre quais avisos receber | ❌ |
 
@@ -148,12 +209,17 @@ Recursos disponíveis para todos os tenants, independentemente do segmento.
 | U54 | Receitas e despesas | Lançamentos financeiros com categorias | ❌ |
 | U55 | Relatórios financeiros | Faturamento, ticket médio, recebíveis por período | ❌ |
 | U56 | Estornos e cancelamentos financeiros | Tratamento de estorno e ajuste de lançamento | ❌ |
+| U56a | Conciliação financeira | Conferência entre pagamentos registrados, transações do gateway e lançamentos internos | ❌ |
 
 ### 1.9. Administração da plataforma
 
 | ID | Funcionalidade | Descrição | Existe hoje |
 | --- | --- | --- | --- |
 | U57 | Painel administrativo da plataforma | Gestão de tenants, planos e status de assinatura | ❌ |
+| U57a | Separação de privilégios da plataforma | Privilégios administrativos da plataforma são distintos das permissões de usuários de tenant, com controle explícito das operações administrativas | ❌ |
+| U57b | Operação do WhatsApp como Solution Partner | Servia centraliza a integração e o pagamento à Meta, com controle de aprovação e linha de crédito | ❌ |
+| U57c | Franquia mensal de IA por plano | Franquia definida pelo plano, com cobrança adicional pelo excedente | ❌ |
+| U57d | Cobrança separada de WhatsApp e IA | Custos contabilizados e cobrados em linhas distintas, com visão de consumo por recurso | ❌ |
 | U58 | Auditoria | Registro de ações sensíveis com autor, data e origem | ❌ |
 | U59 | Observabilidade | Logs estruturados, métricas e rastreamento de requisições | ❌ |
 | U60 | Backup e restauração | Política de backup por tenant e restauração testada | ❌ |
@@ -215,6 +281,8 @@ Recursos disponíveis para todos os tenants, independentemente do segmento.
 
 Ajustes que permitem atender diferentes atividades sem criar aplicações independentes.
 
+**Princípio (diretrizes §2):** o núcleo é universal e **não** contém condicionais que identifiquem o segmento. As particularidades são implementadas por **módulos, políticas de negócio e comportamentos especializados**, acessados por interfaces e polimorfismo. Uma configuração nova só entra se puder ser reutilizada por mais de um segmento.
+
 | ID | Configuração | Segmentos impactados | Existe hoje |
 | --- | --- | --- | --- |
 | S01 | Segmento do tenant | Todos | ❌ |
@@ -229,6 +297,21 @@ Ajustes que permitem atender diferentes atividades sem criar aplicações indepe
 | S10 | Regras de utilização de benefícios | Clubes e pacotes | ❌ |
 | S11 | Módulos habilitados por tenant | Todos | ❌ |
 | S12 | Identidade visual e tema do site | Todos | ❌ |
+| S13 | Política de agendamento por segmento | Todos | ❌ |
+| S14 | Política de disponibilidade por segmento | Todos | ❌ |
+
+### 3.1. Políticas de negócio por segmento
+
+As particularidades são resolvidas por **políticas** injetadas no núcleo, não por condicionais. O núcleo conhece apenas o contrato; a implementação é escolhida pela configuração do tenant.
+
+| Política | Contrato | Variações previstas |
+| --- | --- | --- |
+| Política de agendamento | Valida antecedência, sinal, no-show e cancelamento | Padrão, com sinal, com sessão prolongada |
+| Política de disponibilidade | Calcula slots a partir da jornada, bloqueios e duração | Granularidade fixa, duração variável, múltiplos blocos |
+| Política de comissão | Calcula remuneração do profissional | Percentual, valor fixo, por meta |
+| Política de benefícios | Consome clube e pacote | Por período, por sessão, por serviço |
+
+**Regra de extensão:** um novo segmento é atendido por **configuração** ou por uma **nova implementação de política** — nunca por um `if` de segmento no núcleo.
 
 ---
 
@@ -237,6 +320,9 @@ Ajustes que permitem atender diferentes atividades sem criar aplicações indepe
 | ID | Requisito | Descrição |
 | --- | --- | --- |
 | N01 | Isolamento de dados | Toda consulta filtrada por `TenantId`; teste automatizado que falha se o filtro for removido |
+| N01a | Isolamento em todas as camadas | Resolução confiável do tenant no servidor, validação de pertencimento do usuário, verificação de `TenantId` na escrita e restrições de integridade no banco |
+| N01b | Testes de isolamento | Testes que tentam consultar, alterar e excluir dados de outro tenant e comprovam a rejeição |
+| N01c | Concorrência no agendamento | Reservas simultâneas do mesmo horário resultam em uma única confirmação, garantida no banco |
 | N02 | Segurança | Senhas com hash, JWT com refresh revogável, HTTPS obrigatório, proteção CSRF |
 | N03 | Autorização | Permissões verificadas no servidor por papel e por recurso |
 | N04 | LGPD | Consentimento registrado, exclusão e anonimização, retenção definida |
@@ -248,25 +334,84 @@ Ajustes que permitem atender diferentes atividades sem criar aplicações indepe
 | N10 | Escalabilidade | Suportar milhares de tenants sem alteração de arquitetura |
 | N11 | Observabilidade | Logs estruturados, métricas e trace de requisição |
 | N12 | Testes | Regras de domínio, casos de uso e isolamento multi-tenant cobertos |
+| N13 | Testes de integração externa | Integrações testadas com falha, indisponibilidade, repetição e resposta inesperada |
+| N14 | Núcleo sem condicionais de segmento | O núcleo não identifica segmento por condicional; particularidades entram por módulos e políticas |
 
 ---
 
-## 5. Mapa de rastreabilidade — funcionalidades existentes
+## 5. Referência ao código acadêmico
 
-O que já está implementado no código atual e será preservado na migração para multi-tenant.
+O código acadêmico em `backend/` e `frontend/` **não** é base do Servia (ADR-001). Ele permanece no repositório apenas como registro da origem do projeto e **não** deve ser usado como ponto de partida, referência de implementação ou fonte de regras.
 
-| Funcionalidade | Onde está hoje | Ação na migração |
+O que o código acadêmico demonstra é o **domínio mínimo** que o Servia precisa cobrir — e que será implementado de forma nova, com as regras, o modelo e a arquitetura definidos em `docs/`:
+
+| Área | O que o código acadêmico demonstra | Como o Servia trata |
 | --- | --- | --- |
-| U02, U03, U05, U06, U07 | `AuthService`, `UserService`, `AuthController`, `UsersController` | Adicionar `TenantId` e refresh token |
-| U17, U18 | `ServiceService`, `ServicesController` | Adicionar categorias e variações |
-| U22, U23 | `Barber`, `BarberSchedule`, `BarberService` | Adicionar vínculo com serviços e bloqueios |
-| U27–U32 | `AppointmentService`, `AppointmentsController` | Tornar regras configuráveis por tenant |
-| U37, U43, U44 | Rotas `index` e `agendamento` do frontend | Converter em site por tenant |
-| U08 | Papéis `client`/`admin` | Expandir para papéis por tenant |
+| Autenticação e usuários | Login, cadastro, perfil, troca de senha | Implementado de novo, com identidade por tenant (ADR-015) |
+| Catálogo de serviços | Cadastro, preço, duração, ativação | Implementado de novo, com categorias, variações e combos |
+| Profissionais e jornada | Profissional com jornada semanal | Implementado de novo como `Professional` + `WorkSchedule` (ADR-010) |
+| Agendamento | Disponibilidade, criação, remarcação, cancelamento, conclusão | Implementado de novo, com políticas injetadas e controle de concorrência (ADR-017, ADR-018) |
+| Site e agendamento público | Landing e wizard de agendamento | Implementado de novo como site por tenant |
+
+> **Regra:** nenhuma linha de código acadêmico é copiada para o Servia. O domínio é redesenhado a partir de `docs/classes.md` e das diretrizes em `docs/diretrizes.md`.
 
 ---
 
-## 6. Fora de escopo da v1
+## 6. Separação dos contextos financeiros
+
+Conforme diretrizes §8, existem **dois domínios financeiros independentes**, com responsabilidades, regras e registros próprios. Nenhum deles referencia o outro em suas regras de negócio.
+
+| Contexto | Quem é o titular | O que cobre | Funcionalidades |
+| --- | --- | --- | --- |
+| **Financeiro do estabelecimento** | O tenant | Gestão das finanças do próprio negócio | U51–U56a, M01–M08 |
+| **Billing da plataforma** | O Servia | Relação comercial com os tenants | U57–U57d, F4 do Roadmap |
+
+**Regras de independência:**
+
+- O financeiro do tenant **não** enxerga faturas da plataforma, e o billing **não** enxerga receitas do estabelecimento.
+- Cada contexto tem seus próprios agregados, tabelas e relatórios.
+- Ambos podem usar o mesmo gateway (`IPaymentGateway`), mas com contratos e registros separados.
+- Uma falha em um contexto não corrompe o outro.
+
+### 6.1. Linhas de cobrança do billing
+
+O billing da plataforma emite **linhas de cobrança distintas** por origem, garantindo transparência:
+
+| Linha | Origem | Base de cálculo |
+| --- | --- | --- |
+| Assinatura | Plano contratado | Mensalidade fixa |
+| WhatsApp | Consumo tarifado | Mensagens acima da franquia gratuita da Meta, ou créditos antecipados |
+| IA | Consumo acima da franquia | Uso excedente à franquia mensal do plano |
+| Alterações de site | `SiteChangeCharge` | Rodadas de alteração após a publicação |
+
+Cada linha é rastreável até o consumo que a originou, e o tenant visualiza o detalhamento por recurso.
+
+---
+
+## 7. Pendências e dependências externas
+
+### 7.1. Pendências abertas
+
+Itens que dependem de decisão do responsável do produto e não bloqueiam o planejamento.
+
+| # | Pendência | Origem | Quando resolver |
+| --- | --- | --- | --- |
+| PD2 | Provedor de LLM e teto de custo por geração | decisão D6 | Fase F8 |
+| PD3 | Valores das franquias de WhatsApp e de IA por plano | política comercial §0.2 | Antes da fase F4 |
+| PD4 | Tarifa de repasse do consumo de WhatsApp ao tenant | política comercial §0.2.2 | Antes da fase F6 |
+
+> **PD1 encerrada em 2026-11-10:** a política comercial de consumo do WhatsApp foi definida na seção 0.2.
+
+### 7.2. Dependências externas
+
+| # | Dependência | Impacto se não atendida |
+| --- | --- | --- |
+| DE1 | Aprovação do Servia como **Solution Partner** da Meta | Fase F6 não entra em produção |
+| DE2 | **Linha de crédito** junto à Meta para centralizar o pagamento | Consumo de WhatsApp inviável em escala |
+
+---
+
+## 8. Fora de escopo da v1
 
 Itens da visão de produto que ficam explicitamente para depois do MVP:
 

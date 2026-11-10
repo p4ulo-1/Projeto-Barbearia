@@ -1,6 +1,6 @@
 # Architecture Decision Records (ADR)
 
-> **Status:** v1 aprovada em 2026-11-04. Todos os 14 ADRs estão aceitos.
+> **Status:** v3 — revisada em 2026-11-10 conforme `docs/diretrizes.md` e a política comercial de WhatsApp e IA. Todos os 21 ADRs estão aceitos.
 > **Formato:** [ADR-NNN] Título — Status — Data.
 > **Decisões:** confirmadas pelo responsável do produto; ver também `docs/funcionalidades.md` seção 0 e `docs/gerenciamento/ARCH.md` seção 13.
 
@@ -10,7 +10,7 @@
 
 | ADR | Título | Status |
 | --- | --- | --- |
-| ADR-001 | Reaproveitar o sistema atual como primeiro tenant | ✅ Aceito |
+| ADR-001 | Construir o Servia como sistema novo, sem reaproveitar o código acadêmico | ✅ Aceito |
 | ADR-002 | Multi-tenancy por banco único com `TenantId` | ✅ Aceito |
 | ADR-003 | PostgreSQL como banco de produção | ✅ Aceito |
 | ADR-004 | Manter arquitetura em camadas com interfaces de repositório | Aceito |
@@ -24,29 +24,40 @@
 | ADR-012 | LGPD: tenant como controlador, plataforma como operadora | ✅ Aceito |
 | ADR-013 | Auditoria imutável por inserção | Aceito |
 | ADR-014 | Objeto de valor `Money` no lugar de `decimal` puro | Aceito |
+| ADR-015 | Identidade de usuário independente por tenant | ✅ Aceito |
+| ADR-016 | Isolamento multi-tenant em todas as camadas | ✅ Aceito |
+| ADR-017 | Controle de concorrência na reserva de horário | ✅ Aceito |
+| ADR-018 | Núcleo universal com especialização por políticas | ✅ Aceito |
+| ADR-019 | Operação e cobrança do WhatsApp como Solution Partner | ✅ Aceito |
+| ADR-020 | Separação entre financeiro do tenant e billing da plataforma | ✅ Aceito |
+| ADR-021 | Franquia mensal de IA e cobrança separada por recurso | ✅ Aceito |
 
 ---
 
-## ADR-001 — Reaproveitar o sistema atual como primeiro tenant
+## ADR-001 — Construir o Servia como sistema novo, sem reaproveitar o código acadêmico
 
 **Status:** ✅ Aceito
-**Data:** 2026-11-04
+**Data:** 2026-11-04 (revisado em 2026-11-10)
 
 ### Contexto
-O projeto nasceu como aplicação acadêmica de uma barbearia, com backend .NET 10 em camadas, frontend React e regras de domínio testadas. A visão de produto exige uma plataforma SaaS multi-segmento. Existem três caminhos: reaproveitar o código, reescrever do zero ou manter dois produtos.
+O projeto nasceu como aplicação acadêmica de uma barbearia, com backend .NET 10 em camadas, frontend React e regras de domínio testadas. A visão de produto exige uma plataforma SaaS multi-segmento, multi-tenant, com site por tenant, billing, WhatsApp e IA. Existem três caminhos: reaproveitar o código, construir um sistema novo ou manter dois produtos.
 
 ### Alternativas
-1. **Reaproveitar como primeiro tenant** — menor esforço, preserva regras testadas, mas exige refatoração para multi-tenancy.
-2. **Reescrever do zero** — modelo mais limpo, porém descarta trabalho funcional e testes.
+1. **Reaproveitar como primeiro tenant** — menor esforço inicial, mas exige refatorar todas as entidades para multi-tenancy, substituir a persistência, reescrever o frontend por superfícies de produto e arrastar decisões do modelo single-shop.
+2. **Construir um sistema novo** — modelo desenhado desde o início para multi-tenancy e multi-segmento, sem dívida herdada.
 3. **Manter dois produtos** — duplica manutenção e divergência de código.
 
 ### Decisão
-Adotar a alternativa 1: o sistema atual vira o primeiro tenant da plataforma. Backend e frontend são evoluídos, não substituídos.
+Adotar a alternativa 2: **o Servia é um sistema novo**. O código acadêmico em `backend/` e `frontend/` **não** é reaproveitado como base do SaaS e permanece apenas como registro histórico da origem do projeto.
+
+O novo sistema é construído a partir dos documentos de `docs/` e `docs/gerenciamento/`, que definem o domínio, o modelo de classes, a arquitetura e o roadmap.
 
 ### Consequências
-- **Positivas:** regras de agendamento já testadas são preservadas; entrega mais rápida do MVP; o primeiro tenant serve de caso real de validação.
-- **Negativas:** refatoração de entidades existentes para incluir `TenantId`; risco de arrastar decisões do modelo single-shop.
-- **Mitigação:** introduzir `TenantId` na fase F1 com testes de isolamento obrigatórios.
+- **Positivas:** modelo desenhado para multi-tenancy desde a primeira linha; nenhuma refatoração de entidades legadas; liberdade para aplicar corretamente os conceitos de POO exigidos pela disciplina; sem risco de arrastar o modelo single-shop.
+- **Negativas:** o trabalho funcional existente não é aproveitado; a primeira entrega parte de uma base vazia.
+- **Mitigação:** o roadmap já organiza a construção em fases (F0–F9), e os critérios de avaliação da disciplina orientam a qualidade do código novo desde o início.
+
+> **Nota de revisão:** esta decisão substitui a versão anterior, que previa reaproveitar o código como primeiro tenant. A mudança foi tomada pelo responsável do produto em 2026-11-10, por considerar a construção de um sistema novo mais eficiente do que adaptar o existente.
 
 ---
 
@@ -257,7 +268,7 @@ O modelo atual tem `Barber` com `BarberSchedule`, específico de barbearia. A pl
 Adotar a alternativa 1: `Professional` com `WorkSchedule`, mantendo as regras de jornada já testadas.
 
 ### Consequências
-- **Positivas:** um modelo para todos os segmentos; regras de jornada reaproveitadas.
+- **Positivas:** um modelo para todos os segmentos; regras de jornada definidas uma única vez.
 - **Negativas:** migration de dados de `Barber` para `Professional`.
 - **Mitigação:** manter `BarberSchedule` como `WorkSchedule` com os mesmos testes.
 
@@ -352,3 +363,184 @@ Adotar a alternativa 1: `Money` com `Amount` e `Currency`, rejeitando valor nega
 - **Positivas:** invariantes centralizadas; leitura do código mais clara.
 - **Negativas:** mapeamento adicional no EF Core.
 - **Mitigação:** owned type configurado no `DbContext`.
+
+---
+
+## ADR-015 — Identidade de usuário independente por tenant
+
+**Status:** ✅ Aceito
+**Data:** 2026-11-10
+**Origem:** `docs/diretrizes.md` §3.1
+
+### Contexto
+A mesma pessoa física pode frequentar vários estabelecimentos. É preciso decidir se existe uma identidade global compartilhada entre tenants ou cadastros independentes por estabelecimento.
+
+### Alternativas
+1. **Cadastros independentes por tenant** — reforça o isolamento; a mesma pessoa tem registros distintos em cada estabelecimento.
+2. **Identidade global compartilhada** — um único cadastro serve todos os tenants, mas cria uma entidade que atravessa a fronteira de isolamento.
+3. **Identidade global com vínculo opcional** — meio-termo, com complexidade de sincronização e risco de vazamento por associação.
+
+### Decisão
+Adotar a alternativa 1: os usuários são cadastrados individualmente em cada estabelecimento. Não existe identidade global, não há vínculo automático entre registros e o e-mail é único apenas dentro do tenant.
+
+### Consequências
+- **Positivas:** isolamento reforçado; nenhuma entidade global atravessa a fronteira dos tenants; modelagem mais simples.
+- **Negativas:** a mesma pessoa precisa se cadastrar novamente em outro estabelecimento; não há histórico unificado entre tenants.
+- **Mitigação:** o cadastro por tenant é rápido e o cliente final pode ser criado pela equipe sem login.
+
+---
+
+## ADR-016 — Isolamento multi-tenant em todas as camadas
+
+**Status:** ✅ Aceito
+**Data:** 2026-11-10
+**Origem:** `docs/diretrizes.md` §3
+
+### Contexto
+O isolamento entre tenants é requisito fundamental e inegociável. Um filtro global de consulta protege a leitura, mas não impede escrita cruzada nem associação indevida entre registros de tenants diferentes.
+
+### Alternativas
+1. **Isolamento em todas as camadas** — resolução no servidor, validação de pertencimento, verificação na escrita e FK composta no banco.
+2. **Apenas filtro global de consulta** — simples, mas deixa a escrita e as associações desprotegidas.
+3. **Isolamento apenas na aplicação** — depende inteiramente da disciplina do código.
+
+### Decisão
+Adotar a alternativa 1: o tenant é resolvido no servidor; `ITenantMembershipValidator` confirma o pertencimento do usuário; a escrita verifica `TenantId`; e as chaves estrangeiras entre entidades de negócio são **compostas com `TenantId`**, fazendo o banco rejeitar associações cruzadas.
+
+### Consequências
+- **Positivas:** vazamento por escrita torna-se impossível no nível do banco; defesa em profundidade.
+- **Negativas:** chaves estrangeiras compostas aumentam a complexidade das migrations e dos índices.
+- **Mitigação:** convenção única aplicada a todas as entidades de negócio; testes de isolamento obrigatórios no pipeline.
+
+---
+
+## ADR-017 — Controle de concorrência na reserva de horário
+
+**Status:** ✅ Aceito
+**Data:** 2026-11-10
+**Origem:** `docs/diretrizes.md` §4.1
+
+### Contexto
+Duas solicitações simultâneas podem reservar o mesmo horário se a disponibilidade for verificada apenas por consulta antes da gravação. O resultado seria agenda inconsistente e dois clientes no mesmo horário.
+
+### Alternativas
+1. **Trava de reserva com índice único parcial + transação** — o banco garante uma única reserva.
+2. **Apenas consulta prévia de disponibilidade** — simples, mas sujeita a corrida.
+3. **Bloqueio pessimista de tabela** — correto, porém com contenção alta.
+
+### Decisão
+Adotar a alternativa 1: a reserva adquire um `ScheduleLock` dentro de transação; o índice único parcial em `(TenantId, ProfessionalId, Date, StartTime)` faz a segunda transação concorrente falhar. A trava tem expiração para não bloquear a agenda em caso de falha.
+
+### Consequências
+- **Positivas:** consistência garantida pelo banco; funciona com múltiplas instâncias da API.
+- **Negativas:** uma tabela adicional e tratamento explícito do conflito na aplicação.
+- **Mitigação:** teste de concorrência que dispara N reservas paralelas e exige exatamente 1 sucesso.
+
+---
+
+## ADR-018 — Núcleo universal com especialização por políticas
+
+**Status:** ✅ Aceito
+**Data:** 2026-11-10
+**Origem:** `docs/diretrizes.md` §2
+
+### Contexto
+Os segmentos compartilham a maior parte das funcionalidades, mas têm particularidades. Implementar cada segmento como aplicação independente duplicaria regras; concentrar condicionais de segmento no núcleo tornaria o código frágil e difícil de evoluir.
+
+### Alternativas
+1. **Núcleo universal + políticas injetadas** — o núcleo depende de contratos; a implementação é escolhida por configuração.
+2. **Condicionais de segmento no núcleo** — rápido no início, mas acumula complexidade.
+3. **Aplicação independente por segmento** — isolamento total, com duplicação massiva.
+
+### Decisão
+Adotar a alternativa 1: `IBookingPolicy`, `IAvailabilityPolicy`, `ICommissionPolicy` e `IBenefitPolicy` são injetadas no núcleo. O núcleo não consulta o segmento para decidir comportamento.
+
+### Consequências
+- **Positivas:** reutilização máxima; novo segmento entra por configuração ou nova política; núcleo testável isoladamente.
+- **Negativas:** mais abstrações e um passo de configuração por tenant.
+- **Mitigação:** manter o conjunto de políticas pequeno e só criar nova política com justificativa de reuso.
+
+---
+
+## ADR-019 — Operação e cobrança do WhatsApp como Solution Partner
+
+**Status:** ✅ Aceito
+**Data:** 2026-11-10 (revisado)
+**Origem:** `docs/diretrizes.md` §7.1 + política comercial definida em 2026-11-10
+
+### Contexto
+O WhatsApp tem custo por mensagem. Cada estabelecimento poderia contratar a Meta diretamente, mas isso fragmentaria a operação, dificultaria o suporte e impediria o Servia de controlar o consumo. É preciso decidir quem opera a integração, quem paga a Meta e como o custo é repassado ao estabelecimento.
+
+### Alternativas
+1. **Servia como Solution Partner, com consumo tarifado** — operação centralizada, pagamento único à Meta, repasse por consumo.
+2. **Cada tenant contrata a Meta diretamente** — sem intermediação, mas sem controle de consumo e com suporte fragmentado.
+3. **Servia subsidia mensagens dentro dos planos** — previsível para o cliente, mas transfere ao Servia um custo variável e ilimitado.
+
+### Decisão
+Adotar a alternativa 1:
+
+- O Servia **administra a integração e a operação** do WhatsApp e **centraliza o pagamento à Meta** pelo modelo **Solution Partner**, condicionado a **aprovação** e **linha de crédito**.
+- Cada estabelecimento **paga pelo consumo tarifado que gerar**; **não há subsídio** de mensagens com custo dentro dos planos.
+- O **uso gratuito da Meta é aproveitado dentro dos planos** do Servia — a franquia gratuita é repassada ao tenant, não retida pela plataforma.
+- O estabelecimento escolhe entre **cobrança automática** e **compra antecipada de créditos**.
+- O estabelecimento define **limites de consumo** e **permissões por tipo de mensagem**.
+- Todo envio passa por `IUsageQuotaService.TryConsume` antes de chamar o provedor; ao atingir o limite, o envio é bloqueado no servidor.
+
+### Consequências
+- **Positivas:** custo variável não fica com o Servia; operação e suporte centralizados; controle granular por tenant; transparência de consumo.
+- **Negativas:** dependência de aprovação e de linha de crédito junto à Meta; o Servia assume risco de crédito entre o consumo e o repasse.
+- **Mitigação:** iniciar a aprovação na fase F0; monitorar o consumo agregado contra a linha de crédito; bloquear no servidor ao atingir o limite do tenant.
+
+---
+
+## ADR-020 — Separação entre financeiro do tenant e billing da plataforma
+
+**Status:** ✅ Aceito
+**Data:** 2026-11-10
+**Origem:** `docs/diretrizes.md` §8
+
+### Contexto
+A plataforma tem duas relações financeiras distintas: o estabelecimento administra as finanças do próprio negócio, e o Servia cobra a assinatura do estabelecimento. Misturar as duas cria ambiguidade de titularidade, de relatórios e de regras.
+
+### Alternativas
+1. **Dois contextos independentes** — responsabilidades, regras e registros separados.
+2. **Contexto financeiro único** — menos tabelas, mas mistura titularidades distintas.
+3. **Billing dentro do financeiro do tenant** — confunde receita do negócio com custo da plataforma.
+
+### Decisão
+Adotar a alternativa 1: o financeiro do tenant (`Payment`, `Transaction`, `CommissionRule`, `CommissionEntry`) e o billing da plataforma (`Subscription`, `PlatformInvoice`, `SiteChangeCharge`, `UsageQuota`) são domínios separados, sem referência cruzada entre agregados.
+
+### Consequências
+- **Positivas:** relatórios corretos por titular; falha em um contexto não corrompe o outro; evolução independente.
+- **Negativas:** dois conjuntos de agregados e de relatórios.
+- **Mitigação:** ambos usam o mesmo `IPaymentGateway`, mas com contratos e registros separados.
+
+---
+
+## ADR-021 — Franquia mensal de IA e cobrança separada por recurso
+
+**Status:** ✅ Aceito
+**Data:** 2026-11-10
+**Origem:** política comercial definida em 2026-11-10
+
+### Contexto
+A geração de site por IA tem custo variável por requisição. Incluir IA ilimitada em todos os planos transferiria ao Servia um custo imprevisível; cobrar por requisição desde a primeira geraria atrito no onboarding. Além disso, WhatsApp e IA têm custos de naturezas diferentes e precisam ser compreendidos separadamente pelo estabelecimento.
+
+### Alternativas
+1. **Franquia mensal por plano + excedente cobrado + linhas separadas** — previsível para o cliente, sustentável para o Servia e transparente.
+2. **IA ilimitada em todos os planos** — simples, mas com custo variável ilimitado para o Servia.
+3. **Cobrança por requisição desde a primeira** — sem risco financeiro, mas com atrito no onboarding.
+
+### Decisão
+Adotar a alternativa 1:
+
+- Cada plano tem **franquia mensal própria de IA** (`Plan.IncludedAiUnits`), crescente por categoria.
+- O consumo **excedente à franquia é cobrado adicionalmente**.
+- A franquia de IA é **independente** da franquia de WhatsApp.
+- Os custos de **WhatsApp** e de **IA** são **contabilizados e cobrados separadamente**, em linhas distintas da fatura.
+- Cada linha é rastreável até o consumo que a originou, e o tenant visualiza o detalhamento por recurso.
+
+### Consequências
+- **Positivas:** custo previsível para o cliente; risco financeiro controlado; transparência que permite ao tenant controlar gastos por recurso.
+- **Negativas:** mais uma dimensão de configuração por plano; exige apuração precisa por recurso.
+- **Mitigação:** `IConsumptionBillingService` apura cada recurso isoladamente; aviso antes de consumir excedente; detalhamento por recurso na fatura.

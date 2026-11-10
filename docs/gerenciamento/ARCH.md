@@ -1,6 +1,6 @@
 # Arquitetura — Plataforma SaaS de Gestão e Atendimento
 
-> **Status:** v1 aprovada em 2026-11-04. Decisões estruturais confirmadas pelo responsável do produto.
+> **Status:** v2 — revisada em 2026-11-10 conforme `docs/diretrizes.md`.
 > **Escopo:** arquitetura de solução da plataforma multi-tenant, incluindo camadas, isolamento, integrações e operação.
 > **Decisões:** ver seção 13 e `docs/gerenciamento/ADR.md`.
 
@@ -14,9 +14,12 @@ A plataforma é um SaaS multi-tenant que atende negócios de serviços agendados
 
 | # | Princípio | Aplicação |
 | --- | --- | --- |
-| A1 | **Isolamento por tenant** | Todo dado de negócio carrega `TenantId`; filtro global no EF Core |
+| A1 | **Isolamento por tenant** | Todo dado de negócio carrega `TenantId`; isolamento aplicado em **todas as camadas** (API, aplicação, domínio e persistência) |
 | A2 | **Modularidade por contexto** | Contextos delimitados com fronteiras claras (Plataforma, Catálogo, Agenda, Financeiro, Site, IA) |
-| A3 | **Configuração em vez de bifurcação** | Diferenças entre segmentos resolvidas por configuração e módulos, não por código duplicado |
+| A3 | **Configuração em vez de bifurcação** | Diferenças entre segmentos resolvidas por configuração, módulos e **políticas injetadas**, nunca por condicionais de segmento no núcleo |
+| A8 | **Núcleo universal** | Funcionalidades compartilhadas num núcleo único; particularidades por módulos, políticas e polimorfismo |
+| A9 | **Contextos financeiros independentes** | Financeiro do tenant e billing da plataforma são domínios separados, com agregados e registros próprios |
+| A10 | **Consistência sob concorrência** | A reserva de horário é garantida no banco, não apenas por consulta prévia de disponibilidade |
 | A4 | **Integrações atrás de abstrações** | Gateways, mensageria e LLM acessados por interfaces |
 | A5 | **Aprovação humana em ações de IA** | Nenhuma alteração gerada por IA é publicada sem aprovação |
 | A6 | **Segurança por padrão** | Falha fechada em fronteiras de confiança; autorização verificada no servidor |
@@ -95,20 +98,102 @@ Controller ──► Application Service ──► Repository
                                     PostgreSQL
 ```
 
-### 3.2. Regras de segurança
+### 3.2. Isolamento em todas as camadas
+
+O isolamento é requisito **fundamental e inegociável** (diretrizes §3). Nenhum usuário de um estabelecimento acessa dados de outro, **independentemente de papel, nível de autorização ou privilégio dentro do próprio tenant**. Por isso o controle não fica só no filtro de consulta:
+
+| Camada | Mecanismo |
+| --- | --- |
+| **API** | `TenantResolutionMiddleware` resolve o tenant **no servidor**, a partir do subdomínio ou da claim do JWT — nunca de um valor livre enviado pelo frontend |
+| **Aplicação** | `ITenantMembershipValidator` confirma que o usuário autenticado **pertence** ao tenant em que tenta atuar, antes de qualquer operação |
+| **Domínio** | Agregados recebem o `TenantId` do contexto e rejeitam operação cujo tenant não coincida com o do agregado |
+| **Persistência** | Filtro global (`HasQueryFilter`) na leitura **e** verificação de `TenantId` na escrita; chaves estrangeiras **compostas com `TenantId`** impedem associação entre registros de tenants diferentes |
+
+### 3.3. Restrições de integridade no banco
+
+O banco é a última linha de defesa. Relacionamentos entre entidades de negócio usam **chave estrangeira composta incluindo `TenantId`**, de modo que o próprio PostgreSQL rejeite a associação de um registro de um tenant a um registro de outro.
+
+```text
+Appointments (TenantId, CustomerId) ──► Customers (TenantId, Id)
+Appointments (TenantId, ProfessionalId) ──► Professionals (TenantId, Id)
+```
+
+Isso torna o vazamento por escrita **impossível no nível do banco**, mesmo que uma camada superior falhe.
+
+### 3.4. Identidade independente por tenant
+
+Não existe identidade global de usuário (diretrizes §3.1). A mesma pessoa física que frequenta dois estabelecimentos possui **dois cadastros `User` independentes**, sem vínculo e sem relacionamento automático. Consequências arquiteturais:
+
+- O e-mail é único **por tenant**, não globalmente.
+- Não há tabela de identidade compartilhada entre tenants.
+- O login é resolvido no contexto do tenant (subdomínio ou claim), nunca por uma busca global por e-mail.
+- Administradores da plataforma são a única exceção: `TenantId` nulo e papel `PlatformAdmin`, com privilégios **distintos** das permissões de tenant.
+
+### 3.5. Regras de segurança
 
 - Toda entidade de negócio implementa `ITenantScoped` com `TenantId`.
 - `IgnoreQueryFilters()` é proibido fora de casos administrativos explícitos e revisados.
 - Teste automatizado no pipeline falha se o filtro global for removido.
 - Operações administrativas da plataforma usam um contexto explícito de `PlatformAdmin`, nunca um tenant arbitrário.
+- Testes de isolamento tentam **consultar, alterar e excluir** dados de outro tenant e comprovam a rejeição.
 
-### 3.3. Riscos e mitigação
+### 3.6. Riscos e mitigação
 
 | Risco | Mitigação |
 | --- | --- |
-| Vazamento entre tenants | Testes de isolamento obrigatórios; revisão de código em qualquer uso de `IgnoreQueryFilters` |
+| Vazamento entre tenants | Testes de isolamento obrigatórios; FK composta com `TenantId`; revisão de código em qualquer uso de `IgnoreQueryFilters` |
 | Consulta cross-tenant acidental | Repositórios só expõem métodos que aplicam o filtro |
 | Tenant suspenso acessando dados | Verificação de status do tenant no middleware |
+| Tenant forjado pelo cliente | Tenant resolvido no servidor; valor enviado pelo frontend é ignorado |
+| Usuário atuando em tenant alheio | `ITenantMembershipValidator` antes de toda operação |
+
+---
+
+## 3A. Núcleo universal e especialização por segmento
+
+O núcleo é **universal** e não contém condicionais que identifiquem o segmento (diretrizes §2). As particularidades entram por **políticas injetadas** e **módulos**, acessados por interfaces.
+
+```text
+Application ──► IBookingPolicy ──┬──► DefaultBookingPolicy
+                                 ├──► DepositBookingPolicy
+                                 └──► LongSessionBookingPolicy
+
+Application ──► IAvailabilityPolicy ──┬──► FixedSlotPolicy
+                                      └──► VariableDurationPolicy
+```
+
+| Política | Decide |
+| --- | --- |
+| `IBookingPolicy` | Antecedência, sinal, no-show, cancelamento |
+| `IAvailabilityPolicy` | Granularidade, duração variável, múltiplos blocos |
+| `ICommissionPolicy` | Cálculo de comissão |
+| `IBenefitPolicy` | Consumo de clube e pacote |
+
+**Regra de extensão:** um novo segmento é atendido por configuração ou por uma nova implementação de política. Um `if (tenant.Segment == ...)` no núcleo é um defeito de arquitetura.
+
+---
+
+## 3B. Concorrência no agendamento
+
+A verificação de disponibilidade **não** pode ser a única garantia (diretrizes §4.1). Duas solicitações simultâneas para o mesmo profissional e horário precisam resultar em **uma única** reserva confirmada.
+
+```text
+1. Consulta de disponibilidade (pré-validação, não vinculante)
+2. BEGIN TRANSACTION
+3. INSERT ScheduleLock (TenantId, ProfessionalId, Date, StartTime)
+      └─ índice único parcial → segunda transação falha aqui
+4. INSERT Appointment
+5. COMMIT
+```
+
+| Mecanismo | Papel |
+| --- | --- |
+| Índice único parcial em `ScheduleLock` | Impede duas travas ativas para o mesmo profissional e horário |
+| Transação | Garante que trava e agendamento entram juntos ou não entram |
+| Expiração da trava | Evita bloqueio permanente se a transação não concluir |
+| Teste de concorrência | Dispara N reservas simultâneas e exige exatamente 1 sucesso |
+
+A consulta prévia continua existindo para a experiência do usuário, mas **nunca** é a garantia de consistência.
 
 ---
 
@@ -165,21 +250,76 @@ Application ──► IPaymentGateway ──► MercadoPagoGateway
 ```text
 Application ──► IMessagingProvider ──┬──► MetaCloudApiProvider
                                      └──► (provedor alternativo)
+
+Application ──► IUsageQuotaService ──► UsageQuota (por tenant e período)
+Application ──► IConsumptionBillingService ──► linha de cobrança WhatsApp
 ```
 
 - Contrato: enviar mensagem, receber webhook, validar template.
 - Templates aprovados pela Meta são versionados por tenant.
+- **Limite de consumo** (diretrizes §7.1): todo envio passa por `IUsageQuotaService.TryConsume` **antes** de chamar o provedor. Ao atingir o limite, o envio é bloqueado no servidor e registrado para auditoria.
+- Falhas do provedor são tratadas com repetição limitada e registro; resposta inesperada não corrompe o estado do agendamento.
+
+#### 5.2.1. Operação como Solution Partner
+
+O Servia **administra a integração e a operação** do WhatsApp e **centraliza o pagamento à Meta** pelo modelo **Solution Partner**.
+
+```text
+Estabelecimento ──► Servia (Solution Partner) ──► Meta
+                        │
+                        └── paga o consumo à Meta
+```
+
+| Aspecto | Decisão |
+| --- | --- |
+| Contratação | O estabelecimento **não** contrata a Meta; consome o serviço operado pelo Servia |
+| Pagamento à Meta | Centralizado pelo Servia |
+| Pré-requisito | **Aprovação** como Solution Partner e **linha de crédito** junto à Meta |
+| Bloqueio | Sem aprovação e crédito, a fase F6 não entra em produção |
+
+#### 5.2.2. Consumo tarifado, sem subsídio
+
+- Cada estabelecimento **paga pelo consumo tarifado que gerar**.
+- **Não há subsídio**: mensagens com custo **não** são incluídas gratuitamente nos planos.
+- O **uso gratuito da Meta é aproveitado dentro dos planos** do Servia — a franquia gratuita é repassada ao tenant, não retida pela plataforma.
+
+#### 5.2.3. Modalidades de cobrança
+
+| Modalidade | Fluxo |
+| --- | --- |
+| **Cobrança automática** | Consumo apurado no período → cobrado na fatura seguinte |
+| **Compra antecipada de créditos** | `CreditPurchase` pago → créditos aplicados à `UsageQuota` → consumo debita os créditos |
+
+O estabelecimento escolhe a modalidade por configuração (`UsageQuota.BillingMode`).
+
+#### 5.2.4. Controle de gastos pelo estabelecimento
+
+- `UsageQuota.TenantLimit` define um teto próprio, além da franquia.
+- Permissões por **tipo de mensagem** definem o que pode ser enviado e por quem.
+- Ao atingir o limite, o envio é bloqueado no servidor.
 
 ### 5.3. IA de site
 
 ```text
 Application ──► IAiSiteGenerator ──► Provedor de LLM
+
+Application ──► IUsageQuotaService ──► UsageQuota (AiUnits)
+Application ──► IConsumptionBillingService ──► linha de cobrança IA
 ```
 
 - Entrada: dados do tenant, referências e prompt.
 - Saída: `AiChangeSet` com snapshot proposto, nunca aplicado diretamente.
 - Guardrails: validação de schema dos componentes e bloqueio de conteúdo inventado.
 - Controle de custo: teto por requisição e por tenant.
+- **Grau de personalização por plano:** o plano define o limite de personalização disponível (Essencial básica → Business total). A geração inicial e a publicação estão incluídas; **alterações posteriores ao lançamento geram `SiteChangeCharge`**, registrada antes de executar a alteração.
+- A IA **não** gera código React, não altera arquivos do projeto e não modifica a estrutura da aplicação (diretrizes §6.1).
+
+#### 5.3.1. Franquia mensal de IA
+
+- Cada plano tem **franquia mensal própria de IA** (`Plan.IncludedAiUnits`).
+- O consumo excedente à franquia é **cobrado adicionalmente**.
+- A franquia de IA é **independente** da franquia de WhatsApp.
+- O consumo é medido em `UsageQuota` com `Resource = AiUnits`.
 
 ### 5.4. Notificações
 
@@ -188,6 +328,50 @@ Application ──► INotificationSender ──┬──► E-mail
                                      ├──► WhatsApp
                                      └──► SMS (opcional)
 ```
+
+---
+
+## 5A. Separação entre financeiro do tenant e billing da plataforma
+
+Dois contextos financeiros **independentes** (diretrizes §8), com responsabilidades, regras e registros próprios.
+
+| Contexto | Titular | Agregados | Não pode |
+| --- | --- | --- | --- |
+| **Financeiro do tenant** | O estabelecimento | `Payment`, `Transaction`, `CommissionRule`, `CommissionEntry` | Enxergar faturas da plataforma |
+| **Billing da plataforma** | O Servia | `Subscription`, `PlatformInvoice`, `SiteChangeCharge`, `UsageQuota` | Enxergar receitas do estabelecimento |
+
+**Regras de independência:**
+
+- Cada contexto tem seus próprios agregados, tabelas e relatórios.
+- Nenhum agregado de um contexto referencia o outro em suas regras de negócio.
+- Ambos podem usar o mesmo `IPaymentGateway`, mas com contratos e registros separados.
+- Uma falha em um contexto não corrompe o outro.
+- A conciliação financeira (U56a) pertence ao financeiro do tenant; a conciliação de assinaturas pertence ao billing.
+
+### 5A.1. Linhas de cobrança separadas
+
+O billing emite **linhas distintas por origem**, garantindo transparência e controle de gastos:
+
+```text
+PlatformInvoice
+  ├── Assinatura        (mensalidade do plano)
+  ├── WhatsApp          (consumo tarifado ou créditos antecipados)
+  ├── IA                (consumo acima da franquia mensal)
+  └── Alterações de site (SiteChangeCharge)
+```
+
+| Linha | Base de cálculo | Apuração |
+| --- | --- | --- |
+| Assinatura | Mensalidade fixa do plano | `Subscription` |
+| WhatsApp | Consumo acima da franquia gratuita da Meta, ou créditos | `UsageQuota(WhatsAppMessages)` |
+| IA | Consumo acima da franquia do plano | `UsageQuota(AiUnits)` |
+| Alterações de site | Rodadas de alteração após publicação | `SiteChangeCharge` |
+
+**Regras:**
+
+- WhatsApp e IA são **contabilizados e cobrados separadamente** — um recurso nunca encobre o outro na fatura.
+- Cada linha é rastreável até o consumo que a originou.
+- O tenant visualiza o detalhamento por recurso e controla seus gastos.
 
 ---
 
@@ -211,6 +395,10 @@ Application ──► INotificationSender ──┬──► E-mail
 | `Tenants` | `Slug` único | Resolução por subdomínio |
 | `Payments` | `(TenantId, GatewayPaymentId)` único | Idempotência de webhook |
 | `AuditEntries` | `(TenantId, OccurredAt)` | Consulta de auditoria por período |
+| `ScheduleLocks` | `(TenantId, ProfessionalId, Date, StartTime)` único parcial | Impede reserva concorrente do mesmo horário |
+| `UsageQuotas` | `(TenantId, Resource, PeriodStart)` único | Consumo por tenant e período |
+| `Customers` | `(TenantId, Id)` único | Alvo de FK composta com `TenantId` |
+| `Professionals` | `(TenantId, Id)` único | Alvo de FK composta com `TenantId` |
 
 ### 6.3. Migrations
 
@@ -258,7 +446,11 @@ Application ──► INotificationSender ──┬──► E-mail
 | Integração | Repositórios, filtro de tenant e migrations | xUnit + Testcontainers (PostgreSQL) |
 | Contrato | Implementações de `IPaymentGateway` e `IMessagingProvider` | Testes de contrato por implementação |
 | E2E | Fluxo de cadastro, agendamento e cobrança | Playwright |
-| Segurança | Isolamento entre tenants | Teste dedicado que falha se o filtro for removido |
+| Segurança | Isolamento entre tenants | Teste dedicado que falha se o filtro for removido; testes de leitura, escrita e exclusão cross-tenant |
+| Concorrência | Reservas simultâneas do mesmo horário | Teste que dispara N reservas paralelas e exige exatamente 1 sucesso |
+| Integrações | Falha, indisponibilidade, repetição e resposta inesperada | Testes de contrato com dublês que simulam falha e timeout |
+| Migração | Preservação dos dados existentes | Contagem e amostragem comparadas antes e depois da migração |
+| Frontend | Fluxos principais de utilização | Playwright nos fluxos de cadastro, agendamento e cobrança |
 
 ---
 
@@ -308,7 +500,7 @@ Projeto-Barbearia/
 │   │   └── services/          # cliente de API
 ├── docs/
 │   ├── descricao_produto.md
-│   ├── levantamento_lacunas.md   # inventário do código legado (insumo de F1.4)
+│   ├── levantamento_lacunas.md   # inventário do código acadêmico (registro histórico)
 │   ├── funcionalidades.md
 │   ├── classes.md
 │   └── gerenciamento/
@@ -333,6 +525,14 @@ Projeto-Barbearia/
 | R6 | Explosão de módulos por segmento | Médio | Configuração antes de código; módulo novo exige justificativa de reuso |
 | R7 | Webhooks duplicados ou fora de ordem | Alto | Idempotência por identificador do gateway |
 | R8 | Dependência de provedor único de IA ou mensageria | Médio | Interfaces de abstração com implementação alternativa |
+| R9 | Reserva duplicada sob concorrência | Crítico | `ScheduleLock` com índice único parcial + transação + teste de concorrência |
+| R10 | Consumo de WhatsApp acima do limite | Alto | `IUsageQuotaService` bloqueia no servidor antes do envio; `TenantLimit` próprio |
+| R13 | Aprovação como Solution Partner não concedida | Crítico | Iniciar o processo na F0; F6 não entra em produção sem aprovação |
+| R14 | Linha de crédito insuficiente para pagar a Meta | Alto | Monitorar consumo agregado; alerta antes de atingir o limite de crédito |
+| R15 | Subsídio acidental de mensagens com custo | Alto | Franquia gratuita da Meta repassada explicitamente; teste que falha se mensagem tarifada for incluída sem cobrança |
+| R16 | Custo de IA fora da franquia sem aviso | Médio | Aviso antes de consumir excedente; detalhamento por recurso na fatura |
+| R11 | Núcleo contaminado por condicionais de segmento | Alto | Políticas injetadas; revisão rejeita `if` de segmento no núcleo |
+| R12 | Mistura entre financeiro do tenant e billing | Alto | Contextos separados, sem referência cruzada entre agregados |
 
 ---
 
@@ -342,7 +542,7 @@ Todas as decisões estruturais foram confirmadas pelo responsável do produto em
 
 | # | Decisão | Escolha confirmada | Impacto |
 | --- | --- | --- | --- |
-| D1 | Reaproveitamento do código como primeiro tenant (ADR-001) | ✅ Reaproveitar | Fase F1 |
+| D1 | Relação com o código acadêmico (ADR-001) | ✅ Sistema novo; código acadêmico não é reaproveitado | Fase F1 |
 | D2 | Banco único com `TenantId` (ADR-002) | ✅ Banco único | Modelo de dados |
 | D3 | PostgreSQL em produção (ADR-003) | ✅ PostgreSQL | Fase F0 |
 | D4 | Gateway de pagamento (ADR-005) | ✅ Somente Mercado Pago | Fase F4 |
@@ -352,21 +552,35 @@ Todas as decisões estruturais foram confirmadas pelo responsável do produto em
 | D8 | Modelo LGPD controlador/operadora (ADR-012) | ✅ Tenant controlador, plataforma operadora | Fase F9 |
 | D9 | Modelo de planos e regra de cobrança | ✅ 4 planos por faixa de profissionais; excedente exige upgrade | Fase F4 |
 | D10 | Domínio próprio no MVP | ✅ Apenas subdomínio no MVP | Fase F3 |
+| D11 | Identidade dos usuários (ADR-015) | ✅ Cadastros independentes por tenant, sem identidade global | Fase F1 |
+| D12 | Isolamento em todas as camadas (ADR-016) | ✅ API, aplicação, domínio e persistência, com FK composta | Fase F1 |
+| D13 | Concorrência no agendamento (ADR-017) | ✅ Trava de reserva com índice único parcial + transação | Fase F2 |
+| D14 | Núcleo universal por políticas (ADR-018) | ✅ Políticas injetadas, sem condicional de segmento | Fases F2–F7 |
+| D15 | Operação e cobrança do WhatsApp (ADR-019) | ✅ Solution Partner; consumo tarifado sem subsídio; automático ou créditos | Fase F6 |
+| D17 | Franquia mensal de IA (ADR-021) | ✅ Franquia própria por plano, excedente cobrado à parte | Fase F8 |
+| D18 | Cobrança separada de WhatsApp e IA (ADR-021) | ✅ Linhas distintas na fatura, com detalhamento por recurso | Fases F4–F6 |
+| D16 | Separação financeiro × billing (ADR-020) | ✅ Domínios independentes | Fases F4–F5 |
 
 ### 13.1. Modelo de planos confirmado
 
-**Todos os planos oferecem todos os serviços e módulos.** A diferenciação ocorre por quantidade de profissionais e grau de personalização do site.
+**Todos os planos oferecem todos os serviços e módulos.** A diferenciação ocorre por quantidade de profissionais, grau de personalização do site e **franquia mensal de IA**.
 
-| Plano | Profissionais incluídos | Módulos | Personalização do site |
-| --- | --- | --- | --- |
-| Essencial | até 3 | Todos | Básica |
-| Pro | até 7 | Todos | Intermediária |
-| Premium | até 15 | Todos | Avançada |
-| Business | ilimitado | Todos | Total |
+| Plano | Profissionais incluídos | Módulos | Personalização do site | Franquia de IA |
+| --- | --- | --- | --- | --- |
+| Essencial | até 3 | Todos | Básica | faixa base |
+| Pro | até 7 | Todos | Intermediária | faixa intermediária |
+| Premium | até 15 | Todos | Avançada | faixa ampliada |
+| Business | ilimitado | Todos | Total | faixa máxima |
 
 **Regra de profissionais:** não há taxa por excedente. Ao ultrapassar o limite do plano, o tenant precisa subir de categoria.
 
 **Regra de site:** a geração inicial por IA respeita o limite de personalização do plano. **Alterações posteriores ao lançamento são cobradas à parte**, independentemente do plano.
+
+**Regra de WhatsApp:** o consumo é **tarifado e sem subsídio**. A franquia gratuita da Meta é repassada ao tenant; o excedente é cobrado conforme a modalidade escolhida (automática ou créditos antecipados).
+
+**Regra de IA:** a franquia mensal é própria do plano; o excedente é cobrado adicionalmente.
+
+> **Franquia não é bloqueio de módulo:** todos os planos têm acesso a WhatsApp e IA. O que varia é a quantidade incluída antes de passar a cobrar consumo.
 
 ### 13.2. Regra de trial e inadimplência confirmada
 
@@ -376,8 +590,19 @@ Todas as decisões estruturais foram confirmadas pelo responsável do produto em
 4. Depois: **bloqueio de escrita**, com leitura e agenda disponíveis por **15 dias**.
 5. Após 15 dias de bloqueio: suspensão total do tenant.
 
-### 13.3. Pendência remanescente
+### 13.3. Pendências remanescentes
 
 | # | Pendência | Quando resolver |
 | --- | --- | --- |
 | D6 | Provedor de LLM e teto de custo por geração | Fase F8, após comparar custo real |
+| PD3 | Valores das franquias de WhatsApp e de IA por plano | Antes da fase F4 |
+| PD4 | Tarifa de repasse do consumo de WhatsApp ao tenant | Antes da fase F6 |
+
+> **PD1 encerrada em 2026-11-10:** a política comercial de WhatsApp e IA foi definida (ADR-019 e ADR-021).
+
+### 13.4. Dependências externas
+
+| # | Dependência | Impacto se não atendida |
+| --- | --- | --- |
+| DE1 | Aprovação do Servia como **Solution Partner** da Meta | Fase F6 não entra em produção |
+| DE2 | **Linha de crédito** junto à Meta | Consumo de WhatsApp inviável em escala |

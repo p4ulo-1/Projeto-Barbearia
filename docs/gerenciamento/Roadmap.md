@@ -1,6 +1,6 @@
 # Roadmap — Plataforma SaaS de Gestão e Atendimento
 
-> **Status:** v1 aprovada em 2026-11-04. Decisões estruturais confirmadas pelo responsável do produto.
+> **Status:** v2 — revisada em 2026-11-10 conforme `docs/diretrizes.md`.
 > **Escopo do MVP:** completo — todas as fases F0–F9 fazem parte da primeira versão.
 > **Unidade de planejamento:** fases com entregas verificáveis. Prazos em semanas relativas ao início da fase.
 
@@ -51,7 +51,7 @@
 
 ## F1 — Multi-tenancy (4 semanas)
 
-**Objetivo:** transformar o sistema single-shop em plataforma multi-tenant, preservando o código existente.
+**Objetivo:** estabelecer a base multi-tenant do sistema novo, com isolamento verificado em todas as camadas.
 
 ### Entregas
 
@@ -60,11 +60,16 @@
 | F1.1 | Entidades `Tenant`, `Plan`, `Subscription` | CRUD administrativo funcional | U01 |
 | F1.2 | `TenantId` em todas as entidades de negócio | Migration aplicada sem perda de dados | N01 |
 | F1.3 | Filtro global no EF Core + `ITenantContext` | Teste automatizado falha se o filtro for removido | N01 |
-| F1.4 | Migração do sistema atual como primeiro tenant | Dados existentes acessíveis no novo modelo | U01 |
+| F1.4 | Provisionamento do primeiro tenant | Tenant criado do zero com dados de demonstração próprios | U01 |
 | F1.5 | Papéis por tenant (`Owner`, `Administrator`, `Professional`, `Receptionist`, `Customer`) | Autorização verificada no servidor | U08, N03 |
 | F1.6 | Refresh token com revogação | Sessão renova e revoga corretamente | U10, N02 |
 | F1.7 | Convite de membros da equipe | Convite por e-mail com aceite e papel definido | U09 |
 | F1.8 | Auditoria de ações sensíveis | `AuditEntry` registra autor, ação e origem | U58, N05 |
+| F1.9 | Identidade independente por tenant | Mesma pessoa em dois tenants gera dois cadastros sem vínculo; e-mail único por tenant | U08a, N01 |
+| F1.10 | Validação de pertencimento do usuário | Usuário de um tenant não atua em outro, qualquer que seja o papel | N01a, N03 |
+| F1.11 | FK composta com `TenantId` | Banco rejeita associação entre registros de tenants diferentes | N01a |
+| F1.12 | Testes de isolamento cross-tenant | Testes de leitura, escrita e exclusão cross-tenant falham se o filtro for removido | N01b |
+| F1.13 | Separação de privilégios da plataforma | `PlatformAdmin` distinto das permissões de tenant | U57a |
 
 ### Riscos
 - Vazamento de dados entre tenants é o risco crítico. Mitigação: testes de isolamento obrigatórios no pipeline.
@@ -89,6 +94,8 @@
 | F2.8 | Fila de espera | Vaga liberada ofertada ao primeiro da fila | U34 |
 | F2.9 | Sinal para reserva | Agendamento exige depósito quando configurado | U35 |
 | F2.10 | Sessões prolongadas | Serviço com duração longa ocupa múltiplos blocos | U36 |
+| F2.11 | Controle de concorrência na reserva | N reservas simultâneas do mesmo horário resultam em exatamente 1 confirmada | U28a, N01c |
+| F2.12 | Políticas de agendamento e disponibilidade | Núcleo usa `IBookingPolicy` e `IAvailabilityPolicy`; nenhum `if` de segmento | S13, S14, N14 |
 
 ### Riscos
 - Regras de antecedência e sinal alteram o fluxo de agendamento existente. Mitigação: manter testes de regressão do fluxo atual.
@@ -136,21 +143,33 @@
 | F4.9 | Todos os módulos liberados em todos os planos | Nenhum módulo bloqueado por plano; verificação no servidor | S11 |
 | F4.10 | Regra de upgrade por excedente de profissionais | Tenant que ultrapassa o limite do plano é obrigado a subir de categoria | U57 |
 | F4.11 | Limite de personalização do site por plano | Plano contratado define o grau de personalização disponível | S11 |
+| F4.12 | `UsageQuota` por tenant e período | Consumo medido e limitado por recurso | U48a |
+| F4.13 | Independência entre financeiro e billing | Nenhum agregado de um contexto referencia o outro | N14 |
+| F4.14 | Linhas de cobrança separadas (WhatsApp e IA) | Fatura detalha cada recurso em linha própria | U57d |
+| F4.15 | Franquia mensal de IA por plano | Plano define `IncludedAiUnits`; excedente cobrado à parte | U57c |
+| F4.16 | Compra antecipada de créditos | Créditos pagos são aplicados à cota antes do consumo | U48b |
+| F4.17 | Cobrança automática do consumo | Consumo apurado no período e cobrado na fatura seguinte | U48c |
 
 ### Planos confirmados
 
-**Todos os planos oferecem todos os serviços e módulos.** A diferenciação ocorre por quantidade de profissionais e grau de personalização do site.
+**Todos os planos oferecem todos os serviços e módulos.** A diferenciação ocorre por quantidade de profissionais, grau de personalização do site e franquia mensal de IA.
 
-| Plano | Profissionais incluídos | Módulos | Personalização do site |
-| --- | --- | --- | --- |
-| Essencial | até 3 | Todos | Básica |
-| Pro | até 7 | Todos | Intermediária |
-| Premium | até 15 | Todos | Avançada |
-| Business | ilimitado | Todos | Total |
+| Plano | Profissionais incluídos | Módulos | Personalização do site | Franquia de IA |
+| --- | --- | --- | --- | --- |
+| Essencial | até 3 | Todos | Básica | faixa base |
+| Pro | até 7 | Todos | Intermediária | faixa intermediária |
+| Premium | até 15 | Todos | Avançada | faixa ampliada |
+| Business | ilimitado | Todos | Total | faixa máxima |
 
 Sem taxa por profissional excedente: ao ultrapassar o limite, o tenant sobe de categoria.
 
 **Cobrança de alterações do site:** a geração inicial e a publicação estão incluídas no plano. Alterações posteriores ao lançamento são cobradas à parte, por rodada de alteração.
+
+**Cobrança de WhatsApp:** consumo tarifado, sem subsídio. A franquia gratuita da Meta é repassada ao tenant; o excedente é cobrado conforme a modalidade escolhida (automática ou créditos antecipados).
+
+**Cobrança de IA:** franquia mensal própria do plano; o excedente é cobrado adicionalmente.
+
+> **Franquia não é bloqueio de módulo:** todos os planos têm acesso a WhatsApp e IA. O que varia é a quantidade incluída antes de passar a cobrar consumo.
 
 ### Riscos
 - Webhooks duplicados ou fora de ordem. Mitigação: idempotência por `GatewayPaymentId`.
@@ -173,6 +192,7 @@ Sem taxa por profissional excedente: ao ultrapassar o limite, o tenant sobe de c
 | F5.5 | Estornos e ajustes | Estorno refletido no relatório | U56 |
 | F5.6 | Regras de comissão | Comissão calculada por serviço, profissional ou meta | M06, M07 |
 | F5.7 | Extrato do profissional | Profissional consulta a própria remuneração | M08 |
+| F5.8 | Conciliação financeira | Pagamentos, transações do gateway e lançamentos conferidos | U56a |
 
 ---
 
@@ -192,9 +212,16 @@ Sem taxa por profissional excedente: ao ultrapassar o limite, o tenant sobe de c
 | F6.6 | Agendamento por conversa | Agendamento criado pelo WhatsApp | M10 |
 | F6.7 | Transferência para humano | Conversa escalada para a equipe | M12 |
 | F6.8 | Histórico de conversas | Conversa vinculada ao cliente | M13 |
+| F6.9 | Limite de consumo do WhatsApp | Envio bloqueado no servidor ao atingir o limite | U48a, N13 |
+| F6.10 | Operação como Solution Partner da Meta | Servia centraliza integração e pagamento à Meta, com aprovação e linha de crédito | U57b |
+| F6.11 | Repasse da franquia gratuita da Meta | Uso gratuito da Meta é aproveitado dentro do plano do tenant | U48f |
+| F6.12 | Limites de consumo definidos pelo estabelecimento | Tenant define teto próprio, além da franquia | U48d |
+| F6.13 | Permissões por tipo de mensagem | Tenant define quais tipos podem ser enviados e por quem | U48e |
 
 ### Riscos
 - Aprovação de templates pela Meta e limites de mensagens. Mitigação: iniciar o processo de verificação do número na F0.
+- **Aprovação como Solution Partner e linha de crédito** são pré-requisitos de produção. Mitigação: iniciar o processo na F0; F6 não entra em produção sem aprovação.
+- Subsídio acidental de mensagens com custo. Mitigação: franquia gratuita da Meta repassada explicitamente; teste que falha se mensagem tarifada for incluída sem cobrança.
 
 ---
 
@@ -232,7 +259,10 @@ Sem taxa por profissional excedente: ao ultrapassar o limite, o tenant sobe de c
 | F8.6 | Registro de operações e custo | Tokens e custo registrados por requisição | M22 |
 | F8.7 | Limite de custo por tenant | Requisição bloqueada ao exceder o teto | M22 |
 | F8.8 | Limite de personalização por plano | Plano Essencial permite ajustes básicos; Business permite personalização total | M20 |
-| F8.9 | Cobrança de alterações pós-lançamento | Alteração solicitada após publicação gera cobrança avulsa registrada | M20 |
+| F8.9 | Cobrança de alterações pós-lançamento | Alteração solicitada após publicação gera `SiteChangeCharge` registrada antes de executar | M20 |
+| F8.10 | Testes de integração externa | Falha, timeout, repetição e resposta inesperada cobertos | N13 |
+| F8.11 | Franquia mensal de IA por plano | Consumo dentro da franquia não gera cobrança; excedente é cobrado à parte | U57c |
+| F8.12 | Aviso de consumo excedente de IA | Tenant é avisado antes de consumir acima da franquia | U57d |
 
 ### Regra de personalização por plano
 
@@ -244,6 +274,8 @@ Sem taxa por profissional excedente: ao ultrapassar o limite, o tenant sobe de c
 | Business | Total — máxima liberdade |
 
 A geração inicial e a publicação estão incluídas no plano. **Alterações posteriores ao lançamento são cobradas à parte**, por rodada de alteração.
+
+**Franquia de IA:** cada plano tem franquia mensal própria. O consumo dentro da franquia não gera cobrança; o excedente é cobrado adicionalmente, em linha separada da de WhatsApp.
 
 ### Riscos
 - Custo de LLM fora de controle. Mitigação: teto por tenant e por requisição, com alerta.
@@ -269,11 +301,11 @@ A geração inicial e a publicação estão incluídas no plano. **Alterações 
 
 ---
 
-## Cobertura das funcionalidades já implementadas
+## Funcionalidades do núcleo entregues nas fases
 
-Funcionalidades do catálogo que já existem no código atual e são preservadas na migração. Não geram entrega nova; entram como critério de regressão nas fases indicadas.
+Funcionalidades do catálogo que compõem o núcleo universal e são construídas do zero nas fases indicadas. Nenhuma delas é herdada do código acadêmico (ADR-001).
 
-| Funcionalidade | Descrição | Preservada em |
+| Funcionalidade | Descrição | Entregue em |
 | --- | --- | --- |
 | U02 | Autenticação de usuários | F1.6 |
 | U03 | Registro de usuários | F1.2 |
@@ -319,6 +351,8 @@ Configurações do catálogo (S01–S12) distribuídas pelas fases. A configura�
 | S10 | Regras de utilização de benefícios | F7.3 |
 | S11 | Módulos habilitados por tenant | F4.7 |
 | S12 | Identidade visual e tema do site | F3.1 |
+| S13 | Política de agendamento por segmento | F2.12 |
+| S14 | Política de disponibilidade por segmento | F2.12 |
 
 ### Requisitos não funcionais por fase
 
@@ -329,6 +363,11 @@ Configurações do catálogo (S01–S12) distribuídas pelas fases. A configura�
 | N05 | Auditoria de ações sensíveis | F1.8 |
 | N08 | Responsividade | F3.5 |
 | N09 | Acessibilidade WCAG 2.1 AA | F3.2 |
+| N01a | Isolamento em todas as camadas | F1.10, F1.11 |
+| N01b | Testes de isolamento cross-tenant | F1.12 |
+| N01c | Concorrência no agendamento | F2.11 |
+| N13 | Testes de integração externa | F6.9, F8.10 |
+| N14 | Núcleo sem condicionais de segmento | F2.12, F4.13 |
 
 ---
 
@@ -348,6 +387,25 @@ Itens explicitamente fora do MVP, priorizados depois da validação comercial:
 
 ---
 
+## Pendências abertas
+
+| # | Pendência | Origem | Quando resolver |
+| --- | --- | --- | --- |
+| PD2 | Provedor de LLM e teto de custo por geração | decisão D6 | Fase F8 |
+| PD3 | Valores das franquias de WhatsApp e de IA por plano | política comercial | Antes da fase F4 |
+| PD4 | Tarifa de repasse do consumo de WhatsApp ao tenant | política comercial | Antes da fase F6 |
+
+> **PD1 encerrada em 2026-11-10:** a política comercial de WhatsApp e IA foi definida (ADR-019 e ADR-021).
+
+### Dependências externas
+
+| # | Dependência | Impacto se não atendida |
+| --- | --- | --- |
+| DE1 | Aprovação do Servia como **Solution Partner** da Meta | Fase F6 não entra em produção |
+| DE2 | **Linha de crédito** junto à Meta | Consumo de WhatsApp inviável em escala |
+
+---
+
 ## Critérios de saída do MVP
 
 O MVP é considerado pronto quando:
@@ -358,3 +416,8 @@ O MVP é considerado pronto quando:
 4. A equipe gerencia a agenda e conclui atendimentos.
 5. A cobrança da assinatura é processada e o tenant inadimplente é suspenso.
 6. O isolamento entre tenants é comprovado por testes automatizados no pipeline.
+7. Reservas simultâneas do mesmo horário resultam em uma única confirmação, comprovada por teste de concorrência.
+8. O consumo de WhatsApp é tarifado, sem subsídio, e bloqueado no servidor ao atingir o limite.
+9. O financeiro do tenant e o billing da plataforma operam como domínios independentes.
+10. WhatsApp e IA são cobrados em linhas separadas, com detalhamento por recurso.
+11. O consumo de IA acima da franquia do plano é cobrado adicionalmente.
