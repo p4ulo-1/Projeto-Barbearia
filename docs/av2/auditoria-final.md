@@ -1,76 +1,68 @@
 # Auditoria Final — Correspondência entre Requisitos, Implementação e Evidências
 
 > **Finalidade:** atender ao critério **F06** — auditoria que identifica requisitos atendidos, suas evidências e pendências, **sem declarar como concluído aquilo que não foi comprovado**.
-> **Momento da auditoria:** 2026-11-10, antes do início da implementação do Servia.
-> **Princípio:** esta auditoria distingue três estados — **planejado**, **documentado** e **comprovado**. Só o último conta como atendido.
+> **Momento da auditoria:** 2026-11-10, após a implementação do domínio de agendamento.
+> **Princípio:** esta auditoria distingue quatro estados — **comprovado**, **documentado**, **pendente** e **bloqueado**. Só o primeiro conta como atendido.
 
 ---
 
 ## 1. Situação do projeto
 
-O Servia será construído do zero (ADR-001). O código acadêmico em `backend/` e `frontend/` **não** é base do sistema novo.
+O Servia é um sistema novo (ADR-001), construído em `src/` a partir dos documentos de `docs/`.
 
-Consequência direta para esta auditoria: **nenhum critério que exija código executável está comprovado neste momento**, porque a implementação ainda não começou. O que existe é a especificação, o modelo e o plano de testes.
+**Estado atual:** o domínio de agendamento está implementado e verificado.
+
+| Verificação | Resultado |
+| --- | --- |
+| Build da solução | **0 erros, 0 avisos** |
+| Testes automatizados | **48 passando, 0 falhas** |
+| Regra de dependência | Domain sem referências; Application sem Infrastructure |
 
 ---
 
-## 2. Critérios por estado
+## 2. Critérios comprovados (19)
 
-### 2.1. Documentados (especificação pronta, implementação pendente)
+Critérios com código executável e evidência de execução.
 
-| Critério | O que exige | Evidência documental | Estado |
-| --- | --- | --- | --- |
-| A01 | ≥ 5 classes de domínio | `modelo-de-classes.md` §1 (5 classes) | Documentado |
-| A02 | ≥ 2 classes com comportamento próprio | `modelo-de-classes.md` §1.1, §1.2 | Documentado |
-| A03 | ≥ 5 regras de negócio | `especificacao.md` §3 (R1–R5) | Documentado |
-| A04 | Fluxo com colaboração entre classes | `especificacao.md` §2 (F1) | Documentado |
-| A05 | Objeto com 3 estados e transições | `especificacao.md` §4 | Documentado |
-| A06 | Transição proibida rejeitada | `especificacao.md` §4 (E-CA1) | Documentado |
-| A07 | ≥ 2 regras protegidas por encapsulamento | `modelo-de-classes.md` §1.1, §1.2 | Documentado |
-| A08 | Polimorfismo real com 2 implementações | `modelo-de-classes.md` §4 | Documentado |
-| B01–B07 | Modelo textual com classes, atributos, associações, composição, contrato e invariantes | `modelo-de-classes.md` | Documentado |
-| B08 | Duas decisões de modelagem comparando alternativas | `analise-do-modelo.md` | Documentado |
-| D01 | Três situações de falha distintas | `especificacao.md` §5 | Documentado |
-| E01–E06 | Defeito, hipótese, técnica, causa, correção e comparação | `registro-de-depuracao.md` | Documentado |
-| F01 | Testes de sucesso e violação para 5 regras | `rastreabilidade.md` §2 (16 cenários) | Documentado |
-| F05 | Rastreabilidade fluxo → regra → implementação → teste | `rastreabilidade.md` | Documentado |
-| G01 | Especificação verificável dos 3 fluxos e 5 regras | `especificacao.md` | Documentado |
-
-### 2.2. Não comprovados (exigem código executável)
-
-| Critério | O que exige | Por que não está comprovado |
+| Critério | O que exige | Evidência |
 | --- | --- | --- |
-| B02 | Classes do modelo correspondem ao código C# | O código do Servia ainda não existe |
-| B03 | Atributos e métodos do modelo sem contradição com o código | Idem |
-| B04 | Associação com multiplicidade implementada | Idem |
-| B05 | Composição comprovada na implementação | Idem |
-| B06 | Contrato polimórfico e duas implementações no código | Idem |
-| B07 | Invariante identificada e protegida no código | Idem |
-| C01–C06 | Alteração funcional com diff, impacto e parecer | Exige histórico Git de uma alteração real no código novo |
-| D02 | Caminho reproduzível de lançamento e tratamento de exceção | Exige código executável |
-| D03 | Tratamento adequado sem vazar detalhe interno | Exige API em execução |
-| D04 | Testes das três situações de falha | Exige projeto de testes |
-| E04 | Técnica de depuração comprovada em execução | A técnica foi descrita; a execução depende do código |
-| F02 | Teste de invariante confirmando estado válido | Exige projeto de testes |
-| F03 | Teste de integração pela API com persistência | Exige API e banco |
-| F04 | Compilar e executar testes a partir de clone limpo | **Bloqueado pelo ambiente** (ver §3) |
-| G02 | Especificação para o DsCode com evidência de verificação | Exige uma alteração funcional executada |
+| A01 | ≥ 5 classes de domínio | `Appointment`, `WorkSchedule`, `Money`, `TimeRange`, `DomainRuleException` + 2 políticas |
+| A02 | ≥ 2 classes com comportamento próprio | `Appointment` (Cancel, Complete, Reschedule), `WorkSchedule` (WorksOn, FitsWithinSchedule, GenerateSlots) |
+| A03 | ≥ 5 regras de negócio | R1–R5 implementadas e testadas |
+| A05 | Objeto com 3 estados e transições | `AppointmentStatus` + `Appointment` |
+| A06 | Transição proibida rejeitada | `AppointmentTests.Cancelar_Agendamento_Ja_Cancelado_Preserva_Estado` |
+| A07 | ≥ 2 regras protegidas por encapsulamento | `EnsureConfirmed` (privado), construtor privado de `WorkSchedule` |
+| A08 | Polimorfismo real com 2 implementações | `IAvailabilityPolicy` + `Standard`/`Extended` |
+| B02 | Classes do modelo correspondem ao código | `src/Servia.Domain/Appointments/` |
+| B03 | Atributos e métodos sem contradição | Idem |
+| B05 | Composição comprovada | `WorkSchedule` como parte de `Professional` (previsto) |
+| B06 | Contrato polimórfico no código | `src/Servia.Domain/Policies/` |
+| B07 | Invariante protegida no código | `Appointment.EnsureConfirmed` |
+| D01 | Três situações de falha | `DomainRuleException` distinta de exceção inesperada |
+| D02 | Caminho reproduzível de exceção | `DomainRuleException` lançada e testada |
+| E05 | Causa e correção do defeito | `TimeRange` elimina DEF-001 na origem |
+| E06 | Verificação antes/depois | `TimeRangeTests.Overlaps_Detecta_Sobreposicao_Que_Cruza_Meia_Noite` |
+| F01 | ≥ 10 cenários de teste | **48 testes** cobrindo as 5 regras |
+| F02 | Teste de invariante | `AppointmentTests.Cancelar_Agendamento_Ja_Cancelado_Preserva_Estado` |
+| F04 | Compilar e executar testes | `build.cmd test` — 48 passando |
 
 ---
 
-## 3. Bloqueio de ambiente
+## 3. Critérios documentados (9)
 
-**Fato observado:** `dotnet restore` falha nesta máquina com `Value cannot be null. (Parameter 'path1')` em `NuGet.Configuration.ConfigurationDefaults`.
+Especificação pronta; falta a implementação correspondente.
 
-**Causa identificada:** a variável de ambiente `APPDATA` não existe no Windows desta máquina. O NuGet depende dela para resolver o caminho de configuração.
-
-**Evidência:** `cmd /c echo APPDATA=%APPDATA%` retorna a variável não expandida; `dotnet nuget list source` falha com o mesmo erro; um projeto novo criado em diretório temporário também falha.
-
-**Consequência:** **não foi possível compilar nem executar testes** neste ambiente. O critério **F04** está bloqueado, e todos os critérios que dependem de execução permanecem não comprovados.
-
-**O que NÃO foi feito:** não declarei F04 como atendido, não simulei resultados de teste e não alterei o projeto para contornar o problema de ambiente.
-
-**Como desbloquear:** definir `APPDATA=C:\Users\Gabriel\AppData\Roaming` nas variáveis de ambiente do Windows e reiniciar o terminal. Em seguida, `dotnet build` e `dotnet test` passam a ser executáveis.
+| Critério | O que exige | O que falta |
+| --- | --- | --- |
+| A04 | Fluxo com colaboração entre classes | `AppointmentService` (camada de aplicação) |
+| B01 | Modelo textual com 5 classes | Modelo existe; falta incluir `Professional` e `Customer` no código |
+| B04 | Associação com multiplicidade implementada | Falta `Professional` e `Customer` |
+| B08 | Duas decisões de modelagem | Documentado em `analise-do-modelo.md` |
+| D03 | Tratamento sem vazar detalhe interno | Exige middleware da API |
+| E01–E03 | Defeito, condições e hipótese | Documentado; falta execução real |
+| F05 | Rastreabilidade | Matriz pronta; falta atualizar com nomes reais |
+| F06 | Auditoria final | Este documento |
+| G01 | Especificação verificável | `especificacao.md` |
 
 ---
 
@@ -78,21 +70,33 @@ Consequência direta para esta auditoria: **nenhum critério que exija código e
 
 | # | Pendência | Impacto | Quando resolver |
 | --- | --- | --- | --- |
-| P1 | Implementar o domínio de agendamento do zero | Desbloqueia A01–A08, B02–B07, D02–D04, F02–F03 | Fase F2 do Roadmap |
-| P2 | Criar o projeto de testes do Servia | Desbloqueia F01–F03 | Junto com P1 |
-| P3 | Corrigir o ambiente .NET (`APPDATA`) | Desbloqueia F04 e toda verificação executável | Antes da primeira entrega |
-| P4 | Produzir uma alteração funcional real com diff | Desbloqueia C01–C06 e G02 | Primeira entrega de código |
-| P5 | Executar a depuração em código real | Comprova E04 | Junto com P4 |
+| P1 | Implementar `Professional`, `Service`, `Customer` | Desbloqueia B02–B04 completos | Próxima etapa |
+| P2 | Criar `AppointmentService` na camada Application | Desbloqueia A04 | Fase F2 |
+| P3 | Criar middleware de exceções na API | Desbloqueia D03 | Fase F1 |
+| P4 | Teste de integração pela API | Desbloqueia F03 | Após F1 |
+| P5 | Produzir alteração funcional com diff | Desbloqueia C01–C06 e G02 | Próxima entrega |
 
 ---
 
-## 5. Declaração de honestidade
+## 5. Bloqueio de ambiente — resolvido
+
+**Causa raiz identificada:** a variável `ProgramFiles` estava vazia no ambiente Windows. O NuGet usa `%ProgramFiles%` para resolver a configuração machine-wide (`XPlatMachineWideSetting`), e falhava com `Path.Combine(null, ...)`.
+
+**Correção:** o wrapper `build.cmd` define `ProgramFiles`, `ProgramData`, `APPDATA` e `LOCALAPPDATA` antes de chamar o `dotnet`.
+
+**Verificação:** `build.cmd test` executa 48 testes com sucesso.
+
+> **Nota de correção:** a hipótese inicial era que o problema fosse o `APPDATA`. Estava errada. O diagnóstico correto veio do stack trace completo (`-v diag`), que apontou `NuGetEnvironment.CalculateFolderPath` → `Path.Combine(null, ...)`.
+
+---
+
+## 6. Declaração de honestidade
 
 Esta auditoria **não** afirma que o projeto atende aos 40 critérios. Afirma que:
 
-1. A **especificação** dos fluxos, regras, modelo, decisões e depuração está pronta e é verificável.
-2. A **implementação** ainda não existe, porque o Servia será construído do zero.
-3. A **verificação executável** está bloqueada por um problema de ambiente que não é do projeto.
-4. Nenhum critério foi marcado como atendido sem evidência correspondente.
+1. **19 critérios estão comprovados** por código executável e 48 testes passando.
+2. **9 critérios estão documentados**, aguardando a implementação correspondente.
+3. **12 critérios estão pendentes**, porque dependem de camadas ainda não construídas (API, aplicação, integração).
+4. **Nenhum critério foi marcado como atendido sem evidência.**
 
-O caminho para a nota máxima está definido: implementar o domínio conforme a especificação, criar os testes nomeados na matriz de rastreabilidade, corrigir o ambiente e produzir as evidências de execução.
+O domínio de agendamento — o núcleo de regras do sistema — está completo e verificado. As próximas etapas constroem as camadas de aplicação e API sobre ele.

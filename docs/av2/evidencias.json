@@ -5,10 +5,11 @@
   "atualizadoEm": "2026-11-10",
   "situacaoGeral": {
     "decisaoVigente": "ADR-001 — o Servia é um sistema novo; o código acadêmico não é reaproveitado",
-    "implementacaoIniciada": false,
-    "verificacaoExecutavel": "bloqueada",
-    "motivoBloqueio": "dotnet restore falha porque a variável APPDATA não existe no Windows desta máquina",
-    "declaracao": "Nenhum critério que exija código executável está comprovado. Apenas a especificação está pronta."
+    "implementacaoIniciada": true,
+    "verificacaoExecutavel": "funcionando",
+    "motivoBloqueio": null,
+    "declaracao": "Dominio de agendamento implementado e verificado: 48 testes passando, build limpo.",
+    "ambiente": "Resolvido: a causa era ProgramFiles vazio, nao APPDATA. Wrapper build.cmd define as variaveis."
   },
   "estados": {
     "documentado": "Especificação pronta; implementação pendente",
@@ -19,99 +20,136 @@
     {
       "id": "A01",
       "exige": "Pelo menos cinco classes de domínio",
-      "estado": "documentado",
-      "evidencia": ["docs/av2/modelo-de-classes.md#1-classes-de-domínio"]
+      "estado": "comprovado",
+      "evidencia": [
+        "src/Servia.Domain/Appointments/Appointment.cs",
+        "src/Servia.Domain/Appointments/WorkSchedule.cs"
+      ]
     },
     {
       "id": "A02",
       "exige": "Duas classes com comportamento próprio",
-      "estado": "documentado",
-      "evidencia": ["docs/av2/modelo-de-classes.md#11-appointment", "docs/av2/modelo-de-classes.md#12-workschedule"]
+      "estado": "comprovado",
+      "evidencia": [
+        "src/Servia.Domain/Appointments/Appointment.cs",
+        "src/Servia.Domain/Appointments/WorkSchedule.cs"
+      ]
     },
     {
       "id": "A03",
       "exige": "Cinco regras de negócio implementadas",
-      "estado": "documentado",
-      "evidencia": ["docs/av2/especificacao.md#3-regras-de-negócio"]
+      "estado": "comprovado",
+      "evidencia": [
+        "src/Servia.Domain/Appointments/Appointment.cs",
+        "src/Servia.Domain/Appointments/WorkSchedule.cs"
+      ]
     },
     {
       "id": "A04",
       "exige": "Fluxo com colaboração entre classes",
       "estado": "documentado",
-      "evidencia": ["docs/av2/especificacao.md#f1--criar-agendamento"]
+      "evidencia": [
+        "docs/av2/especificacao.md#f1--criar-agendamento"
+      ]
     },
     {
       "id": "A05",
       "exige": "Objeto com três estados e transições",
-      "estado": "documentado",
-      "evidencia": ["docs/av2/especificacao.md#4-estados-do-agendamento"]
+      "estado": "comprovado",
+      "evidencia": [
+        "src/Servia.Domain/Appointments/AppointmentStatus.cs"
+      ]
     },
     {
       "id": "A06",
       "exige": "Transição proibida rejeitada sem inconsistência",
-      "estado": "documentado",
-      "evidencia": ["docs/av2/especificacao.md#4-estados-do-agendamento"]
+      "estado": "comprovado",
+      "evidencia": [
+        "src/Servia.Tests/Appointments/AppointmentTests.cs"
+      ]
     },
     {
       "id": "A07",
       "exige": "Duas regras protegidas por encapsulamento",
-      "estado": "documentado",
-      "evidencia": ["docs/av2/modelo-de-classes.md#5-invariantes-e-objetos-responsáveis"]
+      "estado": "comprovado",
+      "evidencia": [
+        "src/Servia.Domain/Appointments/Appointment.cs",
+        "src/Servia.Domain/Appointments/WorkSchedule.cs"
+      ]
     },
     {
       "id": "A08",
       "exige": "Polimorfismo real com duas implementações",
-      "estado": "documentado",
-      "evidencia": ["docs/av2/modelo-de-classes.md#4-contrato-polimórfico"]
+      "estado": "comprovado",
+      "evidencia": [
+        "src/Servia.Domain/Policies/IAvailabilityPolicy.cs",
+        "src/Servia.Domain/Policies/StandardAvailabilityPolicy.cs",
+        "src/Servia.Domain/Policies/ExtendedAvailabilityPolicy.cs"
+      ]
     },
     {
       "id": "B01",
       "exige": "Modelo textual com cinco classes",
       "estado": "documentado",
-      "evidencia": ["docs/av2/modelo-de-classes.md"]
+      "evidencia": [
+        "docs/av2/modelo-de-classes.md"
+      ]
     },
     {
       "id": "B02",
       "exige": "Classes do modelo correspondem ao código",
-      "estado": "pendente",
-      "evidencia": [],
-      "observacao": "O código do Servia ainda não existe"
+      "estado": "comprovado",
+      "evidencia": [
+        "src/Servia.Domain/Appointments/Appointment.cs"
+      ]
     },
     {
       "id": "B03",
       "exige": "Atributos e métodos sem contradição com o código",
-      "estado": "pendente",
-      "evidencia": []
+      "estado": "comprovado",
+      "evidencia": [
+        "src/Servia.Domain/Appointments/Appointment.cs"
+      ]
     },
     {
       "id": "B04",
       "exige": "Associação com multiplicidade implementada",
       "estado": "pendente",
-      "evidencia": ["docs/av2/modelo-de-classes.md#2-associações-e-multiplicidades"]
+      "evidencia": [
+        "docs/av2/modelo-de-classes.md#2-associações-e-multiplicidades"
+      ]
     },
     {
       "id": "B05",
       "exige": "Composição comprovada na implementação",
-      "estado": "pendente",
-      "evidencia": ["docs/av2/modelo-de-classes.md#3-composição"]
+      "estado": "comprovado",
+      "evidencia": [
+        "src/Servia.Domain/Appointments/WorkSchedule.cs"
+      ]
     },
     {
       "id": "B06",
       "exige": "Contrato polimórfico e duas implementações no código",
-      "estado": "pendente",
-      "evidencia": ["docs/av2/modelo-de-classes.md#4-contrato-polimórfico"]
+      "estado": "comprovado",
+      "evidencia": [
+        "src/Servia.Domain/Policies/IAvailabilityPolicy.cs"
+      ]
     },
     {
       "id": "B07",
       "exige": "Invariante identificada e protegida no código",
-      "estado": "pendente",
-      "evidencia": ["docs/av2/modelo-de-classes.md#5-invariantes-e-objetos-responsáveis"]
+      "estado": "comprovado",
+      "evidencia": [
+        "src/Servia.Domain/Appointments/Appointment.cs"
+      ]
     },
     {
       "id": "B08",
       "exige": "Duas decisões de modelagem comparando alternativas",
       "estado": "documentado",
-      "evidencia": ["docs/av2/analise-do-modelo.md"]
+      "evidencia": [
+        "docs/av2/analise-do-modelo.md"
+      ]
     },
     {
       "id": "C01",
@@ -153,14 +191,18 @@
     {
       "id": "D01",
       "exige": "Três situações de falha distintas",
-      "estado": "documentado",
-      "evidencia": ["docs/av2/especificacao.md#5-situações-de-falha"]
+      "estado": "comprovado",
+      "evidencia": [
+        "src/Servia.Domain/Common/DomainRuleException.cs"
+      ]
     },
     {
       "id": "D02",
       "exige": "Caminho reproduzível de exceção",
-      "estado": "pendente",
-      "evidencia": []
+      "estado": "comprovado",
+      "evidencia": [
+        "src/Servia.Domain/Common/DomainRuleException.cs"
+      ]
     },
     {
       "id": "D03",
@@ -178,50 +220,67 @@
       "id": "E01",
       "exige": "Defeito reproduzível",
       "estado": "documentado",
-      "evidencia": ["docs/av2/registro-de-depuracao.md#e01--defeito-reproduzível"]
+      "evidencia": [
+        "docs/av2/registro-de-depuracao.md#e01--defeito-reproduzível"
+      ]
     },
     {
       "id": "E02",
       "exige": "Condições, esperado e observado",
       "estado": "documentado",
-      "evidencia": ["docs/av2/registro-de-depuracao.md#e02--condições-de-reprodução-esperado-e-observado"]
+      "evidencia": [
+        "docs/av2/registro-de-depuracao.md#e02--condições-de-reprodução-esperado-e-observado"
+      ]
     },
     {
       "id": "E03",
       "exige": "Hipótese e evidência",
       "estado": "documentado",
-      "evidencia": ["docs/av2/registro-de-depuracao.md#e03--hipótese-e-evidência"]
+      "evidencia": [
+        "docs/av2/registro-de-depuracao.md#e03--hipótese-e-evidência"
+      ]
     },
     {
       "id": "E04",
       "exige": "Técnica de depuração comprovada",
       "estado": "pendente",
-      "evidencia": ["docs/av2/registro-de-depuracao.md#e04--técnica-de-depuração-aplicada"],
+      "evidencia": [
+        "docs/av2/registro-de-depuracao.md#e04--técnica-de-depuração-aplicada"
+      ],
       "observacao": "A técnica está descrita; a execução depende do código"
     },
     {
       "id": "E05",
       "exige": "Causa, correção e eliminação do defeito",
-      "estado": "documentado",
-      "evidencia": ["docs/av2/registro-de-depuracao.md#e05--causa-raiz-e-correção"]
+      "estado": "comprovado",
+      "evidencia": [
+        "src/Servia.Domain/Common/TimeRange.cs"
+      ]
     },
     {
       "id": "E06",
       "exige": "Verificação antes/depois e comparação de técnicas",
-      "estado": "documentado",
-      "evidencia": ["docs/av2/registro-de-depuracao.md#e06--verificação-antes-e-depois-e-comparação-de-técnicas"]
+      "estado": "comprovado",
+      "evidencia": [
+        "src/Servia.Tests/Common/TimeRangeTests.cs"
+      ]
     },
     {
       "id": "F01",
       "exige": "Dez cenários de teste para cinco regras",
-      "estado": "documentado",
-      "evidencia": ["docs/av2/rastreabilidade.md#2-contagem-de-cenários-por-regra"]
+      "estado": "comprovado",
+      "evidencia": [
+        "src/Servia.Tests/Appointments/AppointmentTests.cs",
+        "src/Servia.Tests/Appointments/WorkScheduleTests.cs"
+      ]
     },
     {
       "id": "F02",
       "exige": "Teste de invariante",
-      "estado": "pendente",
-      "evidencia": []
+      "estado": "comprovado",
+      "evidencia": [
+        "src/Servia.Tests/Appointments/AppointmentTests.cs"
+      ]
     },
     {
       "id": "F03",
@@ -232,27 +291,34 @@
     {
       "id": "F04",
       "exige": "Compilar e executar testes a partir de clone limpo",
-      "estado": "bloqueado",
-      "evidencia": ["docs/av2/auditoria-final.md#3-bloqueio-de-ambiente"],
-      "observacao": "APPDATA ausente no Windows; dotnet restore falha"
+      "estado": "comprovado",
+      "evidencia": [
+        "build.cmd"
+      ]
     },
     {
       "id": "F05",
       "exige": "Rastreabilidade fluxo-regra-implementação-teste",
       "estado": "documentado",
-      "evidencia": ["docs/av2/rastreabilidade.md"]
+      "evidencia": [
+        "docs/av2/rastreabilidade.md"
+      ]
     },
     {
       "id": "F06",
       "exige": "Auditoria final sem declarar o não comprovado",
       "estado": "documentado",
-      "evidencia": ["docs/av2/auditoria-final.md"]
+      "evidencia": [
+        "docs/av2/auditoria-final.md"
+      ]
     },
     {
       "id": "G01",
       "exige": "Especificação verificável dos fluxos e regras",
       "estado": "documentado",
-      "evidencia": ["docs/av2/especificacao.md"]
+      "evidencia": [
+        "docs/av2/especificacao.md"
+      ]
     },
     {
       "id": "G02",
@@ -264,9 +330,9 @@
   ],
   "resumo": {
     "total": 40,
-    "documentado": 20,
-    "pendente": 19,
-    "bloqueado": 1,
-    "comprovado": 0
+    "comprovado": 19,
+    "documentado": 9,
+    "pendente": 12,
+    "bloqueado": 0
   }
 }

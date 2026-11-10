@@ -1,0 +1,7 @@
+<Solution>
+  <Project Path="Servia.Api/Servia.Api.csproj" />
+  <Project Path="Servia.Application/Servia.Application.csproj" />
+  <Project Path="Servia.Domain/Servia.Domain.csproj" />
+  <Project Path="Servia.Infrastructure/Servia.Infrastructure.csproj" />
+  <Project Path="Servia.Tests/Servia.Tests.csproj" />
+</Solution>

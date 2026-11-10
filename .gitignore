@@ -84,8 +84,12 @@ frontend/.env.*
 
 # ============================================================
 
-backend/bin/
-backend/obj/
+# Artefatos de build de qualquer projeto .NET (backend/ e src/)
+[Bb]in/
+[Oo]bj/
+*.dll
+*.pdb
+*.exe
 
 *.user
 *.userosscache
