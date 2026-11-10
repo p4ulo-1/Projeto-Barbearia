@@ -1,7 +1,15 @@
 using System.Linq.Expressions;
 using Microsoft.EntityFrameworkCore;
 using Servia.Domain.Appointments;
+using Servia.Domain.Ai;
 using Servia.Domain.Auditing;
+using Servia.Domain.Billing;
+using Servia.Domain.Finance;
+using Servia.Domain.Loyalty;
+using Servia.Domain.Memberships;
+using Servia.Domain.Messaging;
+using Servia.Domain.Operations;
+using Servia.Domain.Sites;
 using Servia.Domain.Catalog;
 using Servia.Domain.Customers;
 using Servia.Domain.Identity;
@@ -46,6 +54,79 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, ITenant
     public DbSet<Invitation> Invitations => Set<Invitation>();
 
     public DbSet<AuditEntry> AuditEntries => Set<AuditEntry>();
+
+    // Catalogo
+    public DbSet<ServiceCategory> ServiceCategories => Set<ServiceCategory>();
+
+    public DbSet<ServiceVariant> ServiceVariants => Set<ServiceVariant>();
+
+    public DbSet<ServiceCombo> ServiceCombos => Set<ServiceCombo>();
+
+    // Equipe
+    public DbSet<ProfessionalService> ProfessionalServices => Set<ProfessionalService>();
+
+    public DbSet<ScheduleBlock> ScheduleBlocks => Set<ScheduleBlock>();
+
+    // Clientes
+    public DbSet<CustomerPreference> CustomerPreferences => Set<CustomerPreference>();
+
+    // Agenda
+    public DbSet<WaitlistEntry> WaitlistEntries => Set<WaitlistEntry>();
+
+    public DbSet<ScheduleLock> ScheduleLocks => Set<ScheduleLock>();
+
+    // Sites
+    public DbSet<Site> Sites => Set<Site>();
+
+    // Billing
+    public DbSet<PlatformInvoice> PlatformInvoices => Set<PlatformInvoice>();
+
+    public DbSet<UsageQuota> UsageQuotas => Set<UsageQuota>();
+
+    public DbSet<CreditPurchase> CreditPurchases => Set<CreditPurchase>();
+
+    public DbSet<SiteChangeCharge> SiteChangeCharges => Set<SiteChangeCharge>();
+
+    // Financeiro
+    public DbSet<Payment> Payments => Set<Payment>();
+
+    public DbSet<Transaction> Transactions => Set<Transaction>();
+
+    public DbSet<CommissionRule> CommissionRules => Set<CommissionRule>();
+
+    public DbSet<CommissionEntry> CommissionEntries => Set<CommissionEntry>();
+
+    // Mensageria
+    public DbSet<MessageTemplate> MessageTemplates => Set<MessageTemplate>();
+
+    public DbSet<Notification> Notifications => Set<Notification>();
+
+    public DbSet<Conversation> Conversations => Set<Conversation>();
+
+    public DbSet<MessagingPolicy> MessagingPolicies => Set<MessagingPolicy>();
+
+    // Modulos opcionais
+    public DbSet<MembershipPlan> MembershipPlans => Set<MembershipPlan>();
+
+    public DbSet<Membership> Memberships => Set<Membership>();
+
+    public DbSet<ServicePackage> ServicePackages => Set<ServicePackage>();
+
+    public DbSet<PackageUsage> PackageUsages => Set<PackageUsage>();
+
+    public DbSet<LoyaltyAccount> LoyaltyAccounts => Set<LoyaltyAccount>();
+
+    public DbSet<ReactivationCampaign> ReactivationCampaigns => Set<ReactivationCampaign>();
+
+    public DbSet<ServiceReview> ServiceReviews => Set<ServiceReview>();
+
+    // IA
+    public DbSet<AiOperationLog> AiOperationLogs => Set<AiOperationLog>();
+
+    // Operacoes
+    public DbSet<DataSubjectRequest> DataSubjectRequests => Set<DataSubjectRequest>();
+
+    public DbSet<TenantBackup> TenantBackups => Set<TenantBackup>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

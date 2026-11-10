@@ -12,11 +12,11 @@ namespace Servia.Tests.Api;
 /// Os testes exercitam o pipeline real, com o middleware registrado, e não
 /// apenas a classe isolada.
 /// </summary>
-public class ExceptionHandlingTests : IClassFixture<WebApplicationFactory<Program>>
+public class ExceptionHandlingTests : IClassFixture<IsolatedApiFactory>
 {
     private readonly HttpClient _client;
 
-    public ExceptionHandlingTests(WebApplicationFactory<Program> factory)
+    public ExceptionHandlingTests(IsolatedApiFactory factory)
     {
         _client = factory.CreateClient();
     }

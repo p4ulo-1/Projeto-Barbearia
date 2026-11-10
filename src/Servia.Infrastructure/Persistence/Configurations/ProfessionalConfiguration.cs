@@ -61,7 +61,10 @@ internal sealed class ProfessionalConfiguration : IEntityTypeConfiguration<Profe
                 .HasColumnName("Schedule_WorkDays")
                 .HasConversion(
                     days => string.Join(',', days.Select(day => (int)day)),
-                    text => ParseWorkDays(text))
+                    text => ParseWorkDays(text),
+                    new Microsoft.EntityFrameworkCore.ChangeTracking.ValueComparer<IReadOnlySet<DayOfWeek>>(
+                        (left, right) => left.SetEquals(right),
+                        days => days.Aggregate(0, (hash, day) => hash ^ day.GetHashCode())))
                 .HasMaxLength(50)
                 .IsRequired();
 

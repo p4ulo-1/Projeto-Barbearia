@@ -10,11 +10,11 @@ namespace Servia.Tests.Api;
 /// e o banco estão operacionais. É o que o orquestrador consulta para saber
 /// se a instância pode receber tráfego.
 /// </summary>
-public class HealthCheckTests : IClassFixture<WebApplicationFactory<Program>>
+public class HealthCheckTests : IClassFixture<IsolatedApiFactory>
 {
     private readonly HttpClient _client;
 
-    public HealthCheckTests(WebApplicationFactory<Program> factory)
+    public HealthCheckTests(IsolatedApiFactory factory)
     {
         _client = factory.CreateClient();
     }

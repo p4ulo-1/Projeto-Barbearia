@@ -173,6 +173,15 @@ public sealed class PlatformInvoice : ITenantScoped
 /// <summary>Linha de cobrança de uma fatura.</summary>
 public sealed class InvoiceLine
 {
+    /// <summary>
+    /// Construtor sem parametros exigido pelo EF Core para materializar a
+    /// entidade. Nao valida invariantes: a validacao ocorre em AddLine.
+    /// </summary>
+    private InvoiceLine()
+    {
+        Description = string.Empty;
+    }
+
     internal InvoiceLine(Guid id, InvoiceLineType type, string description, Money amount)
     {
         Id = id;

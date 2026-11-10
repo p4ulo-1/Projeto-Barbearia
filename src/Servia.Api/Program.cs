@@ -119,11 +119,15 @@ if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
 
-    // Cria o schema em desenvolvimento. Em produção, o schema é aplicado
-    // por migrations, nunca por EnsureCreated.
+    // F11.2: o schema e aplicado por migrations, nunca por EnsureCreated.
+    // EnsureCreated nao versiona nada: a primeira alteracao de modelo
+    // quebraria o banco sem caminho de volta.
     using var scope = app.Services.CreateScope();
     var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    await context.Database.EnsureCreatedAsync();
+    await context.Database.MigrateAsync();
+
+    // F11.3: garante os planos comerciais da plataforma.
+    await PlanSeeder.SeedAsync(context);
 }
 
 app.UseHttpsRedirection();
