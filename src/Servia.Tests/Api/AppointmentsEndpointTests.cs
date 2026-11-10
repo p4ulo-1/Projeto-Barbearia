@@ -11,7 +11,9 @@ using Servia.Domain.Catalog;
 using Servia.Domain.Common;
 using Servia.Domain.Customers;
 using Servia.Domain.Team;
+using Servia.Domain.Identity;
 using Servia.Domain.Tenancy;
+using Servia.Infrastructure.Identity;
 using Servia.Infrastructure.Persistence;
 
 namespace Servia.Tests.Api;
@@ -30,6 +32,10 @@ public class AppointmentsEndpointTests : IClassFixture<AppointmentsEndpointTests
 {
     private static readonly Guid TenantId = Guid.NewGuid();
     // IDs reais das entidades criadas no banco de teste.
+    private const string Password = "SenhaSegura123";
+
+    private readonly string _accessToken;
+
     private Guid _customerId;
     private Guid _serviceId;
     private Guid _professionalId;
@@ -44,6 +50,36 @@ public class AppointmentsEndpointTests : IClassFixture<AppointmentsEndpointTests
         _client = factory.CreateClient();
 
         SeedReferences();
+        _accessToken = SignIn();
+    }
+
+    /// <summary>
+    /// Cria o usuario proprietario e obtem o token.
+    /// O endpoint de agendamento exige autenticacao e permissao (F10).
+    /// </summary>
+    private string SignIn()
+    {
+        using var scope = _factory.Services.CreateScope();
+        scope.ServiceProvider.GetRequiredService<ITenantContext>().SetTenant(TenantId);
+
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var hasher = scope.ServiceProvider.GetRequiredService<IPasswordHasher>();
+
+        if (!context.Users.Any())
+        {
+            context.Users.Add(User.CreateForTenant(
+                TenantId, "Proprietario", "owner@exemplo.com",
+                hasher.Hash(Password), Role.Owner, DateTimeOffset.UtcNow));
+
+            context.SaveChanges();
+        }
+
+        var response = _client.PostAsJsonAsync("/api/auth/sign-in", new SignInRequest(
+            TenantId, "owner@exemplo.com", Password)).GetAwaiter().GetResult();
+
+        var body = response.Content.ReadFromJsonAsync<AuthResponse>().GetAwaiter().GetResult();
+
+        return body!.AccessToken;
     }
 
     /// <summary>
@@ -92,6 +128,9 @@ public class AppointmentsEndpointTests : IClassFixture<AppointmentsEndpointTests
         {
             Content = JsonContent.Create(request)
         };
+
+        message.Headers.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _accessToken);
 
         message.Headers.Add(TenantResolutionMiddleware.TenantHeaderName,
             (tenantId ?? TenantId).ToString());
@@ -184,18 +223,25 @@ public class AppointmentsEndpointTests : IClassFixture<AppointmentsEndpointTests
     // ---------- Isolamento ----------
 
     [Fact]
-    public async Task Agendamento_De_Outro_Tenant_Nao_Bloqueia_Horario()
+    public async Task Header_De_Tenant_Forjado_Eh_Ignorado_Quando_Ha_Token()
     {
+        // F10.5: o tenant vem da claim do token, nao do header.
+        // Forjar o header nao muda o tenant efetivo da requisicao.
         var time = new TimeOnly(15, 0);
 
-        var otherTenant = new CreateAppointmentRequest(
-            _customerId, _serviceId, _professionalId, Date, time, 60);
+        var forged = await PostAsync(Request(time, 60), Guid.NewGuid());
 
-        await PostAsync(otherTenant, Guid.NewGuid());
+        // A requisicao e aceita, mas no tenant do token — nao no forjado.
+        Assert.Equal(HttpStatusCode.Created, forged.StatusCode);
 
-        var mine = await PostAsync(Request(time, 60));
+        await using var scope = _factory.Services.CreateAsyncScope();
+        scope.ServiceProvider.GetRequiredService<ITenantContext>().SetTenant(TenantId);
 
-        Assert.Equal(HttpStatusCode.Created, mine.StatusCode);
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var created = await context.Appointments.FirstOrDefaultAsync(item => item.Time == time);
+
+        Assert.NotNull(created);
+        Assert.Equal(TenantId, created!.TenantId);
     }
 
     // ---------- Fábrica com banco isolado ----------

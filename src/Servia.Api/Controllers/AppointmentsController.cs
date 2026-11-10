@@ -1,6 +1,9 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Servia.Api.Authorization;
 using Servia.Api.Contracts;
 using Servia.Application.Appointments;
+using Servia.Domain.Identity;
 using Servia.Domain.Tenancy;
 
 namespace Servia.Api.Controllers;
@@ -14,6 +17,8 @@ namespace Servia.Api.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/appointments")]
+[Authorize]
+[RequirePermission(Permission.ManageAppointments)]
 public sealed class AppointmentsController(
     AppointmentService appointmentService,
     ITenantContext tenantContext) : ControllerBase
