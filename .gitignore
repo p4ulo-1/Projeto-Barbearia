@@ -150,3 +150,8 @@ TestResults/
 # ============================================================
 
 private/
+
+# Banco SQLite local (criado ao rodar a API em desenvolvimento)
+*.db
+*.db-shm
+*.db-wal
