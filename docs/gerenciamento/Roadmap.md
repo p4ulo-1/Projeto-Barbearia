@@ -301,6 +301,122 @@ A geração inicial e a publicação estão incluídas no plano. **Alterações 
 
 ---
 
+## Fases de operação — o que falta para o SaaS operável
+
+> **Contexto:** as fases F0–F9 entregaram o **domínio** do Servia: 104 entregas, 664 testes, build limpo e teste de carga aprovado. O que existe hoje é um núcleo de negócio sólido e testado, com a API respondendo para criação de agendamento.
+>
+> **O que não existe:** autenticação, migrations, implementações das integrações externas e frontend. Sem isso, o sistema não é operável por um cliente real.
+>
+> As fases abaixo fecham essa lacuna. A ordem é deliberada: segurança antes de exposição, persistência antes de dados reais, integrações antes de cobrança.
+
+### F10 — Autenticação e autorização (3 semanas)
+
+**Objetivo:** permitir que usuários entrem e que cada requisição seja autorizada no servidor.
+
+| # | Entrega | Critério de aceite | Rastreia |
+| --- | --- | --- | --- |
+| F10.1 | Login com e-mail e senha | Token JWT emitido com `TenantId`, `UserId` e `Role` | U07, U10 |
+| F10.2 | Hash de senha com algoritmo adequado | Senha nunca armazenada em claro; verificação resistente a timing | N02 |
+| F10.3 | Middleware de autenticação JWT | Requisição sem token válido recebe 401 | N03 |
+| F10.4 | Autorização por permissão | Endpoint exige `Permission`; papel sem permissão recebe 403 | U08, N03 |
+| F10.5 | Tenant resolvido pelo token, não pelo header | `X-Tenant-Id` deixa de ser aceito em produção | N01a |
+| F10.6 | Refresh token com rotação | Renovação revoga o token anterior | U10 |
+| F10.7 | Logout com revogação | Token revogado não renova | U10 |
+| F10.8 | Testes de autenticação e autorização | 401, 403 e isolamento por tenant cobertos | N03 |
+
+### F11 — Persistência de produção (2 semanas)
+
+**Objetivo:** substituir `EnsureCreated` por migrations versionadas e garantir que o schema evolua com segurança.
+
+| # | Entrega | Critério de aceite | Rastreia |
+| --- | --- | --- | --- |
+| F11.1 | Migrations do EF Core para todas as entidades | `dotnet ef migrations add` gera migration completa | N10 |
+| F11.2 | Aplicação de migrations no deploy | Schema aplicado sem `EnsureCreated` | N10 |
+| F11.3 | Seed de planos e dados de demonstração | Planos Essencial, Pro, Premium e Business criados | U57 |
+| F11.4 | Índices e chaves estrangeiras verificados no PostgreSQL | Consultas de agenda usam índice; FK composta ativa | N01a |
+| F11.5 | Testes de integração contra PostgreSQL | Suíte roda em container, não apenas SQLite | N10 |
+
+### F12 — Implementações das integrações (4 semanas)
+
+**Objetivo:** substituir os contratos por implementações reais.
+
+| # | Entrega | Critério de aceite | Rastreia |
+| --- | --- | --- | --- |
+| F12.1 | `MercadoPagoGateway` implementando `IPaymentGateway` | Assinatura criada e webhook processado em sandbox | U52 |
+| F12.2 | `MetaWhatsAppProvider` implementando `IMessagingProvider` | Mensagem enviada e recebida em número de teste | U48 |
+| F12.3 | `OpenAiSiteGenerator` implementando `IAiSiteGenerator` | Proposta gerada respeitando o schema de componentes | U37 |
+| F12.4 | Webhooks idempotentes de pagamento | Evento repetido não gera cobrança duplicada | U52 |
+| F12.5 | Webhooks idempotentes de WhatsApp | Evento repetido não gera mensagem duplicada | U48 |
+| F12.6 | Fila de envio com retry | Falha temporária é reprocessada com backoff | N07 |
+| F12.7 | Testes com dublês das integrações | Casos de uso testados sem chamar serviço externo | N12 |
+
+### F13 — API de negócio (4 semanas)
+
+**Objetivo:** expor o domínio por HTTP, com contratos estáveis.
+
+| # | Entrega | Critério de aceite | Rastreia |
+| --- | --- | --- | --- |
+| F13.1 | Controllers de catálogo | CRUD de serviços, categorias, variações e combos | U19, U20, U21 |
+| F13.2 | Controllers de equipe | CRUD de profissionais, vínculos e bloqueios | U22, U24, U25 |
+| F13.3 | Controllers de clientes | CRUD de clientes e preferências | U11, U12, U13 |
+| F13.4 | Controllers de agenda | Consulta de disponibilidade, criação, remarcação e cancelamento | U28, U29, U30 |
+| F13.5 | Controllers de site | Edição, prévia, publicação e rollback | U37–U43 |
+| F13.6 | Controllers de billing | Assinatura, faturas e consumo | U52, U57 |
+| F13.7 | Controllers de financeiro | Pagamentos, lançamentos, comissões e relatórios | U51–U56 |
+| F13.8 | Controllers de WhatsApp | Conversas, templates e notificações | U45–U49 |
+| F13.9 | Controllers de módulos opcionais | Clubes, pacotes, fidelidade e NPS | M01–M17 |
+| F13.10 | Paginação, filtros e ordenação padronizados | Listagens grandes não retornam tudo de uma vez | N06 |
+| F13.11 | Versionamento de API | `/api/v1/` com contrato estável | N12 |
+
+### F14 — Frontend do SaaS (6 semanas)
+
+**Objetivo:** entregar as superfícies de produto que o cliente usa.
+
+| # | Entrega | Critério de aceite | Rastreia |
+| --- | --- | --- | --- |
+| F14.1 | Fundação do frontend | React + TypeScript + roteamento + cliente de API tipado | N12 |
+| F14.2 | Autenticação no frontend | Login, logout e renovação de sessão | U07, U10 |
+| F14.3 | Painel do estabelecimento | Agenda, catálogo, equipe e clientes | U28–U31 |
+| F14.4 | Painel financeiro | Pagamentos, comissões e relatórios | U51–U56 |
+| F14.5 | Editor de site | Edição de seções, tema e prévia multi-dispositivo | U38, U39 |
+| F14.6 | Site público por tenant | Renderização do snapshot publicado no subdomínio | U41, U43 |
+| F14.7 | Widget de agendamento | Agendamento embutido no site do tenant | U43 |
+| F14.8 | Painel administrativo da plataforma | Gestão de tenants, planos e assinaturas | U57 |
+| F14.9 | Painel do profissional | Agenda própria e extrato de comissões | M08 |
+| F14.10 | Responsividade e acessibilidade | Uso em celular; navegação por teclado | N06 |
+
+### F15 — Go-live (2 semanas)
+
+**Objetivo:** colocar o primeiro cliente real em produção.
+
+| # | Entrega | Critério de aceite | Rastreia |
+| --- | --- | --- | --- |
+| F15.1 | Provisionamento do primeiro tenant real | Estabelecimento criado, site publicado, agenda funcionando | U01 |
+| F15.2 | Configuração de produção | Variáveis de ambiente, segredos fora do código | N11 |
+| F15.3 | Domínio e SSL | Subdomínio acessível por HTTPS | U41 |
+| F15.4 | Monitoramento ativo | Alertas configurados e testados | N07 |
+| F15.5 | Backup automático agendado | Backup diário com verificação de integridade | U60 |
+| F15.6 | Teste de carga em produção | Meta de 99,5% validada no ambiente real | N06 |
+| F15.7 | Runbook validado em simulação | Incidente simulado resolvido seguindo o runbook | N11 |
+
+---
+
+## Resumo do que falta
+
+| Fase | Escopo | Semanas |
+| --- | --- | --- |
+| F10 | Autenticação e autorização | 3 |
+| F11 | Persistência de produção | 2 |
+| F12 | Implementações das integrações | 4 |
+| F13 | API de negócio | 4 |
+| F14 | Frontend do SaaS | 6 |
+| F15 | Go-live | 2 |
+| **Total** | | **21 semanas** |
+
+**Estado atual:** domínio completo e testado (F0–F9). **Estado operável:** exige F10–F15.
+
+---
+
 ## Funcionalidades do núcleo entregues nas fases
 
 Funcionalidades do catálogo que compõem o núcleo universal e são construídas do zero nas fases indicadas. Nenhuma delas é herdada do código acadêmico (ADR-001).
