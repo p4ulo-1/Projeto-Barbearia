@@ -63,6 +63,24 @@ public readonly record struct Money
         return new Money(Amount * factor, Currency);
     }
 
+    /// <summary>
+    /// Divide o valor por um divisor, arredondando para 2 casas decimais.
+    /// O arredondamento e necessario porque valores monetarios nao tem
+    /// fracoes de centavo: dividir 300 por 3 deve resultar em 100, nao em
+    /// 99.999... como ocorre ao multiplicar pelo inverso.
+    /// </summary>
+    public Money DivideBy(int divisor)
+    {
+        if (divisor <= 0)
+        {
+            throw new DomainRuleException("O divisor deve ser maior que zero.");
+        }
+
+        var result = Math.Round(Amount / divisor, 2, MidpointRounding.AwayFromZero);
+
+        return new Money(result, Currency);
+    }
+
     private void EnsureSameCurrency(Money other)
     {
         if (!string.Equals(Currency, other.Currency, StringComparison.Ordinal))
