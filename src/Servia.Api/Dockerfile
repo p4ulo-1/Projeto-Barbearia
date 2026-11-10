@@ -30,6 +30,10 @@ RUN dotnet publish "Servia.Api.csproj" -c Release -o /app/publish /p:UseAppHost=
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
 WORKDIR /app
 
+# curl é necessário para o health check do docker-compose.
+# A imagem aspnet não o inclui por padrão.
+RUN apt-get update     && apt-get install -y --no-install-recommends curl     && rm -rf /var/lib/apt/lists/*
+
 # Executa como usuário sem privilégios.
 USER $APP_UID
 

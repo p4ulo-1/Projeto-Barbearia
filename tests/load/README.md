@@ -85,7 +85,35 @@ http_req_failed..........: 0.00%
 
 ---
 
-## Resultado da execução real
+## Resultado da execução com k6 (ambiente Docker)
+
+Executado em 2026-11-10 contra o ambiente completo do `docker-compose`
+(API + PostgreSQL 17, porta 8080), com **k6 v2.3.0**:
+
+| Métrica | Resultado | Critério | Situação |
+| --- | --- | --- | --- |
+| Requisições HTTP | 4.197 | — | — |
+| Checks | 8.394 (100% sucesso) | — | — |
+| Falhas | 0 (0,00%) | < 0,5% | **PASSOU** |
+| Latência média | 2,38 ms | — | — |
+| p(95) | 3,00 ms | < 500 ms | **PASSOU** |
+| p(99) | 3,75 ms | < 1500 ms | **PASSOU** |
+| VUs máximo | 50 | — | — |
+
+**Resultado: APROVADO.** A meta de 99,5% de disponibilidade foi validada
+no ambiente de produção simulado, com PostgreSQL real.
+
+### Como reproduzir
+
+```bash
+docker-compose up --build -d
+curl -f http://localhost:8080/health
+k6 run -e BASE_URL=http://localhost:8080 tests/load/smoke.js
+```
+
+---
+
+## Resultado da execução local (sem Docker)
 
 Executado em 2026-11-10 contra a API rodando localmente
 (`dotnet run`, SQLite, porta 5099), com o medidor `runner.mjs`:

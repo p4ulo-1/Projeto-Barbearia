@@ -42,6 +42,7 @@ services:
     ports:
       - "8080:8080"
     healthcheck:
+      # curl e instalado no Dockerfile para este health check.
       test: ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"]
       interval: 10s
       timeout: 5s
