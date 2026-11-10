@@ -1,0 +1,52 @@
+# ============================================================
+# Ambiente completo do Servia (F0.2)
+#
+# Sobe a API e o PostgreSQL com um comando:
+#   docker compose up --build
+#
+# A API espera o banco ficar saudável antes de iniciar, evitando
+# falha de conexão na primeira subida.
+# ============================================================
+
+services:
+  database:
+    image: postgres:17-alpine
+    container_name: servia-database
+    environment:
+      POSTGRES_DB: servia
+      POSTGRES_USER: servia
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-servia_dev_password}
+    ports:
+      - "5432:5432"
+    volumes:
+      - servia-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U servia -d servia"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: ./src
+      dockerfile: Servia.Api/Dockerfile
+    container_name: servia-api
+    depends_on:
+      database:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      Database__Provider: Postgres
+      ConnectionStrings__DefaultConnection: >-
+        Host=database;Port=5432;Database=servia;Username=servia;Password=${POSTGRES_PASSWORD:-servia_dev_password}
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+volumes:
+  servia-data:
