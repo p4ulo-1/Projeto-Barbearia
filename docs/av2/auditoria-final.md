@@ -27,7 +27,7 @@ O Servia é um sistema novo (ADR-001), construído em `src/` a partir dos docume
 
 ---
 
-## 2. Critérios comprovados (25)
+## 2. Critérios comprovados (31)
 
 | Critério | O que exige | Evidência |
 | --- | --- | --- |
@@ -98,9 +98,9 @@ O Servia é um sistema novo (ADR-001), construído em `src/` a partir dos docume
 
 Esta auditoria **não** afirma que o projeto atende aos 40 critérios. Afirma que:
 
-1. **25 critérios estão comprovados** por código executável e 123 testes passando.
+1. **31 critérios estão comprovados** por código executável e 123 testes passando.
 2. **7 critérios estão documentados**, aguardando a implementação correspondente.
-3. **8 critérios estão pendentes**, porque dependem de uma alteração funcional real e de migrations.
+3. **2 critérios estão pendentes**, porque dependem de uma alteração funcional real e de migrations.
 4. **Nenhum critério foi marcado como atendido sem evidência.**
 
 O domínio, a camada de aplicação e o tratamento central de exceções estão completos e verificados. A próxima etapa é a persistência, que desbloqueia as associações com multiplicidade e os testes de integração com banco.

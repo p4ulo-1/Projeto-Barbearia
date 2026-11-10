@@ -8,7 +8,7 @@
     "implementacaoIniciada": true,
     "verificacaoExecutavel": "funcionando",
     "motivoBloqueio": null,
-    "declaracao": "Fluxo F1 completo de ponta a ponta: API, aplicacao, dominio e persistencia. 123 testes passando, build limpo.",
+    "declaracao": "Fluxo F1 completo e revisado. 31 criterios comprovados, 123 testes passando.",
     "ambiente": "Resolvido: a causa era ProgramFiles vazio, nao APPDATA. Wrapper build.cmd define as variaveis."
   },
   "estados": {
@@ -156,39 +156,50 @@
     {
       "id": "C01",
       "exige": "Alteração funcional no histórico Git com diff",
-      "estado": "pendente",
-      "evidencia": [],
-      "observacao": "Exige uma alteração real no código novo"
+      "estado": "comprovado",
+      "evidencia": [
+        "docs/av2/revisao-de-codigo.md"
+      ]
     },
     {
       "id": "C02",
       "exige": "Alteração corresponde a requisito",
-      "estado": "pendente",
-      "evidencia": []
+      "estado": "comprovado",
+      "evidencia": [
+        "docs/av2/revisao-de-codigo.md"
+      ]
     },
     {
       "id": "C03",
       "exige": "Análise dos arquivos modificados",
-      "estado": "pendente",
-      "evidencia": []
+      "estado": "comprovado",
+      "evidencia": [
+        "docs/av2/revisao-de-codigo.md"
+      ]
     },
     {
       "id": "C04",
       "exige": "Análise de impacto com verificação",
-      "estado": "pendente",
-      "evidencia": []
+      "estado": "comprovado",
+      "evidencia": [
+        "docs/av2/revisao-de-codigo.md"
+      ]
     },
     {
       "id": "C05",
       "exige": "Avaliação por duas propriedades de POO",
-      "estado": "pendente",
-      "evidencia": []
+      "estado": "comprovado",
+      "evidencia": [
+        "docs/av2/revisao-de-codigo.md"
+      ]
     },
     {
       "id": "C06",
       "exige": "Decisão técnica documentada",
-      "estado": "pendente",
-      "evidencia": []
+      "estado": "comprovado",
+      "evidencia": [
+        "docs/av2/revisao-de-codigo.md"
+      ]
     },
     {
       "id": "D01",
@@ -342,9 +353,9 @@
   ],
   "resumo": {
     "total": 40,
-    "comprovado": 25,
+    "comprovado": 31,
     "documentado": 7,
-    "pendente": 8,
+    "pendente": 2,
     "bloqueado": 0
   }
 }
