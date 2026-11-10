@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Servia.Api.Contracts;
 using Servia.Application.Appointments;
+using Servia.Domain.Tenancy;
 
 namespace Servia.Api.Controllers;
 
@@ -13,7 +14,9 @@ namespace Servia.Api.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/appointments")]
-public sealed class AppointmentsController(AppointmentService appointmentService) : ControllerBase
+public sealed class AppointmentsController(
+    AppointmentService appointmentService,
+    ITenantContext tenantContext) : ControllerBase
 {
     /// <summary>
     /// Cria um agendamento (fluxo F1).
@@ -31,8 +34,14 @@ public sealed class AppointmentsController(AppointmentService appointmentService
     {
         ArgumentNullException.ThrowIfNull(request);
 
+        // O tenant vem do contexto resolvido no servidor, nunca do corpo.
+        if (!tenantContext.HasTenant)
+        {
+            return BadRequest(new ErrorResponse("Estabelecimento não identificado."));
+        }
+
         var command = new CreateAppointmentCommand(
-            request.TenantId,
+            tenantContext.TenantId!.Value,
             request.CustomerId,
             request.ServiceId,
             request.ProfessionalId,

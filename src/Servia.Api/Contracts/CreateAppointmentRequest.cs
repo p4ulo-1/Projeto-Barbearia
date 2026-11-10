@@ -5,11 +5,14 @@ namespace Servia.Api.Contracts;
 /// <summary>
 /// Corpo da requisição de criação de agendamento.
 ///
+/// O tenant <b>não</b> faz parte do corpo: ele é resolvido no servidor
+/// (ARCH.md §3.2). Aceitá-lo do cliente permitiria acessar dados de outro
+/// estabelecimento.
+///
 /// A duração não é informada pelo cliente: ela vem do serviço escolhido.
 /// Quem agenda não decide quanto tempo o atendimento ocupa.
 /// </summary>
 public sealed record CreateAppointmentRequest(
-    [Required] Guid TenantId,
     [Required] Guid CustomerId,
     [Required] Guid ServiceId,
     [Required] Guid ProfessionalId,

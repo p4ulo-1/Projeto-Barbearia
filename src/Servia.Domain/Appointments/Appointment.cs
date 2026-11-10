@@ -1,4 +1,5 @@
 using Servia.Domain.Common;
+using Servia.Domain.Tenancy;
 using Servia.Domain.Policies;
 
 namespace Servia.Domain.Appointments;
@@ -12,7 +13,7 @@ namespace Servia.Domain.Appointments;
 ///
 /// A identidade (<see cref="Id"/>) é preservada em todas as transições.
 /// </summary>
-public sealed class Appointment
+public sealed class Appointment : ITenantScoped
 {
     /// <summary>
     /// Construtor sem parâmetros exigido pelo EF Core para materializar a

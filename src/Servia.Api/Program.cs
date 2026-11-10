@@ -2,8 +2,10 @@ using Microsoft.EntityFrameworkCore;
 using Servia.Api.Middleware;
 using Servia.Application.Appointments;
 using Servia.Domain.Appointments;
+using Servia.Domain.Tenancy;
 using Servia.Infrastructure.Persistence;
 using Servia.Infrastructure.Repositories;
+using Servia.Infrastructure.Tenancy;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -15,6 +17,10 @@ var connectionString = builder.Configuration.GetConnectionString("DefaultConnect
     ?? "Data Source=servia.db";
 
 builder.Services.AddDbContext<AppDbContext>(options => options.UseSqlite(connectionString));
+
+// Contexto de tenant: singleton, pois o estado vive no AsyncLocal.
+// Alimenta o filtro global do EF Core (ADR-016).
+builder.Services.AddSingleton<ITenantContext, TenantContext>();
 
 // Repositórios: a aplicação depende do contrato, não da implementação.
 builder.Services.AddScoped<IAppointmentRepository, AppointmentRepository>();
@@ -31,6 +37,9 @@ var app = builder.Build();
 // Assim, qualquer exceção lançada adiante — controllers, serviços, domínio —
 // é capturada e traduzida em resposta HTTP consistente.
 app.UseExceptionHandling();
+
+// Resolve o tenant no servidor, antes de qualquer acesso a dados.
+app.UseTenantResolution();
 
 if (app.Environment.IsDevelopment())
 {

@@ -1,4 +1,5 @@
 using Servia.Domain.Common;
+using Servia.Domain.Tenancy;
 
 namespace Servia.Domain.Customers;
 
@@ -13,7 +14,7 @@ namespace Servia.Domain.Customers;
 /// Oferece <see cref="Anonymize"/> para atender ao direito de exclusão da LGPD
 /// sem apagar o histórico de atendimentos.
 /// </summary>
-public sealed class Customer
+public sealed class Customer : ITenantScoped
 {
     private const string AnonymizedName = "Cliente anonimizado";
     private const string AnonymizedPhone = "0000000000";

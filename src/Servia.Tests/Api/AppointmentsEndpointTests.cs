@@ -5,6 +5,8 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Servia.Api.Contracts;
+using Servia.Api.Middleware;
+using Servia.Domain.Tenancy;
 using Servia.Infrastructure.Persistence;
 
 namespace Servia.Tests.Api;
@@ -37,14 +39,30 @@ public class AppointmentsEndpointTests : IClassFixture<AppointmentsEndpointTests
     }
 
     private static CreateAppointmentRequest Request(TimeOnly time, int duration = 30) =>
-        new(TenantId, CustomerId, ServiceId, ProfessionalId, Date, time, duration);
+        new(CustomerId, ServiceId, ProfessionalId, Date, time, duration);
+
+    /// <summary>Envia o pedido com o tenant resolvido pelo header do servidor.</summary>
+    private async Task<HttpResponseMessage> PostAsync(
+        CreateAppointmentRequest request,
+        Guid? tenantId = null)
+    {
+        using var message = new HttpRequestMessage(HttpMethod.Post, "/api/appointments")
+        {
+            Content = JsonContent.Create(request)
+        };
+
+        message.Headers.Add(TenantResolutionMiddleware.TenantHeaderName,
+            (tenantId ?? TenantId).ToString());
+
+        return await _client.SendAsync(message);
+    }
 
     // ---------- F1-CA1: criação bem-sucedida ----------
 
     [Fact]
     public async Task Criar_Agendamento_Retorna_201_E_Persiste()
     {
-        var response = await _client.PostAsJsonAsync("/api/appointments", Request(new TimeOnly(10, 0)));
+        var response = await PostAsync(Request(new TimeOnly(10, 0)));
 
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
 
@@ -57,7 +75,9 @@ public class AppointmentsEndpointTests : IClassFixture<AppointmentsEndpointTests
         Assert.Equal(new TimeOnly(10, 0), body.Time);
 
         // Verifica a persistência: o registro existe no banco.
+        // O filtro global exige tenant resolvido também na verificação.
         await using var scope = _factory.Services.CreateAsyncScope();
+        scope.ServiceProvider.GetRequiredService<ITenantContext>().SetTenant(TenantId);
         var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var persisted = await context.Appointments.FirstOrDefaultAsync(item => item.Id == body.Id);
 
@@ -70,10 +90,10 @@ public class AppointmentsEndpointTests : IClassFixture<AppointmentsEndpointTests
     [Fact]
     public async Task Criar_Agendamento_Conflitante_Retorna_409()
     {
-        var first = await _client.PostAsJsonAsync("/api/appointments", Request(new TimeOnly(14, 0), 60));
+        var first = await PostAsync(Request(new TimeOnly(14, 0), 60));
         Assert.Equal(HttpStatusCode.Created, first.StatusCode);
 
-        var second = await _client.PostAsJsonAsync("/api/appointments", Request(new TimeOnly(14, 30), 30));
+        var second = await PostAsync(Request(new TimeOnly(14, 30), 30));
 
         Assert.Equal(HttpStatusCode.Conflict, second.StatusCode);
 
@@ -87,10 +107,11 @@ public class AppointmentsEndpointTests : IClassFixture<AppointmentsEndpointTests
     {
         var time = new TimeOnly(16, 0);
 
-        await _client.PostAsJsonAsync("/api/appointments", Request(time, 60));
-        await _client.PostAsJsonAsync("/api/appointments", Request(time, 60));
+        await PostAsync(Request(time, 60));
+        await PostAsync(Request(time, 60));
 
         await using var scope = _factory.Services.CreateAsyncScope();
+        scope.ServiceProvider.GetRequiredService<ITenantContext>().SetTenant(TenantId);
         var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var count = await context.Appointments.CountAsync(item => item.Time == time);
 
@@ -102,7 +123,7 @@ public class AppointmentsEndpointTests : IClassFixture<AppointmentsEndpointTests
     [Fact]
     public async Task Criar_Com_Duracao_Invalida_Retorna_400()
     {
-        var response = await _client.PostAsJsonAsync("/api/appointments", Request(new TimeOnly(11, 0), 0));
+        var response = await PostAsync(Request(new TimeOnly(11, 0), 0));
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
@@ -111,9 +132,9 @@ public class AppointmentsEndpointTests : IClassFixture<AppointmentsEndpointTests
     public async Task Criar_Com_Referencia_Vazia_Retorna_400()
     {
         var request = new CreateAppointmentRequest(
-            TenantId, Guid.Empty, ServiceId, ProfessionalId, Date, new TimeOnly(11, 0), 30);
+            Guid.Empty, ServiceId, ProfessionalId, Date, new TimeOnly(11, 0), 30);
 
-        var response = await _client.PostAsJsonAsync("/api/appointments", request);
+        var response = await PostAsync(request);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
@@ -126,11 +147,11 @@ public class AppointmentsEndpointTests : IClassFixture<AppointmentsEndpointTests
         var time = new TimeOnly(15, 0);
 
         var otherTenant = new CreateAppointmentRequest(
-            Guid.NewGuid(), CustomerId, ServiceId, ProfessionalId, Date, time, 60);
+            CustomerId, ServiceId, ProfessionalId, Date, time, 60);
 
-        await _client.PostAsJsonAsync("/api/appointments", otherTenant);
+        await PostAsync(otherTenant, Guid.NewGuid());
 
-        var mine = await _client.PostAsJsonAsync("/api/appointments", Request(time, 60));
+        var mine = await PostAsync(Request(time, 60));
 
         Assert.Equal(HttpStatusCode.Created, mine.StatusCode);
     }

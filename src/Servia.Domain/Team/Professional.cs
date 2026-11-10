@@ -1,5 +1,6 @@
 using Servia.Domain.Appointments;
 using Servia.Domain.Common;
+using Servia.Domain.Tenancy;
 
 namespace Servia.Domain.Team;
 
@@ -11,7 +12,7 @@ namespace Servia.Domain.Team;
 /// construtor é privado e a jornada só pode ser trocada por <see cref="UpdateSchedule"/>,
 /// que valida a nova jornada antes de aceitá-la.
 /// </summary>
-public sealed class Professional
+public sealed class Professional : ITenantScoped
 {
     /// <summary>
     /// Construtor sem parâmetros exigido pelo EF Core para materializar a

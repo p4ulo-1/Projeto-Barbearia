@@ -27,6 +27,12 @@ public class AppointmentRepositoryTests : IDisposable
 
     private readonly SqliteTestDatabase _database = new();
 
+    public AppointmentRepositoryTests()
+    {
+        // O filtro global exige tenant resolvido: sem ele, nada e visivel.
+        _database.TenantContext.SetTenant(TenantId);
+    }
+
     public void Dispose() => _database.Dispose();
 
     private static Appointment NewAppointment(

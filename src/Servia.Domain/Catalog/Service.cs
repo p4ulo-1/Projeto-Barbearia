@@ -1,4 +1,5 @@
 using Servia.Domain.Common;
+using Servia.Domain.Tenancy;
 
 namespace Servia.Domain.Catalog;
 
@@ -9,7 +10,7 @@ namespace Servia.Domain.Catalog;
 /// preço não negativo. A desativação preserva o histórico — o serviço não é
 /// removido, apenas deixa de ser ofertado.
 /// </summary>
-public sealed class Service
+public sealed class Service : ITenantScoped
 {
     /// <summary>
     /// Construtor sem parâmetros exigido pelo EF Core para materializar a
