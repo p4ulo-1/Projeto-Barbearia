@@ -169,7 +169,7 @@ VITE_API_URL=http://localhost:5071/api
 
 Na ausência dessa variável, o frontend utiliza o endereço local da API como fallback de desenvolvimento.
 
-Mais informações estão disponíveis em [`frontend/README.md`](frontend/README.md).
+O frontend do SaaS ainda não foi construído. O código acadêmico foi removido em 2026-11-10 (ver [ADR-001](docs/gerenciamento/ADR.md)).
 
 ---
 
@@ -189,7 +189,7 @@ API REST desenvolvida em **C# com ASP.NET Core**, utilizando arquitetura em cama
 - Swagger / OpenAPI
 - xUnit
 
-Mais informações estão disponíveis em [`backend/README.md`](backend/README.md) e [`backend/ARQUITETURA.md`](backend/ARQUITETURA.md).
+O código está em [`src/`](src/). A arquitetura está em [`docs/gerenciamento/ARCH.md`](docs/gerenciamento/ARCH.md).
 
 ---
 
@@ -352,4 +352,4 @@ As alterações devem ser organizadas em commits coerentes, permitindo acompanha
 
 ## 🎓 Nota sobre a Origem
 
-A identificação acadêmica e a equipe original estão registradas no topo deste documento, na seção [Identificação Acadêmica](#-identificação-acadêmica). O código e as decisões de modelagem da fase acadêmica foram preservados e serviram de base para a evolução para plataforma SaaS.
+A identificação acadêmica e a equipe original estão registradas no topo deste documento, na seção [Identificação Acadêmica](#-identificação-acadêmica). O código acadêmico foi removido do repositório em 2026-11-10 (ADR-001); o registro do que existia está em [`docs/levantamento_lacunas.md`](docs/levantamento_lacunas.md).

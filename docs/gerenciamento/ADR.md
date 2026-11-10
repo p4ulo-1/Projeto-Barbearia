@@ -48,14 +48,19 @@ O projeto nasceu como aplicação acadêmica de uma barbearia, com backend .NET 
 3. **Manter dois produtos** — duplica manutenção e divergência de código.
 
 ### Decisão
-Adotar a alternativa 2: **o Servia é um sistema novo**. O código acadêmico em `backend/` e `frontend/` **não** é reaproveitado como base do SaaS e permanece apenas como registro histórico da origem do projeto.
+Adotar a alternativa 2: **o Servia é um sistema novo**. O código acadêmico **não** é reaproveitado como base do SaaS.
 
 O novo sistema é construído a partir dos documentos de `docs/` e `docs/gerenciamento/`, que definem o domínio, o modelo de classes, a arquitetura e o roadmap.
+
+**Remoção do código acadêmico (2026-11-10):** as pastas `backend/` (projetos `BackAndre.*`) e `frontend/` foram **removidas do repositório**. O código cumpriu seu papel como origem do projeto e não tinha mais função: nenhum artefato do Servia o referenciava, e mantê-lo criava ambiguidade sobre qual código é a base do produto.
+
+A memória da origem permanece em `docs/levantamento_lacunas.md`, que registra o que existia e por que foi descartado. A identificação acadêmica (instituição, disciplina, professor e integrantes) permanece no `README.md`, como requisito da disciplina.
 
 ### Consequências
 - **Positivas:** modelo desenhado para multi-tenancy desde a primeira linha; nenhuma refatoração de entidades legadas; liberdade para aplicar corretamente os conceitos de POO exigidos pela disciplina; sem risco de arrastar o modelo single-shop.
 - **Negativas:** o trabalho funcional existente não é aproveitado; a primeira entrega parte de uma base vazia.
-- **Mitigação:** o roadmap já organiza a construção em fases (F0–F9), e os critérios de avaliação da disciplina orientam a qualidade do código novo desde o início.
+- **Mitigação:** o roadmap organiza a construção em fases (F0–F9), e os critérios de avaliação da disciplina orientam a qualidade do código novo desde o início.
+- **Remoção:** o código acadêmico foi removido em 2026-11-10. Recuperá-lo é possível pelo histórico do Git, no commit anterior à remoção.
 
 > **Nota de revisão:** esta decisão substitui a versão anterior, que previa reaproveitar o código como primeiro tenant. A mudança foi tomada pelo responsável do produto em 2026-11-10, por considerar a construção de um sistema novo mais eficiente do que adaptar o existente.
 

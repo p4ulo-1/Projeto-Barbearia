@@ -1,73 +1,102 @@
-# Inventário do Código Acadêmico — Registro Histórico
+# Código Acadêmico — Registro Histórico
 
-> **Status:** registro histórico. Não é insumo de implementação.
-> **Propósito:** documentar o que existe no código acadêmico em `backend/` e `frontend/`, para preservar a memória da origem do projeto.
-> **Decisão vigente:** o Servia é um **sistema novo** (ADR-001). O código acadêmico **não** é reaproveitado, não é base de implementação e não é fonte de regras.
-> **Atenção:** este documento descreve o **estado do código acadêmico**, não a arquitetura-alvo. Para o alvo, consulte `docs/gerenciamento/ARCH.md`.
+> **Status:** registro histórico. O código descrito aqui **não existe mais** no repositório.
+> **Data da remoção:** 2026-11-10.
+> **Decisão vigente:** o Servia é um sistema novo (ADR-001). O código acadêmico nunca foi base de implementação.
+> **Como recuperar:** `git log --diff-filter=D -- backend frontend` identifica o commit da remoção; o código está no commit imediatamente anterior.
 
 ---
 
-## 1. O que existe no código acadêmico
+## 1. Por que este documento existe
+
+O projeto nasceu como aplicação acadêmica de uma barbearia. Quando a visão cresceu para uma plataforma SaaS multi-segmento, o código original deixou de servir: era single-shop, sem multi-tenancy, com modelo fixo de barbearia.
+
+O `ADR-001` decidiu construir o Servia do zero. Este documento preserva a memória do que existia, para que a origem não se perca e para que ninguém tente "recuperar" o código sem saber por que ele foi descartado.
+
+---
+
+## 2. O que existia
 
 ### Backend — C# / .NET 10, 5 projetos em camadas
 
-`BackAndre.Api → BackAndre.Application → BackAndre.Infrastructure → BackAndre.Domain` (+ `BackAndre.Tests`)
-
-| Camada | Conteúdo |
+| Projeto | Papel |
 | --- | --- |
-| Domain | `User` (papéis `client`/`admin`), `Service`, `Barber` (+ `BarberSchedule`), `Appointment` (confirmado/cancelado/concluído), `DomainRuleException` |
-| Application | `AuthService`, `UserService`, `ServiceService`, `BarberService`, `AppointmentService` (slots de 30 min, lead time de 30 min, detecção de conflito) + DTOs |
-| Infrastructure | `AppDbContext`, `DbInitializer` (seed), repositórios concretos (sem interfaces), 1 migration, `JwtTokenService` |
-| Api | Controllers de auth/users/services/barbers/appointments, middleware de exceções, Swagger, CORS |
-| Tests | xUnit cobrindo apenas regras de domínio (agendamentos, jornada de trabalho) |
+| `BackAndre.Api` | Entrada HTTP, Swagger, CORS, middleware de exceções |
+| `BackAndre.Application` | Casos de uso: auth JWT, usuários, serviços, barbeiros, agendamentos |
+| `BackAndre.Domain` | Entidades: `User`, `Service`, `Barber`, `BarberSchedule`, `Appointment` |
+| `BackAndre.Infrastructure` | EF Core + SQLite, uma migration, seed de demonstração |
+| `BackAndre.Tests` | xUnit, testes de domínio |
 
-Persistência: **EF Core + SQLite** (`barbearia.db`), sem Docker, sem CI.
+**Regras implementadas:** geração de slots de 30 minutos, detecção de conflito de horário, estados de agendamento (confirmado, cancelado, concluído).
 
-### Frontend — React 19 + TypeScript + TanStack Start/Router + Tailwind 4 + shadcn
+### Frontend — React 19 + TypeScript + TanStack
 
-- Rotas: `index` (landing), `agendamento` (wizard de 4 passos), `auth`, `conta`, `admin` (Agenda/Serviços/Clientes).
-- Estado: React Context (`StoreProvider`), sem Redux/Zustand.
-- API client tipado com JWT em `localStorage` e evento de 401.
+| Superfície | Conteúdo |
+| --- | --- |
+| Landing | Página estática hardcoded |
+| Agendamento | Wizard de 4 passos |
+| Auth | Login e cadastro |
+| Conta | Área do cliente |
+| Admin | Agenda, Serviços, Clientes |
+
+Estado via React Context; API client tipado com JWT em `localStorage`.
 
 ---
 
-## 2. Por que não é reaproveitado
+## 3. Por que foi descartado
 
-O código acadêmico foi construído para um único estabelecimento, com um modelo fixo de barbearia e sem multi-tenancy. Adaptá-lo exigiria:
+| Limitação | Impacto |
+| --- | --- |
+| **Single-shop** | Nenhuma entidade `Tenant`. Todo o modelo assume um único estabelecimento |
+| **Modelo fixo de barbearia** | `Barber` em vez de `Professional`; sem suporte a salão, nail, clínica, tatuagem |
+| **Sem multi-tenancy** | Refatorar todas as entidades, a persistência e o frontend seria mais caro do que construir novo |
+| **Frontend por página** | O SaaS exige site por tenant, gerado e publicado — não páginas fixas |
+| **Sem billing, WhatsApp, IA** | Nada disso existia, e cada um exige modelo próprio |
+| **SQLite** | Não atende produção multi-tenant |
 
-- refatorar todas as entidades para incluir `TenantId` e isolamento em todas as camadas;
-- substituir a persistência e reescrever as migrations;
-- reescrever o frontend por superfícies de produto;
-- remover decisões do modelo single-shop que contaminariam o desenho novo.
-
-O custo dessa adaptação supera o custo de construir o domínio do zero a partir de `docs/classes.md`, que já define o modelo correto para multi-tenancy e multi-segmento.
-
-**Decisão registrada em:** ADR-001.
+O `ADR-001` registra a análise completa das alternativas.
 
 ---
 
-## 3. O que o código acadêmico demonstra
+## 4. O que o Servia construiu no lugar
 
-O código acadêmico serve como **evidência de domínio mínimo** — mostra quais áreas o Servia precisa cobrir. Não serve como referência de implementação.
+O código novo está em `src/`, com 10 fases concluídas (F0–F9):
 
-| Área | O que demonstra |
+| Contexto | Entidades principais |
 | --- | --- |
-| Autenticação e usuários | Login, cadastro, perfil, troca de senha |
-| Catálogo de serviços | Cadastro, preço, duração, ativação |
-| Profissionais e jornada | Profissional com jornada semanal |
-| Agendamento | Disponibilidade, criação, remarcação, cancelamento, conclusão |
-| Site e agendamento público | Landing e wizard de agendamento |
+| Tenancy | `Tenant`, `Plan`, `Subscription`, `ITenantScoped`, `ITenantContext` |
+| Identity | `User`, `Role`, `Permission`, `RefreshToken`, `Invitation` |
+| Appointments | `Appointment`, `WorkSchedule`, `WaitlistEntry`, `ScheduleLock` |
+| Catalog | `Service`, `ServiceCategory`, `ServiceVariant`, `ServiceCombo` |
+| Team | `Professional`, `ProfessionalService`, `ScheduleBlock` |
+| Customers | `Customer`, `CustomerPreference` |
+| Sites | `Site`, `SitePage`, `SiteSection`, `SiteTheme`, `SitePublication` |
+| Billing | `PlatformInvoice`, `UsageQuota`, `CreditPurchase`, `IPaymentGateway` |
+| Finance | `Payment`, `Transaction`, `CommissionRule`, `CommissionEntry` |
+| Messaging | `Conversation`, `Message`, `MessageTemplate`, `Notification` |
+| Memberships | `MembershipPlan`, `Membership`, `ServicePackage`, `PackageUsage` |
+| Loyalty | `LoyaltyAccount`, `ReactivationCampaign`, `ServiceReview` |
+| Ai | `AiChangeSet`, `AiGenerationRequest`, `AiOperationLog` |
+| Operations | `OperationMetrics`, `AlertRule`, `TenantBackup`, `DataSubjectRequest` |
+
+**Verificação:** 664 testes automatizados, build limpo, teste de carga aprovado em ambiente Docker com PostgreSQL.
 
 ---
 
-## 4. Referências
+## 5. O que permanece do período acadêmico
 
-| Documento | Papel |
+| Item | Onde está |
 | --- | --- |
-| `docs/descricao_produto.md` | Visão de produto original |
-| `docs/diretrizes.md` | Diretrizes e conclusões que revisaram o projeto |
-| `docs/funcionalidades.md` | Catálogo de funcionalidades e decisões estruturais |
-| `docs/classes.md` | Modelo de classes e diagrama Mermaid |
-| `docs/gerenciamento/Roadmap.md` | Fases F0–F9 e entregas |
-| `docs/gerenciamento/ADR.md` | 21 decisões arquiteturais aceitas |
-| `docs/gerenciamento/ARCH.md` | Arquitetura-alvo da plataforma |
+| Identificação acadêmica (UNIFESO, disciplina, professor, integrantes) | `README.md` |
+| Decisão de construir sistema novo | `ADR-001` |
+| Este registro histórico | Este documento |
+| Código original | Histórico do Git, commit anterior à remoção |
+
+---
+
+## 6. Referências
+
+- `docs/gerenciamento/ADR.md` — ADR-001, decisão de construir sistema novo e remover o código acadêmico
+- `docs/gerenciamento/ARCH.md` — arquitetura-alvo do Servia
+- `docs/gerenciamento/Roadmap.md` — fases de construção
+- `docs/funcionalidades.md` — catálogo de funcionalidades

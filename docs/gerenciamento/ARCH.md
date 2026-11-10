@@ -487,13 +487,13 @@ Deploy em produção (aprovação manual)
 
 ```text
 Projeto-Barbearia/
-├── backend/
+├── src/
 │   ├── Servia.Api/
 │   ├── Servia.Application/
 │   ├── Servia.Domain/
 │   ├── Servia.Infrastructure/
 │   └── Servia.Tests/
-├── frontend/
+├── frontend/                  # ainda não construído
 │   ├── src/
 │   │   ├── routes/            # site público, agendamento, painel, admin
 │   │   ├── components/site/   # biblioteca de componentes do site

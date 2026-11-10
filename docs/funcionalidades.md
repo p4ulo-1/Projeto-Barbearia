@@ -1,7 +1,7 @@
 # Funcionalidades — Plataforma SaaS de Gestão e Atendimento para Negócios de Serviços
 
 > **Status:** v2 — revisada em 2026-11-10 conforme `docs/diretrizes.md`.
-> **Fonte:** `docs/descricao_produto.md` (visão de produto) + `docs/diretrizes.md` (diretrizes e conclusões) + código existente em `backend/` e `frontend/`.
+> **Fonte:** `docs/descricao_produto.md` (visão de produto) + `docs/diretrizes.md` (diretrizes e conclusões).
 > **Registro das decisões:** ver seção 0 e `docs/gerenciamento/ADR.md`.
 
 ---
@@ -10,7 +10,7 @@
 
 | # | Decisão | Escolha adotada | Status |
 | --- | --- | --- | --- |
-| P1 | Relação com o código atual | O Servia é um **sistema novo**, construído a partir destes documentos. O código acadêmico em `backend/` e `frontend/` **não** é reaproveitado e permanece apenas como registro histórico | ✅ confirmado (revisado em 2026-11-10) |
+| P1 | Relação com o código atual | O Servia é um **sistema novo**, construído a partir destes documentos. O código acadêmico **não** é reaproveitado e foi removido do repositório em 2026-11-10 | ✅ confirmado (revisado em 2026-11-10) |
 | P2 | Multi-tenancy | **Banco único** com `TenantId` em todas as entidades de negócio + filtro global no EF Core | ✅ confirmado |
 | P3 | Banco de produção | **PostgreSQL**; SQLite apenas em testes locais | ✅ confirmado |
 | P4 | Escopo do MVP | **Escopo completo da descrição de produto** (fases F0–F9) | ✅ confirmado |
@@ -341,7 +341,7 @@ As particularidades são resolvidas por **políticas** injetadas no núcleo, nã
 
 ## 5. Referência ao código acadêmico
 
-O código acadêmico em `backend/` e `frontend/` **não** é base do Servia (ADR-001). Ele permanece no repositório apenas como registro da origem do projeto e **não** deve ser usado como ponto de partida, referência de implementação ou fonte de regras.
+O código acadêmico **não** é base do Servia (ADR-001) e foi removido do repositório em 2026-11-10. O registro do que existia está em `docs/levantamento_lacunas.md`.
 
 O que o código acadêmico demonstra é o **domínio mínimo** que o Servia precisa cobrir — e que será implementado de forma nova, com as regras, o modelo e a arquitetura definidos em `docs/`:
 

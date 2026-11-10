@@ -1,8 +1,0 @@
-bin/
-obj/
-.vs/
-*.user
-*.suo
-barbearia.db
-barbearia.db-shm
-barbearia.db-wal
