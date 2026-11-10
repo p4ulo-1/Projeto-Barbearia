@@ -13,7 +13,7 @@ O Servia é um sistema novo (ADR-001), construído em `src/` a partir dos docume
 | Verificação | Resultado |
 | --- | --- |
 | Build da solução | **0 erros, 0 avisos** |
-| Testes automatizados | **108 passando, 0 falhas** |
+| Testes automatizados | **117 passando, 0 falhas** |
 | Regra de dependência | Domain sem referências; Application sem Infrastructure |
 
 ### Camadas implementadas
@@ -23,11 +23,11 @@ O Servia é um sistema novo (ADR-001), construído em `src/` a partir dos docume
 | **Domain** | `Appointment`, `WorkSchedule`, `Service`, `Professional`, `Customer`, `Money`, `TimeRange`, `DomainRuleException`, `NotFoundException`, `IAvailabilityPolicy` + 2 implementações, `IAppointmentRepository` |
 | **Application** | `AppointmentService` (regra R5), `CreateAppointmentCommand`, `AppointmentResult` |
 | **Api** | `ExceptionHandlingMiddleware`, `ErrorResponse`, `DiagnosticsController` |
-| **Infrastructure** | Estrutura criada; implementação de persistência pendente |
+| **Infrastructure** | `AppDbContext`, 4 configurações de mapeamento, `AppointmentRepository` |
 
 ---
 
-## 2. Critérios comprovados (23)
+## 2. Critérios comprovados (24)
 
 | Critério | O que exige | Evidência |
 | --- | --- | --- |
@@ -41,7 +41,8 @@ O Servia é um sistema novo (ADR-001), construído em `src/` a partir dos docume
 | A08 | Polimorfismo real com 2 implementações | `IAvailabilityPolicy` + `Standard`/`Extended` |
 | B02 | Classes do modelo correspondem ao código | `src/Servia.Domain/` |
 | B03 | Atributos e métodos sem contradição | Idem |
-| B05 | Composição comprovada | `Professional` ◆—— `WorkSchedule`, com teste de independência |
+| B04 | Associação com multiplicidade implementada | Índices e FKs em `AppointmentConfiguration`, testados |
+| B05 | Composição comprovada | `Professional` ◆—— `WorkSchedule`, mapeada como owned type e testada |
 | B06 | Contrato polimórfico no código | `src/Servia.Domain/Policies/` |
 | B07 | Invariante protegida no código | `Appointment.EnsureConfirmed` |
 | D01 | Três situações de falha distintas | `DomainRuleException`, `NotFoundException`, exceção inesperada |
@@ -62,7 +63,7 @@ O Servia é um sistema novo (ADR-001), construído em `src/` a partir dos docume
 | Critério | O que exige | O que falta |
 | --- | --- | --- |
 | B01 | Modelo textual com 5 classes | Modelo existe; falta atualizar com as classes implementadas |
-| B04 | Associação com multiplicidade implementada | Falta a persistência (EF Core) |
+
 | B08 | Duas decisões de modelagem | Documentado em `analise-do-modelo.md` |
 | E01–E03 | Defeito, condições e hipótese | Documentado; falta execução real |
 | F05 | Rastreabilidade | Matriz pronta; falta atualizar com nomes reais |
@@ -75,7 +76,7 @@ O Servia é um sistema novo (ADR-001), construído em `src/` a partir dos docume
 
 | # | Pendência | Impacto | Quando resolver |
 | --- | --- | --- | --- |
-| P1 | Implementar persistência (EF Core + PostgreSQL) | Desbloqueia B04 | Fase F0/F1 |
+| P1 | Migrations e PostgreSQL em produção | SQLite em testes; falta provider de produção |
 | P2 | Criar controllers de negócio | Desbloqueia C01–C06 | Fase F2 |
 | P3 | Produzir alteração funcional com diff | Desbloqueia C01–C06 e G02 | Próxima entrega |
 | P4 | Executar depuração em código real | Comprova E01–E04 | Junto com P3 |
@@ -97,9 +98,9 @@ O Servia é um sistema novo (ADR-001), construído em `src/` a partir dos docume
 
 Esta auditoria **não** afirma que o projeto atende aos 40 critérios. Afirma que:
 
-1. **23 critérios estão comprovados** por código executável e 108 testes passando.
+1. **24 critérios estão comprovados** por código executável e 117 testes passando.
 2. **8 critérios estão documentados**, aguardando a implementação correspondente.
-3. **9 critérios estão pendentes**, porque dependem de persistência e de uma alteração funcional real.
+3. **8 critérios estão pendentes**, porque dependem de uma alteração funcional real e de migrations.
 4. **Nenhum critério foi marcado como atendido sem evidência.**
 
 O domínio, a camada de aplicação e o tratamento central de exceções estão completos e verificados. A próxima etapa é a persistência, que desbloqueia as associações com multiplicidade e os testes de integração com banco.

@@ -13,6 +13,17 @@ namespace Servia.Domain.Team;
 /// </summary>
 public sealed class Professional
 {
+    /// <summary>
+    /// Construtor sem parâmetros exigido pelo EF Core para materializar a
+    /// entidade. Não valida invariantes: a validação ocorre em <see cref="Create"/>,
+    /// que é o único caminho público de construção.
+    /// </summary>
+    private Professional()
+    {
+        Name = string.Empty;
+        Schedule = null!;
+    }
+
     private Professional(
         Guid id,
         Guid tenantId,
@@ -35,9 +46,9 @@ public sealed class Professional
         IsActive = isActive;
     }
 
-    public Guid Id { get; }
+    public Guid Id { get; private set; }
 
-    public Guid TenantId { get; }
+    public Guid TenantId { get; private set; }
 
     /// <summary>Vínculo opcional com o usuário de login do profissional.</summary>
     public Guid? UserId { get; private set; }

@@ -12,7 +12,16 @@ public sealed class WorkSchedule
     public const int MinSlotIntervalMinutes = 5;
     public const int MaxSlotIntervalMinutes = 120;
 
-    private readonly HashSet<DayOfWeek> _workDays;
+    private readonly HashSet<DayOfWeek> _workDays = [];
+
+    /// <summary>
+    /// Construtor sem parâmetros exigido pelo EF Core para materializar a
+    /// entidade. Não valida invariantes: a validação ocorre em <see cref="Create"/>,
+    /// que é o único caminho público de construção.
+    /// </summary>
+    private WorkSchedule()
+    {
+    }
 
     private WorkSchedule(
         IEnumerable<DayOfWeek> workDays,
@@ -28,11 +37,11 @@ public sealed class WorkSchedule
 
     public IReadOnlySet<DayOfWeek> WorkDays => _workDays;
 
-    public TimeOnly StartTime { get; }
+    public TimeOnly StartTime { get; private set; }
 
-    public TimeOnly EndTime { get; }
+    public TimeOnly EndTime { get; private set; }
 
-    public int SlotIntervalMinutes { get; }
+    public int SlotIntervalMinutes { get; private set; }
 
     /// <summary>Intervalo de expediente como objeto de valor comparável.</summary>
     public TimeRange WorkingHours => TimeRange.Between(StartTime, EndTime);

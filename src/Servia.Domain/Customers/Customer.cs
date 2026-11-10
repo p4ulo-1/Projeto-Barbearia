@@ -18,6 +18,17 @@ public sealed class Customer
     private const string AnonymizedName = "Cliente anonimizado";
     private const string AnonymizedPhone = "0000000000";
 
+    /// <summary>
+    /// Construtor sem parâmetros exigido pelo EF Core para materializar a
+    /// entidade. Não valida invariantes: a validação ocorre em <see cref="Create"/>,
+    /// que é o único caminho público de construção.
+    /// </summary>
+    private Customer()
+    {
+        Name = string.Empty;
+        Phone = string.Empty;
+    }
+
     private Customer(
         Guid id,
         Guid tenantId,
@@ -40,9 +51,9 @@ public sealed class Customer
         CreatedAt = createdAt;
     }
 
-    public Guid Id { get; }
+    public Guid Id { get; private set; }
 
-    public Guid TenantId { get; }
+    public Guid TenantId { get; private set; }
 
     /// <summary>Vínculo opcional com o usuário de login do cliente.</summary>
     public Guid? UserId { get; private set; }
@@ -57,7 +68,7 @@ public sealed class Customer
 
     public bool IsActive { get; private set; }
 
-    public DateTimeOffset CreatedAt { get; }
+    public DateTimeOffset CreatedAt { get; private set; }
 
     /// <summary>Indica se o cadastro já foi anonimizado.</summary>
     public bool IsAnonymized => Name == AnonymizedName;

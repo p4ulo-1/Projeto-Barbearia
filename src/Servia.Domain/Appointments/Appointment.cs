@@ -13,6 +13,15 @@ namespace Servia.Domain.Appointments;
 /// </summary>
 public sealed class Appointment
 {
+    /// <summary>
+    /// Construtor sem parâmetros exigido pelo EF Core para materializar a
+    /// entidade. Não valida invariantes: a validação ocorre em <see cref="Create"/>,
+    /// que é o único caminho público de construção.
+    /// </summary>
+    private Appointment()
+    {
+    }
+
     private Appointment(
         Guid id,
         Guid tenantId,
@@ -37,27 +46,27 @@ public sealed class Appointment
         CreatedAt = createdAt;
     }
 
-    public Guid Id { get; }
+    public Guid Id { get; private set; }
 
-    public Guid TenantId { get; }
+    public Guid TenantId { get; private set; }
 
-    public Guid CustomerId { get; }
+    public Guid CustomerId { get; private set; }
 
-    public Guid ServiceId { get; }
+    public Guid ServiceId { get; private set; }
 
-    public Guid ProfessionalId { get; }
+    public Guid ProfessionalId { get; private set; }
 
     public DateOnly Date { get; private set; }
 
     public TimeOnly Time { get; private set; }
 
-    public int DurationMinutes { get; }
+    public int DurationMinutes { get; private set; }
 
     public AppointmentStatus Status { get; private set; }
 
     public string? CancellationReason { get; private set; }
 
-    public DateTimeOffset CreatedAt { get; }
+    public DateTimeOffset CreatedAt { get; private set; }
 
     /// <summary>Indica se o agendamento está ativo.</summary>
     public bool IsConfirmed => Status == AppointmentStatus.Confirmed;

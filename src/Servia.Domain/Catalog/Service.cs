@@ -11,6 +11,16 @@ namespace Servia.Domain.Catalog;
 /// </summary>
 public sealed class Service
 {
+    /// <summary>
+    /// Construtor sem parâmetros exigido pelo EF Core para materializar a
+    /// entidade. Não valida invariantes: a validação ocorre em <see cref="Create"/>,
+    /// que é o único caminho público de construção.
+    /// </summary>
+    private Service()
+    {
+        Name = string.Empty;
+    }
+
     private Service(
         Guid id,
         Guid tenantId,
@@ -33,9 +43,9 @@ public sealed class Service
         IsActive = isActive;
     }
 
-    public Guid Id { get; }
+    public Guid Id { get; private set; }
 
-    public Guid TenantId { get; }
+    public Guid TenantId { get; private set; }
 
     public Guid? CategoryId { get; private set; }
 
