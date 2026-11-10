@@ -10,4 +10,10 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <!-- Permite que o projeto de testes verifique membros internos,
+         como AppointmentService.HasOverlap. -->
+    <InternalsVisibleTo Include="Servia.Tests" />
+  </ItemGroup>
+
 </Project>
