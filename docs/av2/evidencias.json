@@ -8,7 +8,7 @@
     "implementacaoIniciada": true,
     "verificacaoExecutavel": "funcionando",
     "motivoBloqueio": null,
-    "declaracao": "Dominio de agendamento implementado e verificado: 48 testes passando, build limpo.",
+    "declaracao": "Dominio, camada de aplicacao e middleware de excecoes implementados e verificados: 108 testes passando, build limpo.",
     "ambiente": "Resolvido: a causa era ProgramFiles vazio, nao APPDATA. Wrapper build.cmd define as variaveis."
   },
   "estados": {
@@ -47,9 +47,9 @@
     {
       "id": "A04",
       "exige": "Fluxo com colaboração entre classes",
-      "estado": "documentado",
+      "estado": "comprovado",
       "evidencia": [
-        "docs/av2/especificacao.md#f1--criar-agendamento"
+        "src/Servia.Application/Appointments/AppointmentService.cs"
       ]
     },
     {
@@ -193,7 +193,9 @@
       "exige": "Três situações de falha distintas",
       "estado": "comprovado",
       "evidencia": [
-        "src/Servia.Domain/Common/DomainRuleException.cs"
+        "src/Servia.Domain/Common/DomainRuleException.cs",
+        "src/Servia.Domain/Common/NotFoundException.cs",
+        "src/Servia.Api/Middleware/ExceptionHandlingMiddleware.cs"
       ]
     },
     {
@@ -201,20 +203,25 @@
       "exige": "Caminho reproduzível de exceção",
       "estado": "comprovado",
       "evidencia": [
-        "src/Servia.Domain/Common/DomainRuleException.cs"
+        "src/Servia.Api/Middleware/ExceptionHandlingMiddleware.cs"
       ]
     },
     {
       "id": "D03",
       "exige": "Tratamento sem vazar detalhe interno",
-      "estado": "pendente",
-      "evidencia": []
+      "estado": "comprovado",
+      "evidencia": [
+        "src/Servia.Api/Middleware/ExceptionHandlingMiddleware.cs",
+        "src/Servia.Api/Contracts/ErrorResponse.cs"
+      ]
     },
     {
       "id": "D04",
       "exige": "Testes das três situações de falha",
-      "estado": "pendente",
-      "evidencia": []
+      "estado": "comprovado",
+      "evidencia": [
+        "src/Servia.Tests/Api/ExceptionHandlingTests.cs"
+      ]
     },
     {
       "id": "E01",
@@ -285,8 +292,10 @@
     {
       "id": "F03",
       "exige": "Teste de integração pela API",
-      "estado": "pendente",
-      "evidencia": []
+      "estado": "comprovado",
+      "evidencia": [
+        "src/Servia.Tests/Api/ExceptionHandlingTests.cs"
+      ]
     },
     {
       "id": "F04",
@@ -330,9 +339,9 @@
   ],
   "resumo": {
     "total": 40,
-    "comprovado": 19,
-    "documentado": 9,
-    "pendente": 12,
+    "comprovado": 23,
+    "documentado": 8,
+    "pendente": 9,
     "bloqueado": 0
   }
 }
