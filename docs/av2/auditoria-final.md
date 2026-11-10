@@ -13,7 +13,7 @@ O Servia é um sistema novo (ADR-001), construído em `src/` a partir dos docume
 | Verificação | Resultado |
 | --- | --- |
 | Build da solução | **0 erros, 0 avisos** |
-| Testes automatizados | **117 passando, 0 falhas** |
+| Testes automatizados | **123 passando, 0 falhas** |
 | Regra de dependência | Domain sem referências; Application sem Infrastructure |
 
 ### Camadas implementadas
@@ -22,12 +22,12 @@ O Servia é um sistema novo (ADR-001), construído em `src/` a partir dos docume
 | --- | --- |
 | **Domain** | `Appointment`, `WorkSchedule`, `Service`, `Professional`, `Customer`, `Money`, `TimeRange`, `DomainRuleException`, `NotFoundException`, `IAvailabilityPolicy` + 2 implementações, `IAppointmentRepository` |
 | **Application** | `AppointmentService` (regra R5), `CreateAppointmentCommand`, `AppointmentResult` |
-| **Api** | `ExceptionHandlingMiddleware`, `ErrorResponse`, `DiagnosticsController` |
+| **Api** | `ExceptionHandlingMiddleware`, `ErrorResponse`, `AppointmentsController`, `DiagnosticsController` |
 | **Infrastructure** | `AppDbContext`, 4 configurações de mapeamento, `AppointmentRepository` |
 
 ---
 
-## 2. Critérios comprovados (24)
+## 2. Critérios comprovados (25)
 
 | Critério | O que exige | Evidência |
 | --- | --- | --- |
@@ -98,8 +98,8 @@ O Servia é um sistema novo (ADR-001), construído em `src/` a partir dos docume
 
 Esta auditoria **não** afirma que o projeto atende aos 40 critérios. Afirma que:
 
-1. **24 critérios estão comprovados** por código executável e 117 testes passando.
-2. **8 critérios estão documentados**, aguardando a implementação correspondente.
+1. **25 critérios estão comprovados** por código executável e 123 testes passando.
+2. **7 critérios estão documentados**, aguardando a implementação correspondente.
 3. **8 critérios estão pendentes**, porque dependem de uma alteração funcional real e de migrations.
 4. **Nenhum critério foi marcado como atendido sem evidência.**
 

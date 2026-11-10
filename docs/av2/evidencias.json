@@ -8,7 +8,7 @@
     "implementacaoIniciada": true,
     "verificacaoExecutavel": "funcionando",
     "motivoBloqueio": null,
-    "declaracao": "Dominio, aplicacao, middleware e persistencia implementados e verificados: 117 testes passando, build limpo.",
+    "declaracao": "Fluxo F1 completo de ponta a ponta: API, aplicacao, dominio e persistencia. 123 testes passando, build limpo.",
     "ambiente": "Resolvido: a causa era ProgramFiles vazio, nao APPDATA. Wrapper build.cmd define as variaveis."
   },
   "estados": {
@@ -296,7 +296,7 @@
       "exige": "Teste de integração pela API",
       "estado": "comprovado",
       "evidencia": [
-        "src/Servia.Tests/Api/ExceptionHandlingTests.cs"
+        "src/Servia.Tests/Api/AppointmentsEndpointTests.cs"
       ]
     },
     {
@@ -326,9 +326,10 @@
     {
       "id": "G01",
       "exige": "Especificação verificável dos fluxos e regras",
-      "estado": "documentado",
+      "estado": "comprovado",
       "evidencia": [
-        "docs/av2/especificacao.md"
+        "docs/av2/especificacao.md",
+        "src/Servia.Api/Controllers/AppointmentsController.cs"
       ]
     },
     {
@@ -341,8 +342,8 @@
   ],
   "resumo": {
     "total": 40,
-    "comprovado": 24,
-    "documentado": 8,
+    "comprovado": 25,
+    "documentado": 7,
     "pendente": 8,
     "bloqueado": 0
   }
