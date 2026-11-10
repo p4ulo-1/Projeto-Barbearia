@@ -144,8 +144,8 @@ public sealed class CommissionRule : ITenantScoped
     /// </summary>
     public Money CalculateFor(Money serviceAmount)
     {
-        ArgumentNullException.ThrowIfNull(serviceAmount);
-
+        // Money e um tipo por valor: nunca e nulo. Verificar nulidade aqui
+        // seria codigo morto (CA2264).
         return Type switch
         {
             CommissionType.Percentage => serviceAmount.MultiplyBy(Percentage / 100m),
