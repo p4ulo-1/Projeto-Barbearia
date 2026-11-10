@@ -6,6 +6,11 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Servia.Api.Contracts;
 using Servia.Api.Middleware;
+using Servia.Domain.Appointments;
+using Servia.Domain.Catalog;
+using Servia.Domain.Common;
+using Servia.Domain.Customers;
+using Servia.Domain.Team;
 using Servia.Domain.Tenancy;
 using Servia.Infrastructure.Persistence;
 
@@ -24,9 +29,10 @@ namespace Servia.Tests.Api;
 public class AppointmentsEndpointTests : IClassFixture<AppointmentsEndpointTests.Factory>
 {
     private static readonly Guid TenantId = Guid.NewGuid();
-    private static readonly Guid CustomerId = Guid.NewGuid();
-    private static readonly Guid ServiceId = Guid.NewGuid();
-    private static readonly Guid ProfessionalId = Guid.NewGuid();
+    // IDs reais das entidades criadas no banco de teste.
+    private Guid _customerId;
+    private Guid _serviceId;
+    private Guid _professionalId;
     private static readonly DateOnly Date = new(2026, 11, 9);
 
     private readonly Factory _factory;
@@ -36,10 +42,46 @@ public class AppointmentsEndpointTests : IClassFixture<AppointmentsEndpointTests
     {
         _factory = factory;
         _client = factory.CreateClient();
+
+        SeedReferences();
     }
 
-    private static CreateAppointmentRequest Request(TimeOnly time, int duration = 30) =>
-        new(CustomerId, ServiceId, ProfessionalId, Date, time, duration);
+    /// <summary>
+    /// Cria cliente, servico e profissional do tenant de teste.
+    /// A FK composta (TenantId, Id) exige que existam antes do agendamento.
+    /// </summary>
+    private void SeedReferences()
+    {
+        using var scope = _factory.Services.CreateScope();
+        scope.ServiceProvider.GetRequiredService<ITenantContext>().SetTenant(TenantId);
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        if (context.Customers.Any())
+        {
+            var existing = context.Customers.First();
+            _customerId = existing.Id;
+            _serviceId = context.Services.First().Id;
+            _professionalId = context.Professionals.First().Id;
+            return;
+        }
+
+        var customer = Customer.Create(TenantId, "Cliente", "21999990000", now: DateTimeOffset.UtcNow);
+        var service = Service.Create(TenantId, "Servico", Money.From(50m), 30);
+        var professional = Professional.Create(TenantId, "Profissional",
+            WorkSchedule.Create([DayOfWeek.Monday], new TimeOnly(9, 0), new TimeOnly(18, 0)));
+
+        context.Customers.Add(customer);
+        context.Services.Add(service);
+        context.Professionals.Add(professional);
+        context.SaveChanges();
+
+        _customerId = customer.Id;
+        _serviceId = service.Id;
+        _professionalId = professional.Id;
+    }
+
+    private CreateAppointmentRequest Request(TimeOnly time, int duration = 30) =>
+        new(_customerId, _serviceId, _professionalId, Date, time, duration);
 
     /// <summary>Envia o pedido com o tenant resolvido pelo header do servidor.</summary>
     private async Task<HttpResponseMessage> PostAsync(
@@ -132,7 +174,7 @@ public class AppointmentsEndpointTests : IClassFixture<AppointmentsEndpointTests
     public async Task Criar_Com_Referencia_Vazia_Retorna_400()
     {
         var request = new CreateAppointmentRequest(
-            Guid.Empty, ServiceId, ProfessionalId, Date, new TimeOnly(11, 0), 30);
+            Guid.Empty, _serviceId, _professionalId, Date, new TimeOnly(11, 0), 30);
 
         var response = await PostAsync(request);
 
@@ -147,7 +189,7 @@ public class AppointmentsEndpointTests : IClassFixture<AppointmentsEndpointTests
         var time = new TimeOnly(15, 0);
 
         var otherTenant = new CreateAppointmentRequest(
-            CustomerId, ServiceId, ProfessionalId, Date, time, 60);
+            _customerId, _serviceId, _professionalId, Date, time, 60);
 
         await PostAsync(otherTenant, Guid.NewGuid());
 

@@ -22,6 +22,9 @@ internal sealed class CustomerConfiguration : IEntityTypeConfiguration<Customer>
 
         builder.HasKey(customer => customer.Id);
 
+        // Chave alternativa (TenantId, Id): alvo das FKs compostas do agendamento.
+        builder.HasAlternateKey(customer => new { customer.TenantId, customer.Id });
+
         builder.Property(customer => customer.Id).ValueGeneratedNever();
 
         builder.Property(customer => customer.TenantId).IsRequired();

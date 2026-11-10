@@ -22,6 +22,9 @@ internal sealed class ProfessionalConfiguration : IEntityTypeConfiguration<Profe
 
         builder.HasKey(professional => professional.Id);
 
+        // Chave alternativa (TenantId, Id): alvo das FKs compostas do agendamento.
+        builder.HasAlternateKey(professional => new { professional.TenantId, professional.Id });
+
         builder.Property(professional => professional.Id).ValueGeneratedNever();
 
         builder.Property(professional => professional.TenantId).IsRequired();

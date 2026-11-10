@@ -1,8 +1,10 @@
 using System.Linq.Expressions;
 using Microsoft.EntityFrameworkCore;
 using Servia.Domain.Appointments;
+using Servia.Domain.Auditing;
 using Servia.Domain.Catalog;
 using Servia.Domain.Customers;
+using Servia.Domain.Identity;
 using Servia.Domain.Team;
 using Servia.Domain.Tenancy;
 
@@ -36,6 +38,14 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, ITenant
     public DbSet<Professional> Professionals => Set<Professional>();
 
     public DbSet<Customer> Customers => Set<Customer>();
+
+    public DbSet<User> Users => Set<User>();
+
+    public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
+
+    public DbSet<Invitation> Invitations => Set<Invitation>();
+
+    public DbSet<AuditEntry> AuditEntries => Set<AuditEntry>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

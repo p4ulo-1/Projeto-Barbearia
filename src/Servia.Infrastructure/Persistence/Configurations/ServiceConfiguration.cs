@@ -21,6 +21,9 @@ internal sealed class ServiceConfiguration : IEntityTypeConfiguration<Service>
 
         builder.HasKey(service => service.Id);
 
+        // Chave alternativa (TenantId, Id): alvo das FKs compostas do agendamento.
+        builder.HasAlternateKey(service => new { service.TenantId, service.Id });
+
         builder.Property(service => service.Id).ValueGeneratedNever();
 
         builder.Property(service => service.TenantId).IsRequired();

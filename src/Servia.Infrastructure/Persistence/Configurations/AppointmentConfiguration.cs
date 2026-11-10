@@ -1,6 +1,9 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using Servia.Domain.Appointments;
+using Servia.Domain.Catalog;
+using Servia.Domain.Customers;
+using Servia.Domain.Team;
 
 namespace Servia.Infrastructure.Persistence.Configurations;
 
@@ -56,6 +59,28 @@ internal sealed class AppointmentConfiguration : IEntityTypeConfiguration<Appoin
 
         // Isolamento: toda consulta por cliente é escopada por tenant.
         builder.HasIndex(appointment => new { appointment.TenantId, appointment.CustomerId });
+
+        // F1.11: chaves estrangeiras COMPOSTAS com TenantId.
+        // O banco rejeita a associação de um agendamento a um cliente,
+        // servico ou profissional de outro estabelecimento, mesmo que uma
+        // camada superior falhe. E a ultima linha de defesa do isolamento.
+        builder.HasOne<Customer>()
+            .WithMany()
+            .HasForeignKey(appointment => new { appointment.TenantId, appointment.CustomerId })
+            .HasPrincipalKey(customer => new { customer.TenantId, customer.Id })
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasOne<Service>()
+            .WithMany()
+            .HasForeignKey(appointment => new { appointment.TenantId, appointment.ServiceId })
+            .HasPrincipalKey(service => new { service.TenantId, service.Id })
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasOne<Professional>()
+            .WithMany()
+            .HasForeignKey(appointment => new { appointment.TenantId, appointment.ProfessionalId })
+            .HasPrincipalKey(professional => new { professional.TenantId, professional.Id })
+            .OnDelete(DeleteBehavior.Restrict);
 
         // Navegações não são expostas pelo agregado; o vínculo é por identificador.
         builder.Ignore(appointment => appointment.OccupiedRange);

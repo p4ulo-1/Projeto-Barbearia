@@ -3,8 +3,10 @@ using Servia.Domain.Appointments;
 using Servia.Domain.Catalog;
 using Servia.Domain.Common;
 using Servia.Domain.Customers;
+using Servia.Domain.Tenancy;
 using Servia.Domain.Team;
 using Servia.Infrastructure.Repositories;
+using Servia.Infrastructure.Tenancy;
 
 namespace Servia.Tests.Persistence;
 
@@ -19,9 +21,9 @@ public class AppointmentRepositoryTests : IDisposable
 {
     private static readonly Guid TenantId = Guid.NewGuid();
     private static readonly Guid OtherTenantId = Guid.NewGuid();
-    private static readonly Guid CustomerId = Guid.NewGuid();
-    private static readonly Guid ServiceId = Guid.NewGuid();
-    private static readonly Guid ProfessionalId = Guid.NewGuid();
+    // IDs reais das entidades criadas no seed. A FK composta exige que o
+    // agendamento referencie entidades existentes no mesmo tenant.
+    private readonly Dictionary<Guid, (Guid Customer, Guid Service, Guid Professional)> _refs = [];
     private static readonly DateOnly Date = new(2026, 11, 9);
     private static readonly DateTimeOffset Now = new(2026, 11, 1, 8, 0, 0, TimeSpan.Zero);
 
@@ -31,25 +33,61 @@ public class AppointmentRepositoryTests : IDisposable
     {
         // O filtro global exige tenant resolvido: sem ele, nada e visivel.
         _database.TenantContext.SetTenant(TenantId);
+
+        // Cria as entidades referenciadas antes de qualquer agendamento.
+        SeedReferencesAsync(TenantId).GetAwaiter().GetResult();
     }
 
     public void Dispose() => _database.Dispose();
 
-    private static Appointment NewAppointment(
+    private Appointment NewAppointment(
         Guid? tenantId = null,
         Guid? professionalId = null,
         TimeOnly? time = null,
         int duration = 30)
     {
+        var tenant = tenantId ?? TenantId;
+        var (customer, service, professional) = _refs[tenant];
+
         return Appointment.Create(
-            tenantId ?? TenantId,
-            CustomerId,
-            ServiceId,
-            professionalId ?? ProfessionalId,
+            tenant,
+            customer,
+            service,
+            professionalId ?? professional,
             Date,
             time ?? new TimeOnly(10, 0),
             duration,
             Now);
+    }
+
+    /// <summary>
+    /// Grava as entidades referenciadas pelo agendamento.
+    /// A FK composta (TenantId, Id) exige que elas existam no mesmo tenant.
+    /// </summary>
+    private async Task SeedReferencesAsync(Guid tenantId)
+    {
+        await using var context = _database.CreateContext(ContextFor(tenantId));
+
+        // Os IDs precisam coincidir com os usados pelo agendamento.
+        var customer = Customer.Create(tenantId, "Cliente", "21999990000", now: Now);
+        var service = Service.Create(tenantId, "Servico", Money.From(50m), 30);
+        var professional = Professional.Create(tenantId, "Profissional",
+            WorkSchedule.Create([DayOfWeek.Monday], new TimeOnly(9, 0), new TimeOnly(18, 0)));
+
+        context.Customers.Add(customer);
+        context.Services.Add(service);
+        context.Professionals.Add(professional);
+
+        await context.SaveChangesAsync();
+
+        _refs[tenantId] = (customer.Id, service.Id, professional.Id);
+    }
+
+    private static ITenantContext ContextFor(Guid tenantId)
+    {
+        var context = new TenantContext();
+        context.SetTenant(tenantId);
+        return context;
     }
 
     // ---------- Gravação e leitura ----------
@@ -124,7 +162,7 @@ public class AppointmentRepositoryTests : IDisposable
         {
             var repository = new AppointmentRepository(context);
             var active = await repository.GetActiveByProfessionalAndDateAsync(
-                TenantId, ProfessionalId, Date);
+                TenantId, _refs[TenantId].Professional, Date);
 
             Assert.Single(active);
             Assert.Equal(confirmed.Id, active[0].Id);
@@ -136,6 +174,8 @@ public class AppointmentRepositoryTests : IDisposable
     [Fact]
     public async Task Consulta_Nao_Retorna_Agendamento_De_Outro_Tenant()
     {
+        await SeedReferencesAsync(OtherTenantId);
+
         var mine = NewAppointment();
         var other = NewAppointment(tenantId: OtherTenantId);
 
@@ -151,7 +191,7 @@ public class AppointmentRepositoryTests : IDisposable
         {
             var repository = new AppointmentRepository(context);
             var active = await repository.GetActiveByProfessionalAndDateAsync(
-                TenantId, ProfessionalId, Date);
+                TenantId, _refs[TenantId].Professional, Date);
 
             Assert.Single(active);
             Assert.Equal(mine.Id, active[0].Id);
