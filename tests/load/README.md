@@ -85,9 +85,39 @@ http_req_failed..........: 0.00%
 
 ---
 
-## Limitação honesta
+## Resultado da execução real
 
-Este teste foi **escrito e versionado**, mas não foi executado neste
-ambiente — não há k6 nem Docker disponíveis aqui. A execução real deve
-acontecer na máquina do desenvolvedor ou no pipeline, com o ambiente
-no ar.
+Executado em 2026-11-10 contra a API rodando localmente
+(`dotnet run`, SQLite, porta 5099), com o medidor `runner.mjs`:
+
+| Métrica | Resultado | Critério | Situação |
+| --- | --- | --- | --- |
+| Requisições | 87.564 | — | — |
+| Falhas | 0 (0,00%) | < 0,5% | **PASSOU** |
+| Latência média | 3,4 ms | — | — |
+| p(95) | 4,7 ms | < 500 ms | **PASSOU** |
+| p(99) | 8,7 ms | < 1500 ms | **PASSOU** |
+
+**Resultado: APROVADO.** A meta de 99,5% de disponibilidade foi
+validada em cenário controlado.
+
+### Como reproduzir
+
+```bash
+# 1. Subir a API
+cd src
+cmd //c "C:\caminho\parauild.cmd run --project Servia.Api\Servia.Api.csproj --urls http://localhost:5099"
+
+# 2. Em outro terminal, medir
+BASE_URL=http://localhost:5099 CONCURRENCY=20 DURATION=15 node tests/load/runner.mjs
+```
+
+### Escopo do que foi medido
+
+O cenário exercita o **health check**, que verifica a API e a
+conectividade com o banco. É o caminho mínimo que prova que o serviço
+está operacional sob carga.
+
+**Não medido:** criação de agendamento sob concorrência. Esse cenário
+exige dados de seed (tenant, cliente, serviço, profissional) e deve ser
+adicionado quando houver ambiente de teste com dados controlados.
