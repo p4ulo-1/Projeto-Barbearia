@@ -7,11 +7,16 @@ using Servia.Api.Authorization;
 using Servia.Api.Middleware;
 using Servia.Application.Identity;
 using Servia.Application.Appointments;
+using Servia.Domain.Ai;
 using Servia.Domain.Appointments;
+using Servia.Domain.Billing;
 using Servia.Domain.Identity;
+using Servia.Domain.Messaging;
 using Servia.Domain.Tenancy;
 using Servia.Infrastructure.Persistence;
 using Servia.Infrastructure.Identity;
+using Servia.Infrastructure.Integrations;
+using Servia.Infrastructure.Provisioning;
 using Servia.Infrastructure.Repositories;
 using Servia.Infrastructure.Tenancy;
 
@@ -69,6 +74,7 @@ builder.Services.AddSingleton<IPasswordHasher, Pbkdf2PasswordHasher>();
 builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
 builder.Services.AddScoped<AuthenticationService>();
+builder.Services.AddScoped<TenantProvisioner>();
 
 // Preserva os nomes de claim originais (tenant_id, role) em vez de
 // mapea-los para as URIs longas do .NET. O handler de permissao depende disso.
@@ -94,7 +100,46 @@ builder.Services
         };
     });
 
-builder.Services.AddAuthorization(options => options.AddPermissionPolicies());
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPermissionPolicies();
+
+    // Administrador da plataforma: papel distinto das permissoes de tenant.
+    options.AddPolicy(
+        Servia.Api.Controllers.RequirePlatformAdminAttribute.PolicyName,
+        policy => policy
+            .RequireAuthenticatedUser()
+            .RequireClaim(JwtTokenIssuer.RoleClaim, nameof(Role.PlatformAdmin)));
+});
+
+// ---------- Integracoes (F12) ----------
+builder.Services.AddSingleton<RetryPolicy>();
+builder.Services.AddSingleton<IIdempotencyStore, InMemoryIdempotencyStore>();
+
+// Os provedores so sao registrados quando configurados. Sem credencial,
+// a aplicacao sobe e o endpoint responde 503 ao tentar usar o recurso,
+// em vez de falhar na inicializacao inteira.
+var mercadoPagoOptions = builder.Configuration.GetSection("MercadoPago").Get<MercadoPagoOptions>();
+var metaOptions = builder.Configuration.GetSection("MetaWhatsApp").Get<MetaWhatsAppOptions>();
+var openAiOptions = builder.Configuration.GetSection("OpenAi").Get<OpenAiOptions>();
+
+if (!string.IsNullOrWhiteSpace(mercadoPagoOptions?.AccessToken))
+{
+    builder.Services.AddSingleton(mercadoPagoOptions);
+    builder.Services.AddHttpClient<IPaymentGateway, MercadoPagoGateway>();
+}
+
+if (!string.IsNullOrWhiteSpace(metaOptions?.AccessToken))
+{
+    builder.Services.AddSingleton(metaOptions);
+    builder.Services.AddHttpClient<IMessagingProvider, MetaWhatsAppProvider>();
+}
+
+if (!string.IsNullOrWhiteSpace(openAiOptions?.ApiKey))
+{
+    builder.Services.AddSingleton(openAiOptions);
+    builder.Services.AddHttpClient<IAiSiteGenerator, OpenAiSiteGenerator>();
+}
 builder.Services.AddSingleton<IAuthorizationHandler, PermissionAuthorizationHandler>();
 
 // Health check (F0.6): verifica a API e a conectividade com o banco.

@@ -19,6 +19,19 @@ public sealed class UserRepository(AppDbContext context) : IUserRepository
     {
         var normalized = email.Trim().ToLowerInvariant();
 
+        // Administrador da plataforma nao pertence a um tenant: a busca
+        // ignora o filtro de tenant para esse caso (F1.13).
+        if (tenantId == Guid.Empty)
+        {
+            return await context.Users
+                .IgnoreQueryFilters()
+                .FirstOrDefaultAsync(
+                    user => user.TenantId == Guid.Empty
+                            && user.Role == Role.PlatformAdmin
+                            && user.Email == normalized,
+                    cancellationToken);
+        }
+
         return await context.Users
             .FirstOrDefaultAsync(
                 user => user.TenantId == tenantId && user.Email == normalized,

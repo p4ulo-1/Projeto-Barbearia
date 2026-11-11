@@ -36,11 +36,8 @@ public sealed class AuthenticationService(
     {
         ArgumentNullException.ThrowIfNull(command);
 
-        if (command.TenantId == Guid.Empty)
-        {
-            return AuthenticationResult.Invalid("Estabelecimento não identificado.");
-        }
-
+        // Tenant vazio e valido apenas para administrador da plataforma,
+        // que nao pertence a um estabelecimento (F1.13).
         if (string.IsNullOrWhiteSpace(command.Email) || string.IsNullOrWhiteSpace(command.Password))
         {
             return AuthenticationResult.Invalid("Informe e-mail e senha.");
