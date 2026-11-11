@@ -4,9 +4,11 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Servia.Api.Authorization;
+using Servia.Api.Jobs;
 using Servia.Api.Middleware;
 using Servia.Application.Billing;
 using Servia.Application.Identity;
+using Servia.Application.Jobs;
 using Servia.Application.Webhooks;
 using Servia.Application.Appointments;
 using Servia.Domain.Ai;
@@ -98,6 +100,17 @@ builder.Services.AddScoped<IWebhookRepository, WebhookRepository>();
 builder.Services.AddScoped<IWebhookTenantResolver, WebhookTenantResolver>();
 builder.Services.AddScoped<WebhookService>();
 
+// Rotinas periodicas (F19).
+builder.Services.AddScoped<IJobRepository, JobRepository>();
+builder.Services.AddScoped<IScheduledJob, NotificationDispatchJob>();
+builder.Services.AddScoped<IScheduledJob, InvoiceOverdueJob>();
+builder.Services.AddScoped<IScheduledJob, DelinquencyJob>();
+builder.Services.AddScoped<IScheduledJob, ScheduleLockCleanupJob>();
+builder.Services.AddScoped<IScheduledJob, MembershipRenewalJob>();
+builder.Services.AddScoped<IScheduledJob, ProcessedEventRetentionJob>();
+builder.Services.AddScoped<JobRunner>();
+builder.Services.AddHostedService<JobHostedService>();
+
 // A validacao de assinatura depende dos segredos configurados. Sem eles,
 // rejeita tudo — falhar fechado em fronteira de confianca.
 builder.Services.AddSingleton<IWebhookSignatureValidator>(provider =>
@@ -162,6 +175,13 @@ if (!string.IsNullOrWhiteSpace(metaOptions?.AccessToken))
 {
     builder.Services.AddSingleton(metaOptions);
     builder.Services.AddHttpClient<IMessagingProvider, MetaWhatsAppProvider>();
+}
+else
+{
+    // Sem credencial, o WhatsApp fica desabilitado — estado valido. O
+    // provedor nulo mantem a aplicacao no ar e falha o envio com motivo
+    // explicito, em vez de impedir a inicializacao.
+    builder.Services.AddSingleton<IMessagingProvider, UnconfiguredMessagingProvider>();
 }
 
 if (!string.IsNullOrWhiteSpace(openAiOptions?.ApiKey))
