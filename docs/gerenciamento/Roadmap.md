@@ -544,6 +544,22 @@ A geração inicial e a publicação estão incluídas no plano. **Alterações 
 | F20.1 | Comando de criação do primeiro `PlatformAdmin` | `dotnet run --seed-admin` cria o administrador sem SQL manual | U01 |
 | F20.2 | Documentação do fluxo de onboarding | Passo a passo para colocar o primeiro cliente no ar | N11 |
 
+### F21 — Cadastro público e landing page (4 semanas)
+
+**Objetivo:** permitir que um visitante contrate o Servia sozinho, sem intervenção da plataforma. É o destino do CTA "Começar agora".
+
+| # | Entrega | Critério de aceite | Rastreia |
+| --- | --- | --- | --- |
+| F21.1 | `POST /api/v1/public/signup` | Visitante cria o próprio tenant com trial de 14 dias | U01 |
+| F21.2 | Validação de slug e e-mail únicos | Slug ou e-mail já usado retorna 409 com mensagem clara | U01 |
+| F21.3 | Proteção contra abuso | Rate limit por IP; captcha ou verificação de e-mail | N03 |
+| F21.4 | Página de cadastro | Formulário com nome, e-mail, senha, estabelecimento e segmento | U01 |
+| F21.5 | Landing page — design system v1.0 | Wordmark, tokens, Hero híbrido, benefícios, funcionalidades, planos, FAQ, CTA, footer | U01 |
+| F21.6 | Planos lidos da API | Preços e limites vêm de `/billing/plans`, sem duplicação no frontend | U57 |
+| F21.7 | Recursos não operacionais marcados | O que ainda não funciona aparece como "Em breve", sem CTA | N12 |
+| F21.8 | SEO e acessibilidade | Metadados, Open Graph, WCAG 2.2 AA, `prefers-reduced-motion` | N06 |
+| F21.9 | Testes de cadastro e landing | Cadastro válido, duplicado, abuso; componentes da landing | U01 |
+
 ---
 
 ## Resumo das fases de operação plena
@@ -555,9 +571,18 @@ A geração inicial e a publicação estão incluídas no plano. **Alterações 
 | F18 | Frontend de escrita | 4 |
 | F19 | Jobs em background | 3 |
 | F20 | Bootstrap e operação | 1 |
-| **Total** | | **12 semanas** |
+| F21 | Cadastro público e landing page | 4 |
+| **Total** | | **16 semanas** |
 
-**Estado atual:** F0–F15 concluídas (152 entregas, 837 testes). **Estado operável:** exige F16–F20.
+**Estado atual:** F0–F15 concluídas (152 entregas, 837 testes). **Estado operável:** exige F16–F21.
+
+### Decisão de sequenciamento (2026-11-11)
+
+A landing page (F21.5) **só é construída depois de F16–F19**. Motivo: a especificação do design system proíbe anunciar funcionalidades antes de sua implementação efetiva. Publicar a página antes criaria a expectativa de recursos que o produto não entrega.
+
+O cadastro público (F21.1–F21.4) é pré-requisito do CTA "Começar agora": sem ele, o botão não teria destino honesto.
+
+
 
 ### Dívida arquitetural registrada (não bloqueia operação)
 
