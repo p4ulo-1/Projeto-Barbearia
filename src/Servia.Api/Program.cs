@@ -88,6 +88,7 @@ builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
 builder.Services.AddScoped<AuthenticationService>();
 builder.Services.AddScoped<TenantProvisioner>();
+builder.Services.AddScoped<PlatformAdminSeeder>();
 
 // Billing com escrita (F16).
 builder.Services.AddScoped<ISubscriptionRepository, SubscriptionRepository>();
@@ -211,6 +212,40 @@ builder.Services.AddHealthChecks()
 
 var app = builder.Build();
 
+// Comando de linha para criar o primeiro administrador da plataforma
+// (F20.1). Nao e endpoint: um endpoint publico para criar administrador
+// seria uma porta de escalada de privilegio.
+//
+// Uso:
+//   dotnet run -- seed-admin --name "Suporte" --email admin@servia.app --password SenhaSegura123
+if (args.Length > 0 && string.Equals(args[0], "seed-admin", StringComparison.OrdinalIgnoreCase))
+{
+    using var seedScope = app.Services.CreateScope();
+    var seeder = seedScope.ServiceProvider.GetRequiredService<PlatformAdminSeeder>();
+    var context = seedScope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+    await context.Database.MigrateAsync();
+
+    var name = ReadArgument(args, "--name") ?? "Administrador";
+    var email = ReadArgument(args, "--email");
+    var password = ReadArgument(args, "--password");
+
+    if (email is null || password is null)
+    {
+        Console.Error.WriteLine(
+            "Uso: dotnet run -- seed-admin --name Nome --email email@exemplo.com --password senha");
+        Environment.Exit(1);
+    }
+
+    var created = await seeder.SeedAsync(name, email, password);
+
+    Console.WriteLine(created is null
+        ? "Administrador da plataforma ja existe. Nada a fazer."
+        : $"Administrador criado: {created}");
+
+    Environment.Exit(0);
+}
+
 // O tratamento de exceções é o PRIMEIRO middleware do pipeline.
 // Assim, qualquer exceção lançada adiante — controllers, serviços, domínio —
 // é capturada e traduzida em resposta HTTP consistente.
@@ -267,6 +302,23 @@ app.MapHealthChecks("/health/live", new Microsoft.AspNetCore.Diagnostics.HealthC
     Predicate = _ => false
 });
 app.MapHealthChecks("/health/ready");
+
+/// <summary>
+/// Le o valor de um argumento nomeado (--chave valor).
+/// Retorna nulo quando ausente.
+/// </summary>
+static string? ReadArgument(string[] arguments, string key)
+{
+    for (var index = 0; index < arguments.Length - 1; index++)
+    {
+        if (string.Equals(arguments[index], key, StringComparison.OrdinalIgnoreCase))
+        {
+            return arguments[index + 1];
+        }
+    }
+
+    return null;
+}
 
 app.Run();
 
