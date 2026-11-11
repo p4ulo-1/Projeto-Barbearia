@@ -227,12 +227,10 @@ public sealed class ModulesController(
         var start = new DateTimeOffset(from.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);
         var end = new DateTimeOffset(to.ToDateTime(TimeOnly.MaxValue), TimeSpan.Zero);
 
-        // O SQLite nao traduz comparacao de DateTimeOffset com offset zero.
-        var allReviews = await context.ServiceReviews.ToListAsync(cancellationToken);
-
-        var reviews = allReviews
+        // PostgreSQL traduz a comparacao de DateTimeOffset diretamente.
+        var reviews = await context.ServiceReviews
             .Where(review => review.CreatedAt >= start && review.CreatedAt <= end)
-            .ToList();
+            .ToListAsync(cancellationToken);
 
         var report = NpsReport.Build(reviews);
 

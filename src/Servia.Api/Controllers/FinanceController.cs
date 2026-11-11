@@ -157,13 +157,10 @@ public sealed class FinanceController(
         var start = new DateTimeOffset(from.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);
         var end = new DateTimeOffset(to.ToDateTime(TimeOnly.MaxValue), TimeSpan.Zero);
 
-        // O SQLite nao traduz comparacao de DateTimeOffset com offset zero.
-        // Materializa e compara em memoria.
-        var allTransactions = await context.Transactions.ToListAsync(cancellationToken);
-
-        var transactions = allTransactions
+        // PostgreSQL traduz a comparacao de DateTimeOffset diretamente.
+        var transactions = await context.Transactions
             .Where(transaction => transaction.OccurredAt >= start && transaction.OccurredAt <= end)
-            .ToList();
+            .ToListAsync(cancellationToken);
 
         var appointmentCount = await context.Appointments
             .CountAsync(appointment => appointment.Date >= from && appointment.Date <= to,

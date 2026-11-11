@@ -17,16 +17,18 @@ namespace Servia.Tests.Persistence;
 /// defesa do isolamento: mesmo que uma camada superior falhe, o banco impede
 /// a associação indevida.
 /// </summary>
-public class CompositeForeignKeyTests : IDisposable
+public class CompositeForeignKeyTests : IAsyncLifetime
 {
     private static readonly Guid TenantA = Guid.NewGuid();
     private static readonly Guid TenantB = Guid.NewGuid();
     private static readonly DateOnly Date = new(2026, 11, 9);
     private static readonly DateTimeOffset Now = new(2026, 11, 1, 8, 0, 0, TimeSpan.Zero);
 
-    private readonly SqliteTestDatabase _database = new();
+    private readonly PostgresTestDatabase _database = new();
 
-    public void Dispose() => _database.Dispose();
+    public async Task InitializeAsync() => await _database.InitializeAsync();
+
+    public async Task DisposeAsync() => await _database.DisposeAsync();
 
     private static ITenantContext ContextFor(Guid tenantId)
     {

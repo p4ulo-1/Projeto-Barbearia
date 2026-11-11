@@ -17,7 +17,7 @@ namespace Servia.Tests.Persistence;
 /// ciclo de gravação e leitura, e que o isolamento por tenant é respeitado na
 /// consulta. Critério B04: associação com multiplicidade implementada.
 /// </summary>
-public class AppointmentRepositoryTests : IDisposable
+public class AppointmentRepositoryTests : IAsyncLifetime
 {
     private static readonly Guid TenantId = Guid.NewGuid();
     private static readonly Guid OtherTenantId = Guid.NewGuid();
@@ -27,18 +27,21 @@ public class AppointmentRepositoryTests : IDisposable
     private static readonly DateOnly Date = new(2026, 11, 9);
     private static readonly DateTimeOffset Now = new(2026, 11, 1, 8, 0, 0, TimeSpan.Zero);
 
-    private readonly SqliteTestDatabase _database = new();
+    private readonly PostgresTestDatabase _database = new();
 
-    public AppointmentRepositoryTests()
+    public async Task InitializeAsync()
     {
+        await _database.InitializeAsync();
+
         // O filtro global exige tenant resolvido: sem ele, nada e visivel.
+        _database.DefaultTenantId = TenantId;
         _database.TenantContext.SetTenant(TenantId);
 
         // Cria as entidades referenciadas antes de qualquer agendamento.
-        SeedReferencesAsync(TenantId).GetAwaiter().GetResult();
+        await SeedReferencesAsync(TenantId);
     }
 
-    public void Dispose() => _database.Dispose();
+    public async Task DisposeAsync() => await _database.DisposeAsync();
 
     private Appointment NewAppointment(
         Guid? tenantId = null,
@@ -309,7 +312,7 @@ public class AppointmentRepositoryTests : IDisposable
         await using var context = _database.CreateContext();
 
         var indexes = await context.Database
-            .SqlQuery<string>($"SELECT name AS Value FROM sqlite_master WHERE type = 'index' AND tbl_name = 'Appointments'")
+            .SqlQuery<string>($"SELECT indexname AS \"Value\" FROM pg_indexes WHERE tablename = 'Appointments'")
             .ToListAsync();
 
         Assert.Contains(indexes, name => name.Contains("TenantId", StringComparison.OrdinalIgnoreCase)

@@ -28,7 +28,7 @@ namespace Servia.Tests.Api;
 /// Critério F03: teste de integração que executa uma operação pela API,
 /// aplica uma regra de negócio e verifica a persistência.
 /// </summary>
-public class AppointmentsEndpointTests : IClassFixture<AppointmentsEndpointTests.Factory>
+public class AppointmentsEndpointTests : IClassFixture<IsolatedApiFactory>
 {
     private static readonly Guid TenantId = Guid.NewGuid();
     // IDs reais das entidades criadas no banco de teste.
@@ -41,10 +41,10 @@ public class AppointmentsEndpointTests : IClassFixture<AppointmentsEndpointTests
     private Guid _professionalId;
     private static readonly DateOnly Date = new(2026, 11, 9);
 
-    private readonly Factory _factory;
+    private readonly IsolatedApiFactory _factory;
     private readonly HttpClient _client;
 
-    public AppointmentsEndpointTests(Factory factory)
+    public AppointmentsEndpointTests(IsolatedApiFactory factory)
     {
         _factory = factory;
         _client = factory.CreateClient();
@@ -250,56 +250,4 @@ public class AppointmentsEndpointTests : IClassFixture<AppointmentsEndpointTests
     /// Substitui o contexto registrado pela aplicação por um banco SQLite
     /// em memória exclusivo desta classe de testes.
     /// </summary>
-    public sealed class Factory : WebApplicationFactory<Program>
-    {
-        private readonly string _databasePath =
-            Path.Combine(Path.GetTempPath(), $"servia-tests-{Guid.NewGuid():N}.db");
-
-        protected override void ConfigureWebHost(IWebHostBuilder builder)
-        {
-            ArgumentNullException.ThrowIfNull(builder);
-
-            builder.UseEnvironment("Development");
-
-            builder.ConfigureServices(services =>
-            {
-                var descriptors = services
-                    .Where(descriptor => descriptor.ServiceType == typeof(DbContextOptions<AppDbContext>))
-                    .ToList();
-
-                foreach (var descriptor in descriptors)
-                {
-                    services.Remove(descriptor);
-                }
-
-                services.AddDbContext<AppDbContext>(options =>
-                    options.UseSqlite($"Data Source={_databasePath}"));
-            });
-        }
-
-        protected override void Dispose(bool disposing)
-        {
-            base.Dispose(disposing);
-
-            if (!disposing)
-            {
-                return;
-            }
-
-            // Libera o pool de conexoes antes de remover o arquivo.
-            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
-
-            try
-            {
-                if (File.Exists(_databasePath))
-                {
-                    File.Delete(_databasePath);
-                }
-            }
-            catch (IOException)
-            {
-                // Arquivo temporario: a remocao e best-effort.
-            }
-        }
-    }
 }

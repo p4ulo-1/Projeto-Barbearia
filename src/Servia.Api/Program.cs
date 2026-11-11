@@ -27,22 +27,16 @@ builder.Services.AddControllers();
 
 // Persistência (F0.7): o provedor é escolhido pela configuração, não pelo
 // código. Em desenvolvimento usa SQLite; em produção, PostgreSQL.
-// A chave "Database:Provider" permite trocar sem recompilar.
-var provider = builder.Configuration["Database:Provider"] ?? "Sqlite";
+// PostgreSQL 17 e o unico provider suportado (Etapa 1).
+// Desenvolvimento, testes e producao usam o mesmo banco de referencia:
+// testar em outro provider mascararia violacoes de FK, diferencas de
+// traducao de consultas e semantica de texto.
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
-    ?? "Data Source=servia.db";
+    ?? throw new InvalidOperationException(
+        "ConnectionStrings:DefaultConnection e obrigatoria. "
+        + "Configure via variavel de ambiente ConnectionStrings__DefaultConnection.");
 
-builder.Services.AddDbContext<AppDbContext>(options =>
-{
-    if (string.Equals(provider, "Postgres", StringComparison.OrdinalIgnoreCase))
-    {
-        options.UseNpgsql(connectionString);
-    }
-    else
-    {
-        options.UseSqlite(connectionString);
-    }
-});
+builder.Services.AddDbContext<AppDbContext>(options => options.UseNpgsql(connectionString));
 
 // Contexto de tenant: singleton, pois o estado vive no AsyncLocal.
 // Alimenta o filtro global do EF Core (ADR-016).
@@ -204,14 +198,7 @@ if (app.Environment.IsDevelopment())
     using var scope = app.Services.CreateScope();
     var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-    if (context.Database.IsNpgsql())
-    {
-        await context.Database.MigrateAsync();
-    }
-    else
-    {
-        await context.Database.EnsureCreatedAsync();
-    }
+    await context.Database.MigrateAsync();
 
     // F11.3: garante os planos comerciais da plataforma.
     await PlanSeeder.SeedAsync(context);

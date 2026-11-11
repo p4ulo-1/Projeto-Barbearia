@@ -103,7 +103,7 @@ O sistema atual usa SQLite, adequado para desenvolvimento e demonstração acad�
 3. **SQL Server** — integração natural com .NET, porém custo de licença.
 
 ### Decisão
-Adotar PostgreSQL em produção. SQLite permanece apenas para testes locais rápidos.
+Adotar PostgreSQL 17 em **todos** os ambientes: desenvolvimento, testes e produção. O SQLite foi removido do projeto (Etapa 1 da auditoria de 2026-11-11): testar em um provider diferente do de produção mascarava violações de chave estrangeira, diferenças de tradução de consultas e semântica de texto.
 
 ### Consequências
 - **Positivas:** suporte a `jsonb` para configuração de seções do site e snapshots de IA; concorrência adequada.

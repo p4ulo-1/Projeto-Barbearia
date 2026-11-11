@@ -67,15 +67,13 @@ public sealed class AgendaController(
         var dayStart = new DateTimeOffset(date.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);
         var dayEnd = dayStart.AddDays(1);
 
-        // O SQLite nao traduz comparacao de DateTimeOffset com offset zero.
-        // Filtra pelo profissional no banco e compara as datas em memoria.
-        var allBlocks = await context.ScheduleBlocks
-            .Where(block => block.ProfessionalId == professionalId)
+        // PostgreSQL traduz a comparacao de DateTimeOffset diretamente.
+        var blocks = await context.ScheduleBlocks
+            .Where(block =>
+                block.ProfessionalId == professionalId
+                && block.Start < dayEnd
+                && block.End > dayStart)
             .ToListAsync(cancellationToken);
-
-        var blocks = allBlocks
-            .Where(block => block.Start < dayEnd && block.End > dayStart)
-            .ToList();
 
         var slots = new List<TimeOnly>();
 

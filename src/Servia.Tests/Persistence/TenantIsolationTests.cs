@@ -16,7 +16,7 @@ namespace Servia.Tests.Persistence;
 /// exclusão de dados de outro tenant. Se o filtro for removido, estes testes
 /// falham — é o que garante que a proteção não seja acidental.
 /// </summary>
-public class TenantIsolationTests : IDisposable
+public class TenantIsolationTests : IAsyncLifetime
 {
     private static readonly Guid TenantA = Guid.NewGuid();
     private static readonly Guid TenantB = Guid.NewGuid();
@@ -25,9 +25,26 @@ public class TenantIsolationTests : IDisposable
     private static readonly DateOnly Date = new(2026, 11, 9);
     private static readonly DateTimeOffset Now = new(2026, 11, 1, 8, 0, 0, TimeSpan.Zero);
 
-    private readonly SqliteTestDatabase _database = new();
+    private readonly PostgresTestDatabase _database = new();
 
-    public void Dispose() => _database.Dispose();
+    // O xUnit cria uma instancia por teste, mas o container e compartilhado.
+    // A flag estatica garante que o seed rode uma unica vez.
+    private static bool _seeded;
+
+    public async Task InitializeAsync()
+    {
+        await _database.InitializeAsync();
+
+        // O container e reutilizado entre testes da classe: o seed roda
+        // uma unica vez para nao acumular dados duplicados.
+        if (!_seeded)
+        {
+            await SeedTwoTenantsAsync();
+            _seeded = true;
+        }
+    }
+
+    public async Task DisposeAsync() => await _database.DisposeAsync();
 
     private Appointment NewAppointment(Guid tenantId, TimeOnly time)
     {

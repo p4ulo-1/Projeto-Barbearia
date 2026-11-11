@@ -14,36 +14,15 @@ namespace Servia.Tests.Persistence;
 /// Aplica as migrations em um banco real e verifica o resultado. Não usa
 /// EnsureCreated: o schema precisa ser o mesmo que vai para produção.
 /// </summary>
-public class MigrationTests : IDisposable
+public class MigrationTests : IAsyncLifetime
 {
-    private readonly string _databasePath =
-        Path.Combine(Path.GetTempPath(), $"servia-migration-{Guid.NewGuid():N}.db");
+    private readonly PostgresTestDatabase _database = new();
 
-    private AppDbContext CreateContext()
-    {
-        var options = new DbContextOptionsBuilder<AppDbContext>()
-            .UseSqlite($"Data Source={_databasePath}")
-            .Options;
+    public Task InitializeAsync() => _database.InitializeAsync();
 
-        return new AppDbContext(options, new TenantContext());
-    }
+    public async Task DisposeAsync() => await _database.DisposeAsync();
 
-    public void Dispose()
-    {
-        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
-
-        try
-        {
-            if (File.Exists(_databasePath))
-            {
-                File.Delete(_databasePath);
-            }
-        }
-        catch (IOException)
-        {
-            // Arquivo temporario: remocao best-effort.
-        }
-    }
+    private AppDbContext CreateContext() => _database.CreateContext();
 
     // ---------- F11.1: migrations ----------
 
@@ -51,8 +30,6 @@ public class MigrationTests : IDisposable
     public async Task Migrations_Aplicam_Sem_Erro()
     {
         await using var context = CreateContext();
-
-        await context.Database.EnsureCreatedAsync();
 
         Assert.True(await context.Database.CanConnectAsync());
     }
@@ -62,23 +39,21 @@ public class MigrationTests : IDisposable
     {
         await using var context = CreateContext();
 
-        await context.Database.EnsureCreatedAsync();
-        await context.Database.EnsureCreatedAsync();
+        await context.Database.MigrateAsync();
 
         // Aplicar duas vezes nao lanca nem duplica.
         Assert.True(await context.Database.CanConnectAsync());
     }
 
     [Fact]
-    public async Task Schema_Eh_Aplicavel_Em_SQLite()
+    public async Task Nao_Ha_Migration_Pendente()
     {
         await using var context = CreateContext();
 
-        await context.Database.EnsureCreatedAsync();
+        var pending = await context.Database.GetPendingMigrationsAsync();
 
-        // O snapshot de migrations e gerado para PostgreSQL. Em SQLite,
-        // o schema vem de EnsureCreated; nao ha migration a aplicar.
-        Assert.True(await context.Database.CanConnectAsync());
+        // Se houver migration pendente, o modelo mudou sem migration.
+        Assert.Empty(pending);
     }
 
     // ---------- F11.4: schema ----------
@@ -87,7 +62,6 @@ public class MigrationTests : IDisposable
     public async Task Schema_Contem_As_Tabelas_Principais()
     {
         await using var context = CreateContext();
-        await context.Database.EnsureCreatedAsync();
 
         var tables = await GetTablesAsync(context);
 
@@ -110,7 +84,6 @@ public class MigrationTests : IDisposable
     public async Task Indice_Critico_De_Agenda_Existe()
     {
         await using var context = CreateContext();
-        await context.Database.EnsureCreatedAsync();
 
         var indexes = await GetIndexesAsync(context, "Appointments");
 
@@ -123,7 +96,6 @@ public class MigrationTests : IDisposable
     public async Task Indice_Unico_De_Subdominio_Existe()
     {
         await using var context = CreateContext();
-        await context.Database.EnsureCreatedAsync();
 
         var indexes = await GetIndexesAsync(context, "Sites");
 
@@ -135,7 +107,6 @@ public class MigrationTests : IDisposable
     public async Task Indice_Unico_De_Email_Por_Tenant_Existe()
     {
         await using var context = CreateContext();
-        await context.Database.EnsureCreatedAsync();
 
         var indexes = await GetIndexesAsync(context, "Users");
 
@@ -150,7 +121,6 @@ public class MigrationTests : IDisposable
     public async Task Seed_Cria_Os_Quatro_Planos()
     {
         await using var context = CreateContext();
-        await context.Database.EnsureCreatedAsync();
 
         var created = await PlanSeeder.SeedAsync(context);
 
@@ -168,7 +138,6 @@ public class MigrationTests : IDisposable
     public async Task Seed_Eh_Idempotente()
     {
         await using var context = CreateContext();
-        await context.Database.EnsureCreatedAsync();
 
         await PlanSeeder.SeedAsync(context);
         var secondRun = await PlanSeeder.SeedAsync(context);
@@ -181,7 +150,6 @@ public class MigrationTests : IDisposable
     public async Task Planos_Tem_As_Faixas_Definidas()
     {
         await using var context = CreateContext();
-        await context.Database.EnsureCreatedAsync();
         await PlanSeeder.SeedAsync(context);
 
         var essential = await context.Plans.FirstAsync(plan => plan.Code == "ESSENCIAL");
@@ -197,11 +165,11 @@ public class MigrationTests : IDisposable
 
     private static async Task<List<string>> GetTablesAsync(AppDbContext context) =>
         await context.Database
-            .SqlQuery<string>($"SELECT name AS Value FROM sqlite_master WHERE type = 'table'")
+            .SqlQuery<string>($"SELECT table_name AS \"Value\" FROM information_schema.tables WHERE table_schema = 'public'")
             .ToListAsync();
 
     private static async Task<List<string>> GetIndexesAsync(AppDbContext context, string table) =>
         await context.Database
-            .SqlQuery<string>($"SELECT name AS Value FROM sqlite_master WHERE type = 'index' AND tbl_name = {table}")
+            .SqlQuery<string>($"SELECT indexname AS \"Value\" FROM pg_indexes WHERE tablename = {table}")
             .ToListAsync();
 }

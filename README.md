@@ -183,7 +183,7 @@ API REST desenvolvida em **C# com ASP.NET Core**, utilizando arquitetura em cama
 - .NET 10
 - ASP.NET Core Web API
 - Entity Framework Core
-- PostgreSQL (produção) / SQLite (desenvolvimento e testes)
+- PostgreSQL 17 (desenvolvimento, testes e produção)
 - JWT Bearer Authentication
 - ASP.NET Core PasswordHasher
 - Swagger / OpenAPI
