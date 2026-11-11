@@ -23,8 +23,20 @@
 Antes de qualquer ação, responda três perguntas:
 
 1. **O serviço está no ar?** `curl -f https://<host>/health`
-2. **O banco responde?** O `/health` já verifica a conectividade.
+2. **O banco responde?** `curl -f https://<host>/health/ready`
 3. **É um tenant ou todos?** Verifique o `TraceId` no log e o `TenantId` afetado.
+
+### Endpoints de saúde
+
+| Endpoint | Verifica | Uso |
+| --- | --- | --- |
+| `/health` | API e banco | Monitoramento geral |
+| `/health/live` | Apenas o processo | Orquestrador decide reiniciar |
+| `/health/ready` | API e banco | Balanceador decide enviar tráfego |
+
+**A separação importa:** se o banco cai, `/health/live` continua 200 e `/health/ready` retorna 503. O orquestrador **não reinicia** o processo — reiniciar não resolve banco fora. O balanceador remove a instância do tráfego até o banco voltar.
+
+**Validado em simulação (2026-11-11):** banco parado → `live=200`, `ready=503`; banco reiniciado → `ready=200`.
 
 ```bash
 # Estado do serviço

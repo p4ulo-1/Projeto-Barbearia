@@ -69,6 +69,20 @@ if (builder.Environment.IsDevelopment() && string.IsNullOrWhiteSpace(jwtOptions.
 }
 
 builder.Services.AddSingleton(jwtOptions);
+
+// Valida a configuracao JWT na inicializacao, nao no primeiro uso.
+// Sem isso, a aplicacao sobe e toda requisicao falha com 500 — falha
+// silenciosa que so aparece em producao.
+if (!builder.Environment.IsDevelopment())
+{
+    if (string.IsNullOrWhiteSpace(jwtOptions.SigningKey) || jwtOptions.SigningKey.Length < 32)
+    {
+        throw new InvalidOperationException(
+            "Jwt:SigningKey e obrigatoria em producao e deve ter ao menos 32 caracteres. "
+            + "Configure via variavel de ambiente Jwt__SigningKey.");
+    }
+}
+
 builder.Services.AddSingleton<ITokenIssuer, JwtTokenIssuer>();
 builder.Services.AddSingleton<IPasswordHasher, Pbkdf2PasswordHasher>();
 builder.Services.AddScoped<IUserRepository, UserRepository>();
@@ -175,11 +189,30 @@ if (app.Environment.IsDevelopment())
     await PlanSeeder.SeedAsync(context);
 }
 
+// F15.3: em producao, exige HTTPS. O redirecionamento e feito pelo proxy
+// reverso (que termina o TLS); aqui garantimos que o esquema seja https.
+if (!app.Environment.IsDevelopment())
+{
+    app.UseHsts();
+}
+
 app.UseHttpsRedirection();
 app.MapControllers();
 
-// Endpoint de saúde: responde 200 quando API e banco estão operacionais.
+// Endpoints de saúde (F15.4):
+//   /health       — estado completo, usado por monitoramento
+//   /health/live  — o processo está vivo (não verifica dependências)
+//   /health/ready — pronto para receber tráfego (verifica o banco)
+//
+// A separação importa: um orquestrador reinicia o processo quando
+// /health/live falha, mas só remove do balanceador quando /health/ready
+// falha. Reiniciar por causa do banco não resolve nada.
 app.MapHealthChecks("/health");
+app.MapHealthChecks("/health/live", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+{
+    Predicate = _ => false
+});
+app.MapHealthChecks("/health/ready");
 
 app.Run();
 
