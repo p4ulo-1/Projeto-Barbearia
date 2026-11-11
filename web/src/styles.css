@@ -1,0 +1,253 @@
+/**
+ * Estilos do Servia (F14.10).
+ *
+ * Responsivo por padrão: o painel é usado em celular durante o atendimento.
+ * Contraste e foco visível atendem acessibilidade básica.
+ */
+
+:root {
+  --color-bg: #ffffff;
+  --color-fg: #1f2937;
+  --color-muted: #6b7280;
+  --color-border: #e5e7eb;
+  --color-primary: #1f2937;
+  --color-primary-fg: #ffffff;
+  --color-error: #b91c1c;
+  --radius: 8px;
+  --space: 1rem;
+  --font: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font);
+  color: var(--color-fg);
+  background: var(--color-bg);
+  line-height: 1.5;
+}
+
+h1 {
+  font-size: 1.5rem;
+  margin: 0 0 0.5rem;
+}
+
+h2 {
+  font-size: 1.25rem;
+  margin: 1.5rem 0 0.5rem;
+}
+
+.muted {
+  color: var(--color-muted);
+}
+
+.error {
+  color: var(--color-error);
+  font-weight: 500;
+}
+
+/* ---------- Formulários ---------- */
+
+label {
+  display: block;
+  margin-top: var(--space);
+  font-weight: 500;
+}
+
+input,
+button {
+  font: inherit;
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--color-border);
+}
+
+input {
+  width: 100%;
+  max-width: 24rem;
+  margin-top: 0.25rem;
+}
+
+button {
+  margin-top: var(--space);
+  background: var(--color-primary);
+  color: var(--color-primary-fg);
+  border: none;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Foco visível: requisito de acessibilidade por teclado. */
+input:focus-visible,
+button:focus-visible,
+a:focus-visible {
+  outline: 3px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* ---------- Login ---------- */
+
+.auth-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: var(--space);
+}
+
+.auth-form {
+  width: 100%;
+  max-width: 24rem;
+}
+
+/* ---------- Painel ---------- */
+
+.app-shell {
+  display: grid;
+  grid-template-columns: 1fr;
+  min-height: 100vh;
+}
+
+.app-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: var(--space);
+  border-bottom: 1px solid var(--color-border);
+  align-items: center;
+}
+
+.app-nav a {
+  color: var(--color-fg);
+  text-decoration: none;
+  padding: 0.25rem 0.5rem;
+  border-radius: var(--radius);
+}
+
+.app-nav a:hover {
+  background: var(--color-border);
+}
+
+.app-nav button {
+  margin: 0 0 0 auto;
+}
+
+.app-main {
+  padding: var(--space);
+}
+
+/* ---------- Tabelas ---------- */
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: var(--space);
+}
+
+caption {
+  text-align: left;
+  font-weight: 600;
+  padding-bottom: 0.5rem;
+}
+
+th,
+td {
+  text-align: left;
+  padding: 0.5rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+/* ---------- Métricas ---------- */
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: var(--space);
+  margin-top: var(--space);
+}
+
+.metrics dt {
+  font-size: 0.875rem;
+  color: var(--color-muted);
+}
+
+.metrics dd {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+/* ---------- Site público ---------- */
+
+.public-site,
+.booking-widget {
+  max-width: 48rem;
+  margin: 0 auto;
+  padding: var(--space);
+}
+
+.hero {
+  padding: 3rem 0;
+  text-align: center;
+}
+
+.cta {
+  display: inline-block;
+  margin-top: var(--space);
+  padding: 0.75rem 1.5rem;
+  background: var(--color-primary);
+  color: var(--color-primary-fg);
+  border-radius: var(--radius);
+  text-decoration: none;
+}
+
+.service-list,
+.slot-list {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.service-list li {
+  display: flex;
+  gap: var(--space);
+  justify-content: space-between;
+  padding: 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
+.slot-list {
+  grid-template-columns: repeat(auto-fill, minmax(5rem, 1fr));
+}
+
+.slot-list button {
+  width: 100%;
+  margin: 0;
+}
+
+/* ---------- Telas maiores ---------- */
+
+@media (min-width: 48rem) {
+  .app-shell {
+    grid-template-columns: 14rem 1fr;
+  }
+
+  .app-nav {
+    flex-direction: column;
+    align-items: stretch;
+    border-bottom: none;
+    border-right: 1px solid var(--color-border);
+  }
+
+  .app-nav button {
+    margin: var(--space) 0 0;
+  }
+}
