@@ -1662,6 +1662,41 @@ namespace Servia.Infrastructure.Persistence.Migrations
                     b.ToTable("Plans", (string)null);
                 });
 
+            modelBuilder.Entity("Servia.Domain.Tenancy.PlanChange", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("ChangedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("ChangedBy")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("FromPlanId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<Guid>("SubscriptionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ToPlanId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "ChangedAt");
+
+                    b.ToTable("PlanChanges", (string)null);
+                });
+
             modelBuilder.Entity("Servia.Domain.Tenancy.Subscription", b =>
                 {
                     b.Property<Guid>("Id")

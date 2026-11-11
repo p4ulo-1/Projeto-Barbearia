@@ -160,6 +160,33 @@ public sealed class Subscription : ITenantScoped
         Status = SubscriptionStatus.Cancelled;
     }
 
+    /// <summary>
+    /// Troca o plano da assinatura (F16.2).
+    ///
+    /// O efeito e imediato no cadastro; a cobranca proporcional e tratada
+    /// pelo billing. Assinatura cancelada nao troca de plano.
+    /// </summary>
+    public void ChangePlan(Guid newPlanId)
+    {
+        if (newPlanId == Guid.Empty)
+        {
+            throw new DomainRuleException("O plano de destino e obrigatorio.");
+        }
+
+        if (Status == SubscriptionStatus.Cancelled)
+        {
+            throw new DomainRuleException(
+                "Uma assinatura cancelada nao pode trocar de plano.");
+        }
+
+        if (newPlanId == PlanId)
+        {
+            throw new DomainRuleException("O plano de destino e igual ao atual.");
+        }
+
+        PlanId = newPlanId;
+    }
+
     /// <summary>Indica se o trial expirou na data informada.</summary>
     public bool IsTrialExpired(DateOnly today) =>
         IsOnTrial && TrialEndsAt.HasValue && today >= TrialEndsAt.Value;

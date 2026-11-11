@@ -39,6 +39,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, ITenant
 
     public DbSet<Subscription> Subscriptions => Set<Subscription>();
 
+    public DbSet<PlanChange> PlanChanges => Set<PlanChange>();
+
     public DbSet<Appointment> Appointments => Set<Appointment>();
 
     public DbSet<Service> Services => Set<Service>();

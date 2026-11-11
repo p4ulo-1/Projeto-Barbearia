@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Servia.Api.Authorization;
 using Servia.Api.Middleware;
+using Servia.Application.Billing;
 using Servia.Application.Identity;
 using Servia.Application.Appointments;
 using Servia.Domain.Ai;
@@ -83,6 +84,12 @@ builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
 builder.Services.AddScoped<AuthenticationService>();
 builder.Services.AddScoped<TenantProvisioner>();
+
+// Billing com escrita (F16).
+builder.Services.AddScoped<ISubscriptionRepository, SubscriptionRepository>();
+builder.Services.AddScoped<IPlanRepository, PlanRepository>();
+builder.Services.AddScoped<IProfessionalCountReader, ProfessionalCountReader>();
+builder.Services.AddScoped<SubscriptionService>();
 
 // Preserva os nomes de claim originais (tenant_id, role) em vez de
 // mapea-los para as URIs longas do .NET. O handler de permissao depende disso.
