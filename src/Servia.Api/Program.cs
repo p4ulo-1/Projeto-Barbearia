@@ -70,6 +70,22 @@ if (builder.Environment.IsDevelopment() && string.IsNullOrWhiteSpace(jwtOptions.
 
 builder.Services.AddSingleton(jwtOptions);
 
+// Salvaguarda contra Development acidental em producao (F15.3).
+// Em Development, o header X-Tenant-Id e aceito como fonte de tenant,
+// o que permitiria a qualquer cliente escolher o estabelecimento.
+// Se a aplicacao estiver rodando em um container de producao, isso e
+// um erro de configuracao que deve falhar alto, nao silenciosamente.
+if (builder.Environment.IsDevelopment()
+    && string.Equals(
+        Environment.GetEnvironmentVariable("SERVIA_DEPLOYMENT"),
+        "production",
+        StringComparison.OrdinalIgnoreCase))
+{
+    throw new InvalidOperationException(
+        "ASPNETCORE_ENVIRONMENT=Development nao e permitido em producao. "
+        + "Em Development, o header X-Tenant-Id e aceito e o AllowedHosts fica aberto.");
+}
+
 // Valida a configuracao JWT na inicializacao, nao no primeiro uso.
 // Sem isso, a aplicacao sobe e toda requisicao falha com 500 — falha
 // silenciosa que so aparece em producao.
@@ -178,12 +194,24 @@ if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
 
-    // F11.2: o schema e aplicado por migrations, nunca por EnsureCreated.
-    // EnsureCreated nao versiona nada: a primeira alteracao de modelo
-    // quebraria o banco sem caminho de volta.
+    // F11.2: em PostgreSQL, o schema e aplicado por migrations, nunca por
+    // EnsureCreated. EnsureCreated nao versiona nada: a primeira alteracao
+    // de modelo quebraria o banco sem caminho de volta.
+    //
+    // Em SQLite (testes), usa EnsureCreated: o banco e efemero e o snapshot
+    // de migrations e gerado para PostgreSQL. Aplicar migrations de um
+    // provider em outro faz o EF Core 10 detectar divergencia falsa.
     using var scope = app.Services.CreateScope();
     var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    await context.Database.MigrateAsync();
+
+    if (context.Database.IsNpgsql())
+    {
+        await context.Database.MigrateAsync();
+    }
+    else
+    {
+        await context.Database.EnsureCreatedAsync();
+    }
 
     // F11.3: garante os planos comerciais da plataforma.
     await PlanSeeder.SeedAsync(context);

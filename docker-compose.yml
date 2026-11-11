@@ -35,7 +35,11 @@ services:
       database:
         condition: service_healthy
     environment:
-      ASPNETCORE_ENVIRONMENT: Production
+      # Ambiente de desenvolvimento local. Em producao real, use outro
+      # arquivo de compose com ASPNETCORE_ENVIRONMENT=Production.
+      # Development e necessario aqui porque o AllowedHosts de producao
+      # (servia.app;*.servia.app) rejeita localhost com 400.
+      ASPNETCORE_ENVIRONMENT: Development
       Database__Provider: Postgres
       ConnectionStrings__DefaultConnection: >-
         Host=database;Port=5432;Database=servia;Username=servia;Password=${POSTGRES_PASSWORD:-servia_dev_password}

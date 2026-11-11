@@ -117,6 +117,43 @@ curl -s https://<host>/health
 
 **Fallback:** quando a IA falha, o site usa o modelo padrão. O cliente não fica sem site.
 
+### 3.6. API retorna 400 "Invalid Hostname" em acesso local
+
+**Sintoma:** `curl http://localhost:8080/health` retorna `400 Bad Request - Invalid Hostname`. O container fica `unhealthy`.
+
+**Causa:** o `AllowedHosts` de produção (`servia.app;*.servia.app`) não inclui `localhost`. O `HostFilteringMiddleware` rejeita o host antes de qualquer rota.
+
+**Correção:** o `docker-compose.yml` local usa `ASPNETCORE_ENVIRONMENT=Development`. O `AllowedHosts` de produção **não deve ser alterado** — adicionar `localhost` enfraqueceria a proteção contra host header injection.
+
+**Registrado em 2026-11-11.** O defeito foi introduzido ao restringir `AllowedHosts` em F15.3 sem revalidar o acesso local.
+
+### 3.7. API não sobe: "pending model changes"
+
+**Sintoma:** o container sai com código 139 e o log mostra `PendingModelChangesWarning`.
+
+**Causa:** o snapshot da migration foi gerado com um provider diferente do runtime. O EF Core 10 compara o modelo em runtime com o snapshot e detecta diferenças de provider como se fossem mudanças de schema.
+
+**Diagnóstico:**
+
+```bash
+# O design-time usa o provider padrao (SQLite); o runtime usa Postgres.
+grep -n "Provider" src/Servia.Api/appsettings.json
+grep -n "Database__Provider" docker-compose.yml
+```
+
+**Correção:** regenerar a migration com o **mesmo provider** do runtime:
+
+```bash
+cd src
+set Database__Provider=Postgres
+set ConnectionStrings__DefaultConnection=Host=localhost;Port=5432;Database=servia;Username=servia;Password=servia_dev_password
+..\build.cmd ef migrations add InitialCreate --project Servia.Infrastructure\Servia.Infrastructure.csproj --startup-project Servia.Api\Servia.Api.csproj --output-dir Persistence\Migrations
+```
+
+**Verificação:** o snapshot deve conter `Npgsql`, não `Sqlite`.
+
+**Registrado em 2026-11-11.** O defeito estava latente desde F11: em `Production` o `MigrateAsync` não rodava, então a divergência nunca era detectada.
+
 ---
 
 ## 4. Deploy e rollback
