@@ -7,12 +7,14 @@ using Servia.Api.Authorization;
 using Servia.Api.Middleware;
 using Servia.Application.Billing;
 using Servia.Application.Identity;
+using Servia.Application.Webhooks;
 using Servia.Application.Appointments;
 using Servia.Domain.Ai;
 using Servia.Domain.Appointments;
 using Servia.Domain.Billing;
 using Servia.Domain.Identity;
 using Servia.Domain.Messaging;
+using Servia.Domain.Operations;
 using Servia.Domain.Tenancy;
 using Servia.Infrastructure.Persistence;
 using Servia.Infrastructure.Identity;
@@ -90,6 +92,18 @@ builder.Services.AddScoped<ISubscriptionRepository, SubscriptionRepository>();
 builder.Services.AddScoped<IPlanRepository, PlanRepository>();
 builder.Services.AddScoped<IProfessionalCountReader, ProfessionalCountReader>();
 builder.Services.AddScoped<SubscriptionService>();
+
+// Webhooks (F17).
+builder.Services.AddScoped<IWebhookRepository, WebhookRepository>();
+builder.Services.AddScoped<IWebhookTenantResolver, WebhookTenantResolver>();
+builder.Services.AddScoped<WebhookService>();
+
+// A validacao de assinatura depende dos segredos configurados. Sem eles,
+// rejeita tudo — falhar fechado em fronteira de confianca.
+builder.Services.AddSingleton<IWebhookSignatureValidator>(provider =>
+    new WebhookSignatureValidator(
+        provider.GetService<MercadoPagoOptions>() ?? new MercadoPagoOptions(),
+        provider.GetService<MetaWhatsAppOptions>() ?? new MetaWhatsAppOptions()));
 
 // Preserva os nomes de claim originais (tenant_id, role) em vez de
 // mapea-los para as URIs longas do .NET. O handler de permissao depende disso.

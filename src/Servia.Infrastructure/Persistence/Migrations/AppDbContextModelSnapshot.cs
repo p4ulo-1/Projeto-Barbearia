@@ -1424,6 +1424,37 @@ namespace Servia.Infrastructure.Persistence.Migrations
                     b.ToTable("DataSubjectRequests", (string)null);
                 });
 
+            modelBuilder.Entity("Servia.Domain.Operations.ProcessedEvent", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("EventId")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTimeOffset>("ProcessedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProcessedAt");
+
+                    b.HasIndex("TenantId", "EventId", "Source")
+                        .IsUnique();
+
+                    b.ToTable("ProcessedEvents", (string)null);
+                });
+
             modelBuilder.Entity("Servia.Domain.Operations.TenantBackup", b =>
                 {
                     b.Property<Guid>("Id")

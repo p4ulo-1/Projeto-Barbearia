@@ -130,6 +130,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, ITenant
 
     public DbSet<TenantBackup> TenantBackups => Set<TenantBackup>();
 
+    public DbSet<ProcessedEvent> ProcessedEvents => Set<ProcessedEvent>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         ArgumentNullException.ThrowIfNull(modelBuilder);
