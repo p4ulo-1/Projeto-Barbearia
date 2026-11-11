@@ -109,6 +109,20 @@ builder.Services.AddScoped<IScheduledJob, ScheduleLockCleanupJob>();
 builder.Services.AddScoped<IScheduledJob, MembershipRenewalJob>();
 builder.Services.AddScoped<IScheduledJob, ProcessedEventRetentionJob>();
 builder.Services.AddScoped<JobRunner>();
+
+// Cadastro publico (F21).
+//
+// O limite por IP e desabilitado em Development: os testes de integracao
+// vem todos do mesmo IP e seriam bloqueados, impedindo validar o resto.
+// Em producao, o limite e obrigatorio.
+if (builder.Environment.IsDevelopment())
+{
+    builder.Services.AddSingleton<ISignupThrottle, UnlimitedSignupThrottle>();
+}
+else
+{
+    builder.Services.AddSingleton<ISignupThrottle, InMemorySignupThrottle>();
+}
 builder.Services.AddHostedService<JobHostedService>();
 
 // A validacao de assinatura depende dos segredos configurados. Sem eles,
