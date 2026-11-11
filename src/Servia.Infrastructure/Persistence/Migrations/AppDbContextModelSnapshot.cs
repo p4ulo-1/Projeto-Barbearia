@@ -127,6 +127,9 @@ namespace Servia.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset>("ExpiresAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
                     b.Property<Guid>("ProfessionalId")
                         .HasColumnType("uuid");
 
@@ -139,7 +142,8 @@ namespace Servia.Infrastructure.Persistence.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("TenantId", "ProfessionalId", "Date", "StartTime")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasFilter("\"IsActive\"");
 
                     b.ToTable("ScheduleLocks", (string)null);
                 });

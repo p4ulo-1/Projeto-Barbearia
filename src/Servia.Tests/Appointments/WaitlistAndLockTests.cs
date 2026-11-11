@@ -126,7 +126,7 @@ public class WaitlistAndLockTests
         var scheduleLock = ScheduleLock.Acquire(
             TenantId, ProfessionalId, Date, new TimeOnly(10, 0), 30, Now);
 
-        Assert.True(scheduleLock.IsActive(Now));
+        Assert.True(scheduleLock.IsValidAt(Now));
         Assert.Equal(Now.AddMinutes(ScheduleLock.DefaultLifetimeMinutes), scheduleLock.ExpiresAt);
         Assert.Equal(new TimeOnly(10, 30), scheduleLock.EndTime);
     }
@@ -137,7 +137,7 @@ public class WaitlistAndLockTests
         var scheduleLock = ScheduleLock.Acquire(
             TenantId, ProfessionalId, Date, new TimeOnly(10, 0), 30, Now);
 
-        Assert.False(scheduleLock.IsActive(Now.AddMinutes(ScheduleLock.DefaultLifetimeMinutes)));
+        Assert.False(scheduleLock.IsValidAt(Now.AddMinutes(ScheduleLock.DefaultLifetimeMinutes)));
     }
 
     [Fact]
@@ -148,7 +148,7 @@ public class WaitlistAndLockTests
 
         scheduleLock.Release();
 
-        Assert.False(scheduleLock.IsActive(Now));
+        Assert.False(scheduleLock.IsValidAt(Now));
     }
 
     [Fact]

@@ -33,4 +33,20 @@ public interface IAppointmentRepository
 
     /// <summary>Persiste as alterações pendentes.</summary>
     Task SaveChangesAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Executa a operação dentro de uma transação com nível de isolamento
+    /// serializável (Etapa 5 da auditoria).
+    ///
+    /// A verificação de disponibilidade e a gravação precisam ser atômicas:
+    /// sem isso, duas requisições simultâneas consultam, ambas veem o
+    /// horário livre e ambas gravam.
+    ///
+    /// O nível serializável faz o PostgreSQL abortar uma das transações
+    /// concorrentes com erro de serialização, que o chamador traduz em
+    /// conflito de negócio.
+    /// </summary>
+    Task<T> ExecuteSerializableAsync<T>(
+        Func<CancellationToken, Task<T>> operation,
+        CancellationToken cancellationToken = default);
 }

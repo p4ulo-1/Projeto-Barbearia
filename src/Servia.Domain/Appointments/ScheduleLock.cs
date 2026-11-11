@@ -34,6 +34,7 @@ public sealed class ScheduleLock : ITenantScoped
         StartTime = startTime;
         EndTime = endTime;
         ExpiresAt = expiresAt;
+        IsActive = true;
     }
 
     /// <summary>
@@ -61,8 +62,16 @@ public sealed class ScheduleLock : ITenantScoped
 
     public DateTimeOffset ExpiresAt { get; private set; }
 
-    /// <summary>Indica se a trava ainda está ativa.</summary>
-    public bool IsActive(DateTimeOffset now) => now < ExpiresAt;
+    /// <summary>
+    /// Indica se a trava ocupa o horario.
+    ///
+    /// Persistida porque o indice unico parcial filtra por ela: o
+    /// PostgreSQL exige predicado IMMUTABLE, e <c>now()</c> nao e.
+    /// </summary>
+    public bool IsActive { get; private set; }
+
+    /// <summary>Indica se a trava ainda esta valida no instante informado.</summary>
+    public bool IsValidAt(DateTimeOffset now) => IsActive && now < ExpiresAt;
 
     /// <summary>
     /// Adquire a trava para um horário.
@@ -126,5 +135,9 @@ public sealed class ScheduleLock : ITenantScoped
     }
 
     /// <summary>Libera a trava, permitindo que o horário seja reservado.</summary>
-    public void Release() => ExpiresAt = DateTimeOffset.MinValue;
+    public void Release()
+    {
+        IsActive = false;
+        ExpiresAt = DateTimeOffset.MinValue;
+    }
 }

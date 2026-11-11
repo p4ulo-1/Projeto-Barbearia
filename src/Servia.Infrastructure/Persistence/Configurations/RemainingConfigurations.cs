@@ -110,14 +110,21 @@ internal sealed class ScheduleLockConfiguration : IEntityTypeConfiguration<Sched
 
 
 
-        // Indice unico parcial: impede reserva concorrente do mesmo horario.
+        // Indice unico PARCIAL: impede reserva concorrente do mesmo horario
+        // enquanto a trava esta ativa.
+        //
+        // O filtro usa a coluna IsActive, nao now(): o PostgreSQL exige que
+        // predicados de indice sejam IMMUTABLE, e now() nao e. A trava e
+        // marcada inativa quando expira ou e liberada.
         builder.HasIndex(lockEntry => new
         {
             lockEntry.TenantId,
             lockEntry.ProfessionalId,
             lockEntry.Date,
             lockEntry.StartTime
-        }).IsUnique();
+        })
+            .IsUnique()
+            .HasFilter("\"IsActive\"");
     }
 }
 

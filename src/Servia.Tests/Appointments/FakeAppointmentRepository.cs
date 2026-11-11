@@ -52,6 +52,11 @@ internal sealed class FakeAppointmentRepository : IAppointmentRepository
         return Task.CompletedTask;
     }
 
+    public Task<T> ExecuteSerializableAsync<T>(
+        Func<CancellationToken, Task<T>> operation,
+        CancellationToken cancellationToken = default) =>
+        operation(cancellationToken);
+
     public Task SaveChangesAsync(CancellationToken cancellationToken = default)
     {
         SaveCount++;

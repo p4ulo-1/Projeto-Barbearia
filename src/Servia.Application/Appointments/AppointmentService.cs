@@ -35,40 +35,53 @@ public sealed class AppointmentService(
 
         var occupied = TimeRange.From(command.Time, command.DurationMinutes);
 
-        var existing = await repository.GetActiveByProfessionalAndDateAsync(
-            command.TenantId,
-            command.ProfessionalId,
-            command.Date,
-            cancellationToken);
-
-        if (HasOverlap(existing, occupied))
-        {
-            return AppointmentResult.Conflict("Este horário conflita com outro agendamento.");
-        }
-
-        Appointment appointment;
-
+        // Verificacao e gravacao na mesma transacao serializavel (Etapa 5).
+        // Sem isso, duas requisicoes simultaneas consultam, ambas veem o
+        // horario livre e ambas gravam.
         try
         {
-            appointment = Appointment.Create(
-                command.TenantId,
-                command.CustomerId,
-                command.ServiceId,
-                command.ProfessionalId,
-                command.Date,
-                command.Time,
-                command.DurationMinutes,
-                timeProvider.GetUtcNow());
+            return await repository.ExecuteSerializableAsync(
+                async token =>
+                {
+                    var existing = await repository.GetActiveByProfessionalAndDateAsync(
+                        command.TenantId,
+                        command.ProfessionalId,
+                        command.Date,
+                        token);
+
+                    if (HasOverlap(existing, occupied))
+                    {
+                        return AppointmentResult.Conflict(
+                            "Este horário conflita com outro agendamento.");
+                    }
+
+                    var appointment = Appointment.Create(
+                        command.TenantId,
+                        command.CustomerId,
+                        command.ServiceId,
+                        command.ProfessionalId,
+                        command.Date,
+                        command.Time,
+                        command.DurationMinutes,
+                        timeProvider.GetUtcNow());
+
+                    await repository.AddAsync(appointment, token);
+                    await repository.SaveChangesAsync(token);
+
+                    return AppointmentResult.Success(appointment);
+                },
+                cancellationToken);
         }
         catch (DomainRuleException exception)
         {
             return AppointmentResult.Invalid(exception.Message);
         }
-
-        await repository.AddAsync(appointment, cancellationToken);
-        await repository.SaveChangesAsync(cancellationToken);
-
-        return AppointmentResult.Success(appointment);
+        catch (Exception exception) when (IsConcurrencyConflict(exception))
+        {
+            // Violacao de constraint ou aborto por serializacao: outra
+            // transacao gravou primeiro.
+            return AppointmentResult.Conflict("Este horário conflita com outro agendamento.");
+        }
     }
 
     /// <summary>
@@ -77,6 +90,30 @@ public sealed class AppointmentService(
     /// Regra R5: dois agendamentos do mesmo profissional não podem ocupar
     /// intervalos sobrepostos. Agendamentos cancelados não bloqueiam o horário.
     /// </summary>
+    /// <summary>
+    /// Indica se a excecao representa conflito de concorrencia.
+    ///
+    /// A camada de aplicacao nao referencia EF Core: a deteccao e por
+    /// mensagem, que e o contrato estavel do provider.
+    /// </summary>
+    private static bool IsConcurrencyConflict(Exception exception)
+    {
+        for (var current = exception; current is not null; current = current.InnerException)
+        {
+            var message = current.Message;
+
+            if (message.Contains("23505", StringComparison.Ordinal)
+                || message.Contains("40001", StringComparison.Ordinal)
+                || message.Contains("duplicate key", StringComparison.OrdinalIgnoreCase)
+                || message.Contains("could not serialize", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     internal static bool HasOverlap(
         IEnumerable<Appointment> existing,
         TimeRange candidate)

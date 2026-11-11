@@ -50,4 +50,22 @@ public sealed class AppointmentRepository(AppDbContext context) : IAppointmentRe
 
     public Task SaveChangesAsync(CancellationToken cancellationToken = default) =>
         context.SaveChangesAsync(cancellationToken);
+
+    public async Task<T> ExecuteSerializableAsync<T>(
+        Func<CancellationToken, Task<T>> operation,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+
+        // Nivel serializavel: o PostgreSQL aborta uma das transacoes
+        // concorrentes quando detecta que o resultado seria inconsistente.
+        await using var transaction = await context.Database.BeginTransactionAsync(
+            System.Data.IsolationLevel.Serializable, cancellationToken);
+
+        var result = await operation(cancellationToken);
+
+        await transaction.CommitAsync(cancellationToken);
+
+        return result;
+    }
 }
