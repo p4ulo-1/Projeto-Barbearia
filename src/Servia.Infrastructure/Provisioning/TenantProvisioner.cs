@@ -63,14 +63,43 @@ public sealed class TenantProvisioner(AppDbContext context, TimeProvider timePro
             Role.Owner,
             now);
 
-        // Uma única gravação: ou tudo entra, ou nada entra.
+        // Uma unica gravacao: ou tudo entra, ou nada entra.
         context.Tenants.Add(tenant);
         context.Subscriptions.Add(subscription);
         context.Users.Add(owner);
 
-        await context.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await context.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException exception) when (IsUniqueViolation(exception))
+        {
+            // R5 (Etapa 7): duas requisicoes simultaneas com o mesmo slug
+            // passam pela verificacao em memoria. O indice unico
+            // IX_Tenants_Slug rejeita a segunda — traduzimos em erro de
+            // negocio, nao em 500.
+            throw new DomainRuleException(
+                $"O identificador '{request.Slug}' já está em uso.");
+        }
 
         return new ProvisionedTenant(tenant, subscription, owner);
+    }
+
+    /// <summary>
+    /// Indica se a excecao e violacao de unicidade (codigo 23505).
+    /// </summary>
+    private static bool IsUniqueViolation(Exception exception)
+    {
+        for (var current = exception; current is not null; current = current.InnerException)
+        {
+            if (current.Message.Contains("23505", StringComparison.Ordinal)
+                || current.Message.Contains("duplicate key", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 }
 

@@ -3,6 +3,8 @@ using Servia.Domain.Identity;
 using Servia.Infrastructure.Identity;
 using Servia.Infrastructure.Tenancy;
 
+using Servia.Tests.Common;
+
 namespace Servia.Tests.Identity;
 
 /// <summary>

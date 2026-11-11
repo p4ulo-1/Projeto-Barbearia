@@ -1,5 +1,7 @@
 using Servia.Infrastructure.Integrations;
 
+using Servia.Tests.Common;
+
 namespace Servia.Tests.Integrations;
 
 /// <summary>

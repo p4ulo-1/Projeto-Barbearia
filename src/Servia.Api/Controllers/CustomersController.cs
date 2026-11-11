@@ -38,10 +38,15 @@ public sealed class CustomersController(
 
         if (!string.IsNullOrWhiteSpace(search))
         {
+            // R3: busca case-insensitive (Etapa 7).
+            // O PostgreSQL e case-sensitive em LIKE; o SQLite era
+            // case-insensitive para ASCII. Usar ILIKE mantem o
+            // comportamento esperado pelo usuario, independente do banco.
             var term = search.Trim();
 
             query = query.Where(customer =>
-                customer.Name.Contains(term) || customer.Phone.Contains(term));
+                EF.Functions.ILike(customer.Name, $"%{term}%")
+                || EF.Functions.ILike(customer.Phone, $"%{term}%"));
         }
 
         var total = await query.CountAsync(cancellationToken);

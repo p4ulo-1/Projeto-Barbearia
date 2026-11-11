@@ -19,8 +19,13 @@ public sealed class UserRepository(AppDbContext context) : IUserRepository
     {
         var normalized = email.Trim().ToLowerInvariant();
 
-        // Administrador da plataforma nao pertence a um tenant: a busca
-        // ignora o filtro de tenant para esse caso (F1.13).
+        // R2 (Etapa 7): unico bypass do filtro global no repositorio.
+        //
+        // Justificativa: o administrador da plataforma nao pertence a um
+        // tenant (TenantId = Guid.Empty), entao o filtro o esconderia.
+        // O bypass e restrito a tres condicoes simultaneas: tenant vazio,
+        // papel PlatformAdmin e e-mail exato. Nenhum dado de tenant e
+        // exposto por este caminho.
         if (tenantId == Guid.Empty)
         {
             return await context.Users

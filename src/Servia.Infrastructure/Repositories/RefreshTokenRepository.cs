@@ -21,6 +21,14 @@ public sealed class RefreshTokenRepository(AppDbContext context) : IRefreshToken
                 token => token.TenantId == tenantId && token.TokenHash == tokenHash,
                 cancellationToken);
 
+    /// <summary>
+    /// Busca pelo hash sem exigir tenant (R2, Etapa 7).
+    ///
+    /// Justificativa: na renovacao de sessao o cliente ainda nao tem token
+    /// de acesso, entao o tenant e desconhecido. O refresh token e opaco —
+    /// so quem o possui conhece o hash. O resultado e usado apenas para
+    /// descobrir o tenant e validar a sessao, nunca para expor dados.
+    /// </summary>
     public async Task<RefreshToken?> FindByHashAsync(
         string tokenHash,
         CancellationToken cancellationToken = default) =>

@@ -155,12 +155,17 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, ITenant
             var tenantProperty = Expression.Property(parameter, nameof(ITenantScoped.TenantId));
 
             // entity.TenantId == tenantContext.TenantId
-            // Quando TenantId é nulo, a comparação falha e nada é retornado.
+            //
+            // CurrentTenantId e Guid?: quando nao ha tenant, a comparacao
+            // com null e falsa e nada e retornado. O TenantId da entidade
+            // e convertido para Guid? para que a comparacao seja valida.
             var contextProperty = Expression.Property(
                 Expression.Constant(this),
                 nameof(CurrentTenantId));
 
-            var body = Expression.Equal(tenantProperty, contextProperty);
+            var liftedTenant = Expression.Convert(tenantProperty, typeof(Guid?));
+
+            var body = Expression.Equal(liftedTenant, contextProperty);
 
             var filter = Expression.Lambda(body, parameter);
 
@@ -169,9 +174,15 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, ITenant
     }
 
     /// <summary>
-    /// Tenant corrente, exposto para o filtro global.
-    /// Sem tenant resolvido, retorna um valor que não corresponde a nenhum
-    /// registro — o filtro nega acesso em vez de liberar.
+    /// Tenant corrente, exposto para o filtro global (Etapa 7, R1).
+    ///
+    /// Retorna <c>null</c> quando nao ha tenant resolvido. O filtro compara
+    /// com <c>null</c>, que nunca e igual a um <c>TenantId</c> real — o
+    /// acesso e negado sem depender de uma sentinela.
+    ///
+    /// <b>Por que nao <c>Guid.Empty</c>:</b> o administrador da plataforma
+    /// tem <c>TenantId = Guid.Empty</c>. Usar o mesmo valor como sentinela
+    /// faria os dados dele vazarem para qualquer requisicao sem tenant.
     /// </summary>
-    public Guid CurrentTenantId => tenantContext.TenantId ?? Guid.Empty;
+    public Guid? CurrentTenantId => tenantContext.TenantId;
 }

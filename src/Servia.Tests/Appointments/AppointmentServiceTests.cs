@@ -3,6 +3,8 @@ using Servia.Domain.Appointments;
 using Servia.Domain.Common;
 using Servia.Domain.Policies;
 
+using Servia.Tests.Common;
+
 namespace Servia.Tests.Appointments;
 
 /// <summary>
@@ -240,10 +242,3 @@ public class AppointmentServiceTests
     }
 }
 
-/// <summary>
-/// Provedor de tempo fixo, para testes determinísticos.
-/// </summary>
-internal sealed class FixedTimeProvider(DateTimeOffset now) : TimeProvider
-{
-    public override DateTimeOffset GetUtcNow() => now;
-}

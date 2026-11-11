@@ -10,6 +10,8 @@ using Servia.Infrastructure.Persistence;
 using Servia.Infrastructure.Repositories;
 using Servia.Infrastructure.Tenancy;
 
+using Servia.Tests.Common;
+
 namespace Servia.Tests.Persistence;
 
 /// <summary>
@@ -247,8 +249,3 @@ public class AppointmentConcurrencyTests : IAsyncLifetime
     }
 }
 
-/// <summary>Provedor de tempo fixo para testes determinísticos.</summary>
-internal sealed class FixedTimeProvider(DateTimeOffset now) : TimeProvider
-{
-    public override DateTimeOffset GetUtcNow() => now;
-}
