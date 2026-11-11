@@ -180,6 +180,12 @@ namespace Servia.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("TenantId", "CustomerId");
+
+                    b.HasIndex("TenantId", "ProfessionalId");
+
+                    b.HasIndex("TenantId", "ServiceId");
+
                     b.HasIndex("TenantId", "Status", "PreferredDate");
 
                     b.ToTable("WaitlistEntries", (string)null);
@@ -603,7 +609,6 @@ namespace Servia.Infrastructure.Persistence.Migrations
             modelBuilder.Entity("Servia.Domain.Customers.CustomerPreference", b =>
                 {
                     b.Property<Guid>("CustomerId")
-                        .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
                     b.Property<string>("Notes")
@@ -617,6 +622,8 @@ namespace Servia.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid");
 
                     b.HasKey("CustomerId");
+
+                    b.HasIndex("TenantId", "CustomerId");
 
                     b.ToTable("CustomerPreferences", (string)null);
                 });
@@ -666,6 +673,8 @@ namespace Servia.Infrastructure.Persistence.Migrations
                         });
 
                     b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "AppointmentId");
 
                     b.HasIndex("TenantId", "ProfessionalId", "ReferencePeriod");
 
@@ -1064,6 +1073,8 @@ namespace Servia.Infrastructure.Persistence.Migrations
                     b.HasIndex("TenantId", "AppointmentId")
                         .IsUnique();
 
+                    b.HasIndex("TenantId", "CustomerId");
+
                     b.ToTable("ServiceReviews", (string)null);
                 });
 
@@ -1100,6 +1111,8 @@ namespace Servia.Infrastructure.Persistence.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("TenantId", "CustomerId");
+
+                    b.HasIndex("TenantId", "MembershipPlanId");
 
                     b.ToTable("Memberships", (string)null);
                 });
@@ -1166,6 +1179,8 @@ namespace Servia.Infrastructure.Persistence.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("TenantId", "CustomerId");
+
+                    b.HasIndex("TenantId", "PackageId");
 
                     b.ToTable("PackageUsages", (string)null);
                 });
@@ -1748,6 +1763,30 @@ namespace Servia.Infrastructure.Persistence.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("Servia.Domain.Appointments.WaitlistEntry", b =>
+                {
+                    b.HasOne("Servia.Domain.Customers.Customer", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "CustomerId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Servia.Domain.Team.Professional", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "ProfessionalId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Servia.Domain.Catalog.Service", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "ServiceId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Servia.Domain.Billing.PlatformInvoice", b =>
                 {
                     b.OwnsMany("Servia.Domain.Billing.InvoiceLine", "Lines", b1 =>
@@ -1806,6 +1845,86 @@ namespace Servia.Infrastructure.Persistence.Migrations
                     b.Navigation("Items");
                 });
 
+            modelBuilder.Entity("Servia.Domain.Customers.CustomerPreference", b =>
+                {
+                    b.HasOne("Servia.Domain.Customers.Customer", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "CustomerId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Servia.Domain.Finance.CommissionEntry", b =>
+                {
+                    b.HasOne("Servia.Domain.Appointments.Appointment", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "AppointmentId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Servia.Domain.Team.Professional", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "ProfessionalId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Servia.Domain.Finance.Payment", b =>
+                {
+                    b.HasOne("Servia.Domain.Appointments.Appointment", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "AppointmentId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("Servia.Domain.Loyalty.LoyaltyAccount", b =>
+                {
+                    b.HasOne("Servia.Domain.Customers.Customer", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "CustomerId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Servia.Domain.Loyalty.ServiceReview", b =>
+                {
+                    b.HasOne("Servia.Domain.Appointments.Appointment", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "AppointmentId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Servia.Domain.Customers.Customer", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "CustomerId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Servia.Domain.Memberships.Membership", b =>
+                {
+                    b.HasOne("Servia.Domain.Customers.Customer", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "CustomerId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Servia.Domain.Memberships.MembershipPlan", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "MembershipPlanId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Servia.Domain.Memberships.MembershipPlan", b =>
                 {
                     b.OwnsMany("Servia.Domain.Memberships.MembershipBenefit", "Benefits", b1 =>
@@ -1833,6 +1952,23 @@ namespace Servia.Infrastructure.Persistence.Migrations
                         });
 
                     b.Navigation("Benefits");
+                });
+
+            modelBuilder.Entity("Servia.Domain.Memberships.PackageUsage", b =>
+                {
+                    b.HasOne("Servia.Domain.Customers.Customer", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "CustomerId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Servia.Domain.Memberships.ServicePackage", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "PackageId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("Servia.Domain.Messaging.Conversation", b =>
@@ -2011,6 +2147,33 @@ namespace Servia.Infrastructure.Persistence.Migrations
                         });
 
                     b.Navigation("Schedule")
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Servia.Domain.Team.ProfessionalService", b =>
+                {
+                    b.HasOne("Servia.Domain.Team.Professional", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "ProfessionalId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Servia.Domain.Catalog.Service", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "ServiceId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Servia.Domain.Team.ScheduleBlock", b =>
+                {
+                    b.HasOne("Servia.Domain.Team.Professional", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "ProfessionalId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
 #pragma warning restore 612, 618

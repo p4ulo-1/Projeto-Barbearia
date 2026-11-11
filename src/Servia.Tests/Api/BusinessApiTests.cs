@@ -265,7 +265,12 @@ public class BusinessApiTests : IClassFixture<IsolatedApiFactory>
     [Fact]
     public async Task Modulos_Credita_Pontos_De_Fidelidade()
     {
-        var customerId = Guid.NewGuid();
+        // A FK composta exige um cliente real do mesmo tenant.
+        var created = await SendAsync(HttpMethod.Post, "/api/v1/customers",
+            new CreateCustomerRequest("Cliente Fidelidade", "21999990000"));
+
+        var customer = await created.Content.ReadFromJsonAsync<CustomerResponse>();
+        var customerId = customer!.Id;
 
         var response = await SendAsync(HttpMethod.Post,
             $"/api/v1/modules/loyalty/{customerId}/earn", new EarnPointsRequest(50));
