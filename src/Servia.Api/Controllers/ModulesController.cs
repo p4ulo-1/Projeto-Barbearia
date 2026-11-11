@@ -227,16 +227,30 @@ public sealed class ModulesController(
         var start = new DateTimeOffset(from.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);
         var end = new DateTimeOffset(to.ToDateTime(TimeOnly.MaxValue), TimeSpan.Zero);
 
-        // PostgreSQL traduz a comparacao de DateTimeOffset diretamente.
-        var reviews = await context.ServiceReviews
+        // Agregacao no banco (Etapa 6): conta por faixa de nota sem
+        // carregar as avaliacoes. As faixas seguem a classificacao NPS:
+        // promotor 9-10, neutro 7-8, detrator 0-6.
+        var counts = await context.ServiceReviews
             .Where(review => review.CreatedAt >= start && review.CreatedAt <= end)
+            .GroupBy(review => review.Score >= 9 ? "promoter"
+                : review.Score >= 7 ? "passive" : "detractor")
+            .Select(group => new { Category = group.Key, Count = group.Count() })
             .ToListAsync(cancellationToken);
 
-        var report = NpsReport.Build(reviews);
+        var promoters = counts.FirstOrDefault(item => item.Category == "promoter")?.Count ?? 0;
+        var passives = counts.FirstOrDefault(item => item.Category == "passive")?.Count ?? 0;
+        var detractors = counts.FirstOrDefault(item => item.Category == "detractor")?.Count ?? 0;
+        var total = promoters + passives + detractors;
 
-        return Ok(new NpsResponse(
-            report.TotalResponses, report.Promoters, report.Passives,
-            report.Detractors, report.Score));
+        // NPS: percentual de promotores menos percentual de detratores.
+        var score = total == 0
+            ? 0m
+            : Math.Round(
+                (promoters * 100m / total) - (detractors * 100m / total),
+                1,
+                MidpointRounding.AwayFromZero);
+
+        return Ok(new NpsResponse(total, promoters, passives, detractors, score));
     }
 
     private Guid RequireTenant() =>

@@ -157,25 +157,45 @@ public sealed class FinanceController(
         var start = new DateTimeOffset(from.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);
         var end = new DateTimeOffset(to.ToDateTime(TimeOnly.MaxValue), TimeSpan.Zero);
 
-        // PostgreSQL traduz a comparacao de DateTimeOffset diretamente.
-        var transactions = await context.Transactions
+        // Agregacao no banco (Etapa 6): nao carrega entidades inteiras.
+        // O filtro de tenant e aplicado pelo global query filter.
+        var totals = await context.Transactions
             .Where(transaction => transaction.OccurredAt >= start && transaction.OccurredAt <= end)
+            .GroupBy(transaction => transaction.Type)
+            .Select(group => new
+            {
+                Type = group.Key,
+                Total = group.Sum(transaction => transaction.Amount.Amount)
+            })
             .ToListAsync(cancellationToken);
+
+        var income = totals
+            .Where(item => item.Type == TransactionType.Income)
+            .Sum(item => item.Total);
+
+        var expense = totals
+            .Where(item => item.Type == TransactionType.Expense)
+            .Sum(item => item.Total);
 
         var appointmentCount = await context.Appointments
             .CountAsync(appointment => appointment.Date >= from && appointment.Date <= to,
                 cancellationToken);
 
-        var report = FinancialReport.Build(from, to, transactions, appointmentCount);
+        var balance = income - expense;
+
+        // Ticket medio: receita dividida pelos atendimentos do periodo.
+        var averageTicket = appointmentCount == 0
+            ? 0m
+            : Math.Round(income / appointmentCount, 2, MidpointRounding.AwayFromZero);
 
         return Ok(new ReportResponse(
-            report.PeriodStart,
-            report.PeriodEnd,
-            report.TotalIncome.Amount,
-            report.TotalExpense.Amount,
-            report.Balance.Amount,
-            report.AverageTicket.Amount,
-            report.AppointmentCount));
+            from,
+            to,
+            income,
+            expense,
+            balance,
+            averageTicket,
+            appointmentCount));
     }
 
     /// <summary>Consulta o extrato de comissões de um profissional.</summary>
