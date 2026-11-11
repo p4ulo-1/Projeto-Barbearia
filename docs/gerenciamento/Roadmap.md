@@ -1,8 +1,62 @@
 # Roadmap — Plataforma SaaS de Gestão e Atendimento
 
-> **Status:** v2 — revisada em 2026-11-10 conforme `docs/diretrizes.md`.
-> **Escopo do MVP:** completo — todas as fases F0–F9 fazem parte da primeira versão.
+> **Status:** v3 — execução concluída em 2026-11-11.
+> **Escopo do MVP:** completo — F0–F15.
 > **Unidade de planejamento:** fases com entregas verificáveis. Prazos em semanas relativas ao início da fase.
+
+---
+
+## Estado de execução (2026-11-11)
+
+**Todas as 16 fases foram implementadas, testadas e commitadas.**
+
+| Fase | Escopo | Entregas | Situação |
+| --- | --- | --- | --- |
+| F0 | Fundação técnica | 7 | ✅ |
+| F1 | Multi-tenancy | 13 | ✅ |
+| F2 | Núcleo universal | 12 | ✅ |
+| F3 | Site por tenant | 8 | ✅ |
+| F4 | Billing da plataforma | 17 | ✅ |
+| F5 | Financeiro do tenant | 8 | ✅ |
+| F6 | Comunicação e WhatsApp | 13 | ✅ |
+| F7 | Módulos opcionais | 7 | ✅ |
+| F8 | IA de site | 12 | ✅ |
+| F9 | Escala e operação | 7 | ✅ |
+| F10 | Autenticação e autorização | 8 | ✅ |
+| F11 | Persistência de produção | 5 | ✅ |
+| F12 | Integrações externas | 7 | ✅ |
+| F13 | API de negócio | 11 | ✅ |
+| F14 | Frontend do SaaS | 10 | ✅ |
+| F15 | Go-live | 7 | ✅ |
+
+**Total:** 152 entregas, 837 testes automatizados, build sem erros nem avisos.
+
+### Auditoria de qualidade (2026-11-11)
+
+Oito etapas executadas após a conclusão do roadmap, cada uma com commit independente:
+
+| Etapa | Correção | Commit |
+| --- | --- | --- |
+| 1 | SQLite substituído por PostgreSQL 17 em todo o projeto | `47802b8` |
+| 2 | `Subscription` isolada por tenant | `01d6b2b` |
+| 3 | Tenant resolvido apenas pelo token | `f9eed28` |
+| 4 | Chaves estrangeiras compostas `(TenantId, Id)` | `f98b7b4` |
+| 5 | Concorrência protegida por transação serializável | `56dc1fa` |
+| 6 | Agregações executadas no banco | `e826327` |
+| 7 | Riscos R1–R5 corrigidos | `12847bb` |
+| 8 | Suíte de integração multi-tenant | `ec5e7fb` |
+
+### O que falta para produção
+
+Não é código — é infraestrutura e credenciais:
+
+- Domínio próprio e certificado SSL
+- Agregador de logs externo
+- Ambiente de produção provisionado
+- Aprovação como Solution Partner da Meta
+- Credenciais reais dos provedores (Mercado Pago, Meta, OpenAI)
+
+---
 
 ---
 

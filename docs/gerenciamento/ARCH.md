@@ -1,8 +1,46 @@
 # Arquitetura — Plataforma SaaS de Gestão e Atendimento
 
-> **Status:** v2 — revisada em 2026-11-10 conforme `docs/diretrizes.md`.
+> **Status:** v3 — implementação concluída em 2026-11-11.
 > **Escopo:** arquitetura de solução da plataforma multi-tenant, incluindo camadas, isolamento, integrações e operação.
 > **Decisões:** ver seção 13 e `docs/gerenciamento/ADR.md`.
+
+---
+
+## 0. Estado da implementação
+
+A arquitetura descrita neste documento **está implementada**. O que segue é o registro do que existe, não uma proposta.
+
+| Camada | Projeto | Estado |
+| --- | --- | --- |
+| Domínio | `Servia.Domain` | 37 entidades `ITenantScoped`, 14 contextos delimitados |
+| Aplicação | `Servia.Application` | Casos de uso, sem dependência de EF Core |
+| Infraestrutura | `Servia.Infrastructure` | EF Core 10 + Npgsql, repositórios, integrações |
+| API | `Servia.Api` | Controllers, middleware, autenticação, autorização |
+| Testes | `Servia.Tests` | 837 testes, todos em PostgreSQL 17 |
+| Frontend | `web/` | React 19 + TypeScript estrito + Vite |
+
+### Isolamento multi-tenant — três camadas
+
+| Camada | Mecanismo | Onde |
+| --- | --- | --- |
+| 1. Aplicação | Filtro global do EF Core | `AppDbContext.ApplyTenantFilter` |
+| 2. Banco | Chaves estrangeiras compostas `(TenantId, Id)` | `CompositeForeignKeyConfiguration` |
+| 3. Testes | Suíte cross-tenant via API | `Servia.Tests/Integration/` |
+
+**Nenhuma das três é suficiente sozinha.** O filtro global não protege escrita; a FK não protege leitura; os testes provam que as duas funcionam juntas.
+
+### Persistência
+
+- **PostgreSQL 17** é o único provider — desenvolvimento, testes e produção.
+- Migrations versionadas (`MigrateAsync`), nunca `EnsureCreated`.
+- 3 migrations aplicadas: `InitialCreate`, `CompositeForeignKeys`, `PartialScheduleLockIndex`.
+- 50 tabelas, 27 chaves estrangeiras, 117 índices.
+
+### Concorrência
+
+`AppointmentService` executa verificação e gravação na mesma transação com isolamento **serializável**. `ScheduleLock` usa índice único parcial filtrado por `IsActive` — o PostgreSQL exige predicado `IMMUTABLE`, e `now()` não é.
+
+---
 
 ---
 

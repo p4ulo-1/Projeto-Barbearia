@@ -1,6 +1,6 @@
 # Architecture Decision Records (ADR)
 
-> **Status:** v3 — revisada em 2026-11-10 conforme `docs/diretrizes.md` e a política comercial de WhatsApp e IA. Todos os 21 ADRs estão aceitos.
+> **Status:** v4 — revisada em 2026-11-11. Todos os 22 ADRs estão aceitos.
 > **Formato:** [ADR-NNN] Título — Status — Data.
 > **Decisões:** confirmadas pelo responsável do produto; ver também `docs/funcionalidades.md` seção 0 e `docs/gerenciamento/ARCH.md` seção 13.
 
@@ -549,3 +549,39 @@ Adotar a alternativa 1:
 - **Positivas:** custo previsível para o cliente; risco financeiro controlado; transparência que permite ao tenant controlar gastos por recurso.
 - **Negativas:** mais uma dimensão de configuração por plano; exige apuração precisa por recurso.
 - **Mitigação:** `IConsumptionBillingService` apura cada recurso isoladamente; aviso antes de consumir excedente; detalhamento por recurso na fatura.
+
+---
+
+## ADR-022 — Remover o SQLite e usar PostgreSQL 17 em todos os ambientes
+
+**Status:** ✅ Aceito
+**Data:** 2026-11-11
+
+### Contexto
+
+O projeto usava SQLite em desenvolvimento e testes, e PostgreSQL em produção. A auditoria de 2026-11-11 revelou que essa separação mascarava defeitos reais: o SQLite ignora chaves estrangeiras por padrão, não traduz comparações de `DateTimeOffset` e tem semântica de texto diferente.
+
+O caso mais grave: o snapshot de uma migration foi gerado com SQLite enquanto o runtime usava PostgreSQL. O EF Core 10 trata a diferença de provider como mudança de schema, e a aplicação não subia. O defeito estava latente desde a fase F11.
+
+### Alternativas
+
+1. **PostgreSQL 17 em todos os ambientes** — um único provider, testado com o banco real.
+2. **Manter SQLite em testes** — rápido e sem Docker, mas testa um sistema diferente do de produção.
+3. **SQLite em desenvolvimento, PostgreSQL em testes e produção** — reduz a divergência, mas mantém dois comportamentos.
+
+### Decisão
+
+Adotar a alternativa 1: **PostgreSQL 17 é o único provider**, em desenvolvimento, testes e produção.
+
+- Testes de integração usam **Testcontainers**, com um container PostgreSQL 17 isolado por classe.
+- O caminho condicional `IsNpgsql() ? Migrate : EnsureCreated` foi removido.
+- Os workarounds de `DateTimeOffset` em três controllers foram removidos: o filtro roda no banco.
+- O pacote `Microsoft.EntityFrameworkCore.Sqlite` foi removido de todos os projetos.
+
+### Consequências
+
+- **Positivas:** o que passa no teste passa em produção; violações de FK são detectadas; consultas são traduzidas pelo provider real; semântica de texto consistente.
+- **Negativas:** os testes exigem Docker em execução; a suíte ficou mais lenta (de ~2s para ~50s).
+- **Mitigação:** o container é reutilizado por classe de teste, não por teste; a lentidão é aceitável diante da confiabilidade ganha.
+
+> **Nota:** esta decisão substitui a parte do ADR-003 que previa SQLite para testes locais rápidos.

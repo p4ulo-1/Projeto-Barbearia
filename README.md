@@ -5,8 +5,10 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Status-Em%20Desenvolvimento-yellow?style=for-the-badge" />
+  <img src="https://img.shields.io/badge/Status-Roadmap%20Conclu%C3%ADdo-brightgreen?style=for-the-badge" />
+  <img src="https://img.shields.io/badge/Testes-837%20passando-brightgreen?style=for-the-badge" />
   <img src="https://img.shields.io/badge/Modelo-SaaS%20Multi--tenant-blue?style=for-the-badge" />
+  <img src="https://img.shields.io/badge/PostgreSQL-17-336791?style=for-the-badge&logo=postgresql&logoColor=white" />
   <img src="https://img.shields.io/badge/React-TypeScript-61DAFB?style=for-the-badge&logo=react&logoColor=white" />
   <img src="https://img.shields.io/badge/C%23-.NET%2010-512BD4?style=for-the-badge&logo=.net&logoColor=white" />
 </p>
@@ -124,9 +126,7 @@ O repositório separa a aplicação cliente da aplicação servidora, sobre uma 
 | **Servia.Application** | Casos de uso, serviços, DTOs e orquestração de integrações |
 | **Servia.Domain** | Entidades, agregados, objetos de valor e regras de negócio |
 | **Servia.Infrastructure** | Persistência, repositórios, migrations, segurança e integrações externas |
-| **Servia.Tests** | Testes automatizados de domínio e de casos de uso |
-
-> **Nota:** os projetos no código-fonte ainda usam o prefixo `BackAndre.*` (herdado da fase acadêmica). A renomeação física das pastas e namespaces está planejada e será executada em uma etapa própria. Os comandos `dotnet` abaixo apontam para os caminhos atuais.
+| **Servia.Tests** | Testes automatizados de domínio, persistência, API e integração |
 
 ### Isolamento multi-tenant
 
@@ -140,36 +140,31 @@ Interface da aplicação, navegação, interação com o usuário e comunicaçã
 
 ### Tecnologias
 
-- React
-- TypeScript
+- React 19
+- TypeScript (modo estrito)
 - Vite
-- TanStack Router
-- TanStack Start
-- Tailwind CSS
-- Radix UI
-- React Hook Form
-- Zod
+- React Router
 
 ### Superfícies de produto
 
-| Superfície | Público |
-| --- | --- |
-| Site público do estabelecimento | Clientes finais |
-| Agendamento online | Clientes finais |
-| Painel do estabelecimento | Equipe do tenant |
-| Painel da plataforma | Administradores da plataforma |
+| Superfície | Público | Estado |
+| --- | --- | --- |
+| Site público do estabelecimento | Clientes finais | ✅ |
+| Agendamento online | Clientes finais | ✅ |
+| Painel do estabelecimento | Equipe do tenant | ✅ |
+| Painel da plataforma | Administradores da plataforma | ✅ |
 
-A comunicação com o backend é realizada por HTTP utilizando a API REST.
+O código está em [`web/`](web/). A comunicação com o backend é HTTP, centralizada em um cliente de API tipado — nenhum componente chama `fetch` diretamente.
 
-O endereço da API pode ser configurado por meio da variável:
+O endereço da API é configurado por variável de ambiente:
 
 ```env
-VITE_API_URL=http://localhost:5071/api
+VITE_API_URL=http://localhost:8080
 ```
 
-Na ausência dessa variável, o frontend utiliza o endereço local da API como fallback de desenvolvimento.
+Na ausência da variável, o frontend usa `http://localhost:8080` como padrão de desenvolvimento.
 
-O frontend do SaaS ainda não foi construído. O código acadêmico foi removido em 2026-11-10 (ver [ADR-001](docs/gerenciamento/ADR.md)).
+**Segurança de sessão:** o token de acesso fica em memória (um XSS não o lê); o refresh token fica em `localStorage` porque precisa sobreviver ao recarregamento.
 
 ---
 
@@ -179,15 +174,14 @@ API REST desenvolvida em **C# com ASP.NET Core**, utilizando arquitetura em cama
 
 ### Tecnologias
 
-- C#
-- .NET 10
+- C# / .NET 10
 - ASP.NET Core Web API
-- Entity Framework Core
-- PostgreSQL 17 (desenvolvimento, testes e produção)
-- JWT Bearer Authentication
-- ASP.NET Core PasswordHasher
-- Swagger / OpenAPI
-- xUnit
+- Entity Framework Core 10
+- **PostgreSQL 17** — único provider, em desenvolvimento, testes e produção
+- JWT Bearer Authentication (PBKDF2-HMAC-SHA256, 600.000 iterações)
+- Autorização por permissão
+- OpenAPI (apenas em desenvolvimento)
+- xUnit + Testcontainers
 
 O código está em [`src/`](src/). A arquitetura está em [`docs/gerenciamento/ARCH.md`](docs/gerenciamento/ARCH.md).
 
@@ -197,16 +191,17 @@ O código está em [`src/`](src/). A arquitetura está em [`docs/gerenciamento/A
 
 A autenticação utiliza **JWT Bearer**.
 
-O backend fornece endpoints para:
+Endpoints disponíveis:
 
-- registro;
-- login;
-- consulta do usuário autenticado;
-- atualização dos dados do usuário;
-- alteração de senha;
-- exclusão da conta.
+| Endpoint | Função |
+| --- | --- |
+| `POST /api/auth/sign-in` | Autentica e emite tokens |
+| `POST /api/auth/refresh` | Renova a sessão (rotação de token) |
+| `POST /api/auth/sign-out` | Revoga o refresh token |
 
-As permissões são controladas por papel dentro do tenant: proprietário, administrador, profissional, recepcionista e cliente. A verificação é sempre feita no servidor.
+**O tenant vem exclusivamente da claim `tenant_id` do token**, assinada pelo servidor. O header `X-Tenant-Id` não é aceito. Na renovação, o tenant é resolvido a partir do próprio refresh token, que é opaco.
+
+As permissões são controladas por papel dentro do tenant: proprietário, administrador, profissional, recepcionista e cliente. A verificação é sempre feita no servidor, por `RequirePermissionAttribute`.
 
 ---
 
@@ -216,71 +211,91 @@ O Entity Framework Core é utilizado para:
 
 - mapeamento das entidades;
 - acesso ao banco;
-- migrations;
+- migrations versionadas;
 - criação e atualização da estrutura do banco.
 
-O backend possui um processo de inicialização que cria dados de demonstração em ambiente de desenvolvimento.
+**Isolamento multi-tenant em três camadas:**
+
+1. **Filtro global** — toda entidade `ITenantScoped` é restrita ao tenant corrente. Sem tenant resolvido, nada é visível.
+2. **Chaves estrangeiras compostas** `(TenantId, Id)` — o banco rejeita associação entre registros de tenants diferentes.
+3. **Testes cross-tenant** — a suíte prova que um estabelecimento não acessa dados de outro.
+
+O schema é aplicado por migrations (`MigrateAsync`), nunca por `EnsureCreated`. O seed cria os quatro planos comerciais na inicialização.
 
 ---
 
 ## 🧪 Testes
 
-O projeto possui testes automatizados utilizando xUnit.
+**837 testes automatizados**, todos executados contra **PostgreSQL 17** via Testcontainers.
 
-Os testes abrangem regras do domínio, incluindo:
+| Grupo | Cobertura |
+| --- | --- |
+| Domínio | Agendamentos, catálogo, equipe, clientes, billing, financeiro, mensageria, módulos, IA, operações |
+| Persistência | Migrations, schema, índices, seed, FKs compostas |
+| Isolamento multi-tenant | Leitura, criação, alteração, exclusão, header forjado, assinaturas |
+| Concorrência | Requisições simultâneas, sobreposição de horários, `ScheduleLock` |
+| API | Autenticação, autorização, paginação, provisionamento |
+| Integrações | Mercado Pago, WhatsApp, OpenAI (com dublês) |
 
-- agendamentos;
-- estados dos agendamentos;
-- cancelamento;
-- conclusão;
-- remarcação;
-- jornada de trabalho dos profissionais.
-
-Para executar os testes:
+Para executar:
 
 ```powershell
-dotnet test .\backend\BackAndre.Tests\BackAndre.Tests.csproj
+cd src
+..\build.cmd test Servia.slnx
 ```
+
+> O `build.cmd` define as variáveis de ambiente do Windows que o NuGet exige neste ambiente.
+
+**Requisito:** Docker em execução — os testes sobem containers PostgreSQL 17 isolados.
 
 ---
 
 ## ▶️ Executando o projeto
 
-### Backend
-
-A partir da raiz do repositório:
+### Ambiente completo (Docker)
 
 ```powershell
-dotnet restore .\backend\BackAndre.Api\BackAndre.Api.csproj
-dotnet build .\backend\BackAndre.Api\BackAndre.Api.csproj
-dotnet run --project .\backend\BackAndre.Api\BackAndre.Api.csproj
+docker-compose up --build -d
 ```
 
-Durante o desenvolvimento, a API fica disponível em:
+API em `http://localhost:8080`, PostgreSQL em `localhost:5432`.
 
-```text
-http://localhost:5071
+```powershell
+curl.exe http://localhost:8080/health
 ```
 
-O Swagger pode ser acessado em:
+### Backend direto
 
-```text
-http://localhost:5071/swagger
+```powershell
+cd src
+..\build.cmd run --project Servia.Api\Servia.Api.csproj --urls http://localhost:5099
 ```
+
+Requer `ConnectionStrings__DefaultConnection` apontando para um PostgreSQL acessível.
 
 ### Frontend
 
 Em outro terminal:
 
 ```powershell
-cd frontend
-bun install
-bun run dev
+cd web
+npm install
+npm run dev
 ```
 
-O endereço apresentado pelo Vite deve ser utilizado para acessar a aplicação.
+Aplicação em `http://localhost:5173`. Por padrão aponta para `http://localhost:8080`; para usar a API local:
 
-Para que a integração funcione corretamente, o backend deve estar em execução.
+```powershell
+$env:VITE_API_URL="http://localhost:5099"; npm run dev
+```
+
+### Endpoints de saúde
+
+| Endpoint | Verifica | Uso |
+| --- | --- | --- |
+| `/health` | API e banco | Monitoramento |
+| `/health/live` | Apenas o processo | Orquestrador decide reiniciar |
+| `/health/ready` | API e banco | Balanceador decide enviar tráfego |
 
 ---
 
@@ -295,46 +310,68 @@ Para que a integração funcione corretamente, o backend deve estar em execuçã
 | [`docs/gerenciamento/Roadmap.md`](docs/gerenciamento/Roadmap.md) | Fases de entrega e critérios de saída |
 | [`docs/gerenciamento/ADR.md`](docs/gerenciamento/ADR.md) | Decisões de arquitetura registradas |
 | [`docs/gerenciamento/ARCH.md`](docs/gerenciamento/ARCH.md) | Arquitetura de solução |
+| [`docs/gerenciamento/RUNBOOK.md`](docs/gerenciamento/RUNBOOK.md) | Procedimentos operacionais e de incidentes |
+| [`docs/av2/`](docs/av2/) | Especificação, modelo de classes e rastreabilidade |
 
 ---
 
 ## 📊 Estado Atual
 
-**Status:** 🚧 Em desenvolvimento — sistema single-shop funcional, em transição para plataforma multi-tenant.
+**Status:** ✅ Roadmap concluído — 16 fases, 152 entregas, 837 testes.
 
-### Concluído
+### Fases concluídas
 
-- [x] Estrutura do repositório
-- [x] Interface do frontend
-- [x] Modelagem do domínio
-- [x] Regras de negócio principais
-- [x] API ASP.NET Core
-- [x] Arquitetura em camadas
-- [x] Persistência com Entity Framework Core
-- [x] Migrations
-- [x] Autenticação JWT
-- [x] Autorização por função
-- [x] CRUD e operações de domínio necessárias
-- [x] Integração frontend + backend
-- [x] Seed de dados de demonstração
-- [x] Tratamento de exceções
-- [x] Testes automatizados
-- [x] Documentação de produto, funcionalidades, classes e arquitetura
+| Fase | Escopo | Entregas |
+| --- | --- | --- |
+| F0 | Fundação técnica (Docker, CI, PostgreSQL) | 7 |
+| F1 | Multi-tenancy e isolamento | 13 |
+| F2 | Núcleo universal (agenda, catálogo, equipe, clientes) | 12 |
+| F3 | Site por tenant | 8 |
+| F4 | Billing da plataforma | 17 |
+| F5 | Financeiro do tenant | 8 |
+| F6 | Comunicação e WhatsApp | 13 |
+| F7 | Módulos opcionais (clubes, pacotes, fidelidade, NPS) | 7 |
+| F8 | IA de site | 12 |
+| F9 | Escala e operação | 7 |
+| F10 | Autenticação e autorização | 8 |
+| F11 | Persistência de produção (migrations) | 5 |
+| F12 | Integrações (Mercado Pago, WhatsApp, OpenAI) | 7 |
+| F13 | API de negócio | 11 |
+| F14 | Frontend do SaaS | 10 |
+| F15 | Go-live | 7 |
 
-### Próximas etapas
+### Auditoria de qualidade (2026-11-11)
 
-Decisões estruturais confirmadas em 2026-11-04. Escopo do MVP: completo (F0–F9).
+Oito etapas executadas, cada uma com commit independente:
 
-- [ ] Fase F0 — fundação técnica (Docker, CI, PostgreSQL)
-- [ ] Fase F1 — multi-tenancy e migração do sistema atual
-- [ ] Fase F2 — núcleo universal
-- [ ] Fase F3 — site por tenant
-- [ ] Fase F4 — billing da plataforma (Mercado Pago)
-- [ ] Fase F5 — financeiro do tenant
-- [ ] Fase F6 — comunicação e WhatsApp
-- [ ] Fase F7 — módulos opcionais
-- [ ] Fase F8 — IA de site
-- [ ] Fase F9 — escala e operação
+| Etapa | Correção |
+| --- | --- |
+| 1 | SQLite substituído por PostgreSQL 17 em todo o projeto |
+| 2 | `Subscription` isolada por tenant |
+| 3 | Tenant resolvido apenas pelo token |
+| 4 | Chaves estrangeiras compostas `(TenantId, Id)` |
+| 5 | Concorrência protegida por transação serializável |
+| 6 | Agregações executadas no banco |
+| 7 | Riscos R1–R5 corrigidos |
+| 8 | Suíte de integração multi-tenant |
+
+### Verificação
+
+```text
+Build:  0 erros, 0 avisos
+Testes: 837 passando, 0 falhas (PostgreSQL 17)
+Docker: API e PostgreSQL healthy
+```
+
+### O que falta para produção
+
+Não é código — é infraestrutura:
+
+- Domínio próprio e certificado SSL
+- Agregador de logs externo
+- Ambiente de produção provisionado
+- Aprovação como Solution Partner da Meta
+- Credenciais reais dos provedores (Mercado Pago, Meta, OpenAI)
 
 O detalhamento está em [`docs/gerenciamento/Roadmap.md`](docs/gerenciamento/Roadmap.md).
 
