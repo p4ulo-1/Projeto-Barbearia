@@ -10,8 +10,13 @@ namespace Servia.Domain.Tenancy;
 ///
 /// A assinatura pertence ao <b>billing da plataforma</b>, não ao financeiro
 /// do estabelecimento (ADR-020).
+///
+/// <b>Isolamento (Etapa 2 da auditoria):</b> implementa
+/// <see cref="ITenantScoped"/> para que o filtro global do EF Core restrinja
+/// a consulta ao tenant corrente. Sem isso, um estabelecimento podia ler a
+/// assinatura de outro.
 /// </summary>
-public sealed class Subscription
+public sealed class Subscription : ITenantScoped
 {
     public const int TrialDays = 14;
 

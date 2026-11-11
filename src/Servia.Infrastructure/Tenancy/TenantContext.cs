@@ -13,11 +13,14 @@ namespace Servia.Infrastructure.Tenancy;
 /// </summary>
 public sealed class TenantContext : ITenantContext
 {
-    private static readonly AsyncLocal<Guid?> Current = new();
+    // Instancia, nao estatico: cada TenantContext tem seu proprio slot.
+    // Um AsyncLocal estatico faria dois contextos distintos compartilharem
+    // o mesmo valor, e o tenant de um vazaria para o outro.
+    private readonly AsyncLocal<Guid?> _current = new();
 
-    public Guid? TenantId => Current.Value;
+    public Guid? TenantId => _current.Value;
 
-    public bool HasTenant => Current.Value.HasValue;
+    public bool HasTenant => _current.Value.HasValue;
 
     public void SetTenant(Guid tenantId)
     {
@@ -26,8 +29,8 @@ public sealed class TenantContext : ITenantContext
             throw new ArgumentException("O tenant não pode ser vazio.", nameof(tenantId));
         }
 
-        Current.Value = tenantId;
+        _current.Value = tenantId;
     }
 
-    public void Clear() => Current.Value = null;
+    public void Clear() => _current.Value = null;
 }

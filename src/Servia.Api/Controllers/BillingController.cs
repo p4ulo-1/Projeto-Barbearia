@@ -30,10 +30,16 @@ public sealed class BillingController(AppDbContext context, ITenantContext tenan
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetSubscriptionAsync(CancellationToken cancellationToken)
     {
+        // O filtro global ja restringe ao tenant corrente (Subscription
+        // implementa ITenantScoped). O filtro explicito documenta a
+        // intencao e protege caso o filtro global seja desativado.
+        var tenantId = RequireTenant();
+
         var subscription = await context.Subscriptions
+            .Where(item => item.TenantId == tenantId)
             .OrderByDescending(item => item.CurrentPeriodStart)
             .FirstOrDefaultAsync(cancellationToken)
-            ?? throw NotFoundException.For("Assinatura", RequireTenant());
+            ?? throw NotFoundException.For("Assinatura", tenantId);
 
         var plan = await context.Plans
             .FirstOrDefaultAsync(item => item.Id == subscription.PlanId, cancellationToken);
