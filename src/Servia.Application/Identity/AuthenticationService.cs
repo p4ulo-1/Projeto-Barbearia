@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using Servia.Domain.Identity;
+using Servia.Domain.Tenancy;
 
 namespace Servia.Application.Identity;
 
@@ -22,7 +23,8 @@ public sealed class AuthenticationService(
     IRefreshTokenRepository refreshTokens,
     IPasswordHasher passwordHasher,
     ITokenIssuer tokenIssuer,
-    TimeProvider timeProvider)
+    TimeProvider timeProvider,
+    ITenantContext tenantContext)
 {
     /// <summary>Validade do token de renovação, em dias.</summary>
     public const int RefreshTokenLifetimeDays = RefreshToken.DefaultLifetimeDays;
@@ -78,18 +80,31 @@ public sealed class AuthenticationService(
     /// Renova a sessão a partir de um token de renovação válido (F10.6).
     /// O token usado é revogado e um novo é emitido.
     /// </summary>
+    /// <summary>
+    /// Renova a sessao a partir do refresh token (Etapa 3 da auditoria).
+    ///
+    /// O tenant e resolvido a partir do proprio refresh token, nao de um
+    /// header: o cliente ainda nao tem token de acesso, e o refresh token
+    /// e opaco — so o servidor conhece o hash.
+    /// </summary>
     public async Task<AuthenticationResult> RefreshAsync(
-        Guid tenantId,
         string refreshToken,
         CancellationToken cancellationToken = default)
     {
-        if (tenantId == Guid.Empty || string.IsNullOrWhiteSpace(refreshToken))
+        if (string.IsNullOrWhiteSpace(refreshToken))
         {
             return AuthenticationResult.Invalid("Sessão inválida.");
         }
 
         var hash = HashToken(refreshToken);
-        var stored = await refreshTokens.FindByHashAsync(tenantId, hash, cancellationToken);
+        var stored = await refreshTokens.FindByHashAsync(hash, cancellationToken);
+
+        if (stored is null)
+        {
+            return AuthenticationResult.Invalid("Sessão inválida.");
+        }
+
+        var tenantId = stored.TenantId;
 
         if (stored is null)
         {
@@ -102,6 +117,11 @@ public sealed class AuthenticationService(
         {
             return AuthenticationResult.Invalid("Sessão expirada. Entre novamente.");
         }
+
+        // O filtro global usa o tenant do contexto, nao o parametro.
+        // Sem isso, a busca do usuario falha porque o contexto esta vazio
+        // (o cliente ainda nao tem token de acesso).
+        tenantContext.SetTenant(tenantId);
 
         var user = await users.FindByIdAsync(tenantId, stored.UserId, cancellationToken);
 
@@ -126,17 +146,16 @@ public sealed class AuthenticationService(
     /// Encerra a sessão, revogando o token de renovação (F10.7).
     /// </summary>
     public async Task<bool> SignOutAsync(
-        Guid tenantId,
         string refreshToken,
         CancellationToken cancellationToken = default)
     {
-        if (tenantId == Guid.Empty || string.IsNullOrWhiteSpace(refreshToken))
+        if (string.IsNullOrWhiteSpace(refreshToken))
         {
             return false;
         }
 
         var hash = HashToken(refreshToken);
-        var stored = await refreshTokens.FindByHashAsync(tenantId, hash, cancellationToken);
+        var stored = await refreshTokens.FindByHashAsync(hash, cancellationToken);
 
         if (stored is null)
         {

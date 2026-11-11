@@ -198,8 +198,6 @@ public class AuthorizationTests : IClassFixture<IsolatedApiFactory>
             Content = JsonContent.Create(new RefreshRequest(signIn.RefreshToken))
         };
 
-        request.Headers.Add("X-Tenant-Id", TenantId.ToString());
-
         var response = await _client.SendAsync(request);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -218,8 +216,6 @@ public class AuthorizationTests : IClassFixture<IsolatedApiFactory>
             Content = JsonContent.Create(new SignOutRequest(signIn.RefreshToken))
         };
 
-        signOut.Headers.Add("X-Tenant-Id", TenantId.ToString());
-
         var signOutResponse = await _client.SendAsync(signOut);
         Assert.Equal(HttpStatusCode.NoContent, signOutResponse.StatusCode);
 
@@ -228,8 +224,6 @@ public class AuthorizationTests : IClassFixture<IsolatedApiFactory>
         {
             Content = JsonContent.Create(new RefreshRequest(signIn.RefreshToken))
         };
-
-        refresh.Headers.Add("X-Tenant-Id", TenantId.ToString());
 
         var refreshResponse = await _client.SendAsync(refresh);
         Assert.Equal(HttpStatusCode.Unauthorized, refreshResponse.StatusCode);

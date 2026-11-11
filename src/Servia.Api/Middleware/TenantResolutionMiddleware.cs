@@ -4,25 +4,26 @@ using Servia.Infrastructure.Identity;
 namespace Servia.Api.Middleware;
 
 /// <summary>
-/// Resolve o tenant da requisição <b>no servidor</b> (F10.5).
+/// Resolve o tenant da requisição <b>exclusivamente</b> a partir da
+/// identidade autenticada (Etapa 3 da auditoria).
 ///
-/// A ordem de precedência é deliberada:
+/// A única fonte é a claim <c>tenant_id</c> do token, assinada pelo
+/// servidor. O cliente não informa o tenant: ele vem do token.
 ///
-///   1. <b>Claim do token</b> — fonte confiável, assinada pelo servidor.
-///   2. <b>Header <c>X-Tenant-Id</c></b> — apenas em desenvolvimento, para
-///      rotas públicas e testes. Em produção é ignorado.
+/// <b>O que foi removido:</b> o fallback pelo header <c>X-Tenant-Id</c>.
+/// Ele permitia que qualquer cliente escolhesse o estabelecimento — em
+/// Development, sem sequer autenticar.
 ///
-/// Aceitar o header em produção permitiria a um cliente escolher o tenant e
-/// acessar dados de outro estabelecimento.
+/// <b>Administrador da plataforma:</b> não pertence a um tenant. Para
+/// operar sobre um estabelecimento específico, usa o endpoint
+/// administrativo explícito, que valida o papel e registra a ação em
+/// auditoria. O header não é aceito em nenhum caso.
 ///
-/// Sem tenant resolvido, o contexto fica vazio e o filtro global do EF Core
-/// nega acesso a dados de negócio.
+/// Sem tenant resolvido, o contexto fica vazio e o filtro global do EF
+/// Core nega acesso a dados de negócio.
 /// </summary>
-public sealed class TenantResolutionMiddleware(RequestDelegate next, IHostEnvironment environment)
+public sealed class TenantResolutionMiddleware(RequestDelegate next)
 {
-    /// <summary>Header de desenvolvimento. Ignorado em produção.</summary>
-    public const string TenantHeaderName = "X-Tenant-Id";
-
     public async Task InvokeAsync(HttpContext context, ITenantContext tenantContext)
     {
         ArgumentNullException.ThrowIfNull(context);
@@ -30,7 +31,7 @@ public sealed class TenantResolutionMiddleware(RequestDelegate next, IHostEnviro
 
         tenantContext.Clear();
 
-        var tenantId = ResolveFromToken(context) ?? ResolveFromHeader(context);
+        var tenantId = ResolveFromToken(context);
 
         if (tenantId.HasValue)
         {
@@ -49,33 +50,13 @@ public sealed class TenantResolutionMiddleware(RequestDelegate next, IHostEnviro
     }
 
     /// <summary>
-    /// Lê o tenant da claim do token. É a fonte confiável.
+    /// Lê o tenant da claim do token. É a única fonte aceita.
     /// </summary>
     private static Guid? ResolveFromToken(HttpContext context)
     {
         var claim = context.User.FindFirst(JwtTokenIssuer.TenantIdClaim)?.Value;
 
         return Guid.TryParse(claim, out var tenantId) && tenantId != Guid.Empty
-            ? tenantId
-            : null;
-    }
-
-    /// <summary>
-    /// Lê o tenant do header. Aceito apenas fora de produção.
-    /// </summary>
-    private Guid? ResolveFromHeader(HttpContext context)
-    {
-        if (!environment.IsDevelopment())
-        {
-            return null;
-        }
-
-        if (!context.Request.Headers.TryGetValue(TenantHeaderName, out var headerValue))
-        {
-            return null;
-        }
-
-        return Guid.TryParse(headerValue.ToString(), out var tenantId) && tenantId != Guid.Empty
             ? tenantId
             : null;
     }

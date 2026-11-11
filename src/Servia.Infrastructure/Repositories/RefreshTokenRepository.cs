@@ -21,6 +21,15 @@ public sealed class RefreshTokenRepository(AppDbContext context) : IRefreshToken
                 token => token.TenantId == tenantId && token.TokenHash == tokenHash,
                 cancellationToken);
 
+    public async Task<RefreshToken?> FindByHashAsync(
+        string tokenHash,
+        CancellationToken cancellationToken = default) =>
+        await context.RefreshTokens
+            .IgnoreQueryFilters()
+            .FirstOrDefaultAsync(
+                token => token.TokenHash == tokenHash,
+                cancellationToken);
+
     public async Task AddAsync(RefreshToken token, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(token);

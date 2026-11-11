@@ -64,22 +64,6 @@ if (builder.Environment.IsDevelopment() && string.IsNullOrWhiteSpace(jwtOptions.
 
 builder.Services.AddSingleton(jwtOptions);
 
-// Salvaguarda contra Development acidental em producao (F15.3).
-// Em Development, o header X-Tenant-Id e aceito como fonte de tenant,
-// o que permitiria a qualquer cliente escolher o estabelecimento.
-// Se a aplicacao estiver rodando em um container de producao, isso e
-// um erro de configuracao que deve falhar alto, nao silenciosamente.
-if (builder.Environment.IsDevelopment()
-    && string.Equals(
-        Environment.GetEnvironmentVariable("SERVIA_DEPLOYMENT"),
-        "production",
-        StringComparison.OrdinalIgnoreCase))
-{
-    throw new InvalidOperationException(
-        "ASPNETCORE_ENVIRONMENT=Development nao e permitido em producao. "
-        + "Em Development, o header X-Tenant-Id e aceito e o AllowedHosts fica aberto.");
-}
-
 // Valida a configuracao JWT na inicializacao, nao no primeiro uso.
 // Sem isso, a aplicacao sobe e toda requisicao falha com 500 — falha
 // silenciosa que so aparece em producao.

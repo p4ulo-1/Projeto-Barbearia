@@ -1,6 +1,7 @@
 using Servia.Application.Identity;
 using Servia.Domain.Identity;
 using Servia.Infrastructure.Identity;
+using Servia.Infrastructure.Tenancy;
 
 namespace Servia.Tests.Identity;
 
@@ -19,9 +20,10 @@ public class AuthenticationServiceTests
     private readonly FakeRefreshTokenRepository _tokens = new();
     private readonly Pbkdf2PasswordHasher _hasher = new(iterations: 1_000);
     private readonly FixedTimeProvider _time = new(Now);
+    private readonly TenantContext _tenantContext = new();
 
     private AuthenticationService NewService() =>
-        new(_users, _tokens, _hasher, new FakeTokenIssuer(), _time);
+        new(_users, _tokens, _hasher, new FakeTokenIssuer(), _time, _tenantContext);
 
     private User SeedUser(Role role = Role.Owner, bool active = true)
     {
@@ -137,7 +139,7 @@ public class AuthenticationServiceTests
         var service = NewService();
         var signIn = await service.SignInAsync(Command());
 
-        var refreshed = await service.RefreshAsync(TenantId, signIn.RefreshToken!);
+        var refreshed = await service.RefreshAsync(signIn.RefreshToken!);
 
         Assert.True(refreshed.Success);
         Assert.NotEqual(signIn.RefreshToken, refreshed.RefreshToken);
@@ -150,10 +152,10 @@ public class AuthenticationServiceTests
         var service = NewService();
         var signIn = await service.SignInAsync(Command());
 
-        await service.RefreshAsync(TenantId, signIn.RefreshToken!);
+        await service.RefreshAsync(signIn.RefreshToken!);
 
         // O token antigo nao pode ser usado de novo.
-        var reuse = await service.RefreshAsync(TenantId, signIn.RefreshToken!);
+        var reuse = await service.RefreshAsync(signIn.RefreshToken!);
 
         Assert.False(reuse.Success);
     }
@@ -163,7 +165,7 @@ public class AuthenticationServiceTests
     {
         SeedUser();
 
-        var result = await NewService().RefreshAsync(TenantId, "token-inexistente");
+        var result = await NewService().RefreshAsync("token-inexistente");
 
         Assert.False(result.Success);
     }
@@ -178,7 +180,7 @@ public class AuthenticationServiceTests
         // Avanca alem da validade do token de renovacao.
         _time.Advance(TimeSpan.FromDays(RefreshToken.DefaultLifetimeDays + 1));
 
-        var result = await service.RefreshAsync(TenantId, signIn.RefreshToken!);
+        var result = await service.RefreshAsync(signIn.RefreshToken!);
 
         Assert.False(result.Success);
     }
@@ -192,11 +194,11 @@ public class AuthenticationServiceTests
         var service = NewService();
         var signIn = await service.SignInAsync(Command());
 
-        var signedOut = await service.SignOutAsync(TenantId, signIn.RefreshToken!);
+        var signedOut = await service.SignOutAsync(signIn.RefreshToken!);
 
         Assert.True(signedOut);
 
-        var reuse = await service.RefreshAsync(TenantId, signIn.RefreshToken!);
+        var reuse = await service.RefreshAsync(signIn.RefreshToken!);
         Assert.False(reuse.Success);
     }
 
@@ -205,7 +207,7 @@ public class AuthenticationServiceTests
     {
         SeedUser();
 
-        Assert.False(await NewService().SignOutAsync(TenantId, "token-inexistente"));
+        Assert.False(await NewService().SignOutAsync("token-inexistente"));
     }
 
     [Fact]
@@ -215,8 +217,8 @@ public class AuthenticationServiceTests
         var service = NewService();
         var signIn = await service.SignInAsync(Command());
 
-        await service.SignOutAsync(TenantId, signIn.RefreshToken!);
-        var second = await service.SignOutAsync(TenantId, signIn.RefreshToken!);
+        await service.SignOutAsync(signIn.RefreshToken!);
+        var second = await service.SignOutAsync(signIn.RefreshToken!);
 
         // Repetir o logout nao lanca nem falha de forma inesperada.
         Assert.True(second);
@@ -258,6 +260,10 @@ internal sealed class FakeRefreshTokenRepository : IRefreshTokenRepository
         Guid tenantId, string tokenHash, CancellationToken cancellationToken = default) =>
         Task.FromResult(_tokens.FirstOrDefault(
             token => token.TenantId == tenantId && token.TokenHash == tokenHash));
+
+    public Task<RefreshToken?> FindByHashAsync(
+        string tokenHash, CancellationToken cancellationToken = default) =>
+        Task.FromResult(_tokens.FirstOrDefault(token => token.TokenHash == tokenHash));
 
     public Task AddAsync(RefreshToken token, CancellationToken cancellationToken = default)
     {

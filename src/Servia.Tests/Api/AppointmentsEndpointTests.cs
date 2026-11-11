@@ -132,9 +132,6 @@ public class AppointmentsEndpointTests : IClassFixture<IsolatedApiFactory>
         message.Headers.Authorization =
             new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _accessToken);
 
-        message.Headers.Add(TenantResolutionMiddleware.TenantHeaderName,
-            (tenantId ?? TenantId).ToString());
-
         return await _client.SendAsync(message);
     }
 

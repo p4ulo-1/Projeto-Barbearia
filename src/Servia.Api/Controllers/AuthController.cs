@@ -66,14 +66,8 @@ public sealed class AuthController(
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        // O tenant vem do contexto resolvido pelo token ou pelo header.
-        if (!tenantContext.HasTenant)
-        {
-            return Unauthorized(new ErrorResponse("Sessão inválida."));
-        }
-
-        var result = await authentication.RefreshAsync(
-            tenantContext.TenantId!.Value, request.RefreshToken, cancellationToken);
+        // O tenant e resolvido a partir do refresh token, nao de header.
+        var result = await authentication.RefreshAsync(request.RefreshToken, cancellationToken);
 
         if (!result.Success)
         {
@@ -96,11 +90,8 @@ public sealed class AuthController(
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        if (tenantContext.HasTenant)
-        {
-            await authentication.SignOutAsync(
-                tenantContext.TenantId!.Value, request.RefreshToken, cancellationToken);
-        }
+        // O tenant e resolvido a partir do refresh token.
+        await authentication.SignOutAsync(request.RefreshToken, cancellationToken);
 
         // Logout é idempotente: repetir não é erro.
         return NoContent();
