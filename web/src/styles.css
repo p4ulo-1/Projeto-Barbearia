@@ -251,3 +251,160 @@ td {
     margin: var(--space) 0 0;
   }
 }
+
+/* ---------- Formulários (F18) ---------- */
+
+.field {
+  margin-top: var(--space);
+  border: none;
+  padding: 0;
+}
+
+.field label {
+  display: block;
+  margin-top: 0;
+  font-weight: 500;
+}
+
+.field select {
+  font: inherit;
+  width: 100%;
+  max-width: 24rem;
+  padding: 0.5rem 0.75rem;
+  margin-top: 0.25rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+}
+
+.field-help {
+  margin: 0.25rem 0 0;
+  font-size: 0.875rem;
+  color: var(--color-muted);
+}
+
+.checkbox-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-right: var(--space);
+  font-weight: 400;
+}
+
+.checkbox-inline input {
+  width: auto;
+  margin: 0;
+}
+
+.form-panel {
+  margin-top: var(--space);
+}
+
+.form-panel-body {
+  margin-top: var(--space);
+  padding: var(--space);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
+.form-error {
+  color: var(--color-error);
+  font-weight: 500;
+  margin-top: var(--space);
+}
+
+.form-success {
+  color: var(--color-success);
+  font-weight: 500;
+  margin-top: var(--space);
+}
+
+.btn-primary,
+.btn-secondary,
+.btn-tertiary {
+  font: inherit;
+  padding: 0.5rem 1rem;
+  border-radius: var(--radius);
+  cursor: pointer;
+  margin-top: var(--space);
+}
+
+.btn-primary {
+  background: var(--color-primary);
+  color: var(--color-primary-fg);
+  border: none;
+}
+
+.btn-secondary {
+  background: transparent;
+  color: var(--color-fg);
+  border: 1px solid var(--color-border);
+}
+
+.btn-tertiary {
+  background: none;
+  border: none;
+  color: var(--color-primary);
+  padding: 0.25rem 0.5rem;
+  margin: 0 0.25rem 0 0;
+  text-decoration: underline;
+}
+
+.btn-primary:disabled,
+.btn-secondary:disabled,
+.btn-tertiary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* ---------- Listas e planos ---------- */
+
+.list {
+  list-style: none;
+  padding: 0;
+  margin-top: var(--space);
+}
+
+.list li {
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.plan-list {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: var(--space);
+  margin-top: var(--space);
+}
+
+.plan-card {
+  padding: var(--space);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
+.plan-card.current {
+  border-color: var(--color-primary);
+}
+
+.plan-card h3 {
+  margin: 0 0 0.5rem;
+  font-size: 1.125rem;
+}
+
+.plan-price {
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin: 0 0 0.5rem;
+}
+
+.badge {
+  display: inline-block;
+  padding: 0.25rem 0.5rem;
+  border-radius: var(--radius);
+  background: var(--color-border);
+  font-size: 0.875rem;
+  font-weight: 500;
+}

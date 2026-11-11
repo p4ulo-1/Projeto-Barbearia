@@ -15,17 +15,10 @@ import {
 } from 'react-router-dom';
 import { SessionProvider, useSession } from './auth/SessionProvider';
 import { createApiClient } from './auth/SessionProvider';
-import {
-  AgendaPage,
-  AppLayout,
-  CustomersPage,
-  FinancePage,
-  ServicesPage,
-  SignInPage,
-  SitePage,
-  SubscriptionPage,
-  TeamPage,
-} from './pages';
+import { AppLayout, SignInPage } from './pages';
+import { ServicesPage, TeamPage } from './pages/catalog';
+import { AgendaPage, CustomersPage } from './pages/operations';
+import { FinancePage, SitePage, SubscriptionPage } from './pages/management';
 import { PublicSitePage, BookingWidgetPage } from './pages/public';
 
 const BASE_URL = import.meta.env['VITE_API_URL'] ?? 'http://localhost:8080';
