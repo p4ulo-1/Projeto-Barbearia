@@ -363,9 +363,22 @@ Testes: 837 passando, 0 falhas (PostgreSQL 17)
 Docker: API e PostgreSQL healthy
 ```
 
+### O que falta para operação plena
+
+O roadmap F0–F15 está concluído, mas um levantamento do estado real identificou **quatro blocos de lacunas** que impedem operar o sistema sem intervenção técnica:
+
+| Bloco | Lacuna | Fase |
+| --- | --- | --- |
+| Billing | `BillingController` só tem `GET` — não há como trocar ou cancelar plano | F16 |
+| Webhooks | Integrações são clientes, não receptores — pagamento e mensagem não chegam | F17 |
+| Frontend | As 7 páginas do painel fazem apenas `GET` | F18 |
+| Jobs | Nenhum `BackgroundService` — notificações e cobranças não rodam sozinhas | F19 |
+
+**Total estimado:** 12 semanas (F16–F20).
+
 ### O que falta para produção
 
-Não é código — é infraestrutura:
+Além das fases acima, infraestrutura e credenciais:
 
 - Domínio próprio e certificado SSL
 - Agregador de logs externo
@@ -373,7 +386,7 @@ Não é código — é infraestrutura:
 - Aprovação como Solution Partner da Meta
 - Credenciais reais dos provedores (Mercado Pago, Meta, OpenAI)
 
-O detalhamento está em [`docs/gerenciamento/Roadmap.md`](docs/gerenciamento/Roadmap.md).
+O detalhamento está em [`docs/gerenciamento/Roadmap.md`](docs/gerenciamento/Roadmap.md) e em [`docs/funcionalidades.md`](docs/funcionalidades.md) seção 6A.
 
 ---
 

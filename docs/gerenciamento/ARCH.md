@@ -40,7 +40,18 @@ A arquitetura descrita neste documento **está implementada**. O que segue é o 
 
 `AppointmentService` executa verificação e gravação na mesma transação com isolamento **serializável**. `ScheduleLock` usa índice único parcial filtrado por `IsActive` — o PostgreSQL exige predicado `IMMUTABLE`, e `now()` não é.
 
----
+### Lacunas arquiteturais para operação plena (2026-11-11)
+
+A arquitetura descrita acima está implementada, mas quatro lacunas impedem a operação por um cliente sem intervenção técnica. O detalhamento está em `docs/funcionalidades.md` seção 6A e o plano em `docs/gerenciamento/Roadmap.md` (F16–F20).
+
+| Lacuna | Camada | Consequência arquitetural |
+| --- | --- | --- |
+| Billing sem escrita | API | `BillingController` só tem `GET`; falta `SubscriptionService` na aplicação |
+| Webhooks ausentes | API + Infraestrutura | Integrações são clientes, não receptores; `IIdempotencyStore` em memória não sobrevive a reinício |
+| Frontend somente leitura | Apresentação | 7 páginas fazem apenas `GET`; a API suporta escrita, a interface não |
+| Nenhum job em background | Infraestrutura | Sem `BackgroundService`, nenhuma rotina temporal executa |
+
+**Dívida arquitetural registrada:** 9 dos 13 controllers acessam `AppDbContext` diretamente. A camada de aplicação tem apenas 3 serviços (`AppointmentService`, `AuthenticationService`, `TenantProvisioner`). A lógica de negócio deveria viver na aplicação, testável sem subir a API. Não bloqueia a operação; é recomendação para refatoração posterior.
 
 ---
 

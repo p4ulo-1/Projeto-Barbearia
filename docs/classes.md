@@ -99,6 +99,24 @@ Fatura da plataforma contra o tenant.
 
 Métodos: `MarkPaid(gatewayPaymentId)`, `MarkFailed(reason)`, `IsOverdue(now)`.
 
+#### `PlanChange`
+Registro imutável de uma mudança de plano do tenant (F16.5).
+
+| Membro | Tipo | Descrição |
+| --- | --- | --- |
+| `Id` | `Guid` | |
+| `TenantId` | `Guid` | |
+| `SubscriptionId` | `Guid` | |
+| `FromPlanId` | `Guid?` | Nulo na contratação inicial |
+| `ToPlanId` | `Guid` | Plano escolhido |
+| `Reason` | `PlanChangeReason` | `Initial`, `Upgrade`, `Downgrade`, `ForcedUpgrade` |
+| `ChangedAt` | `DateTimeOffset` | Momento da mudança |
+| `ChangedBy` | `Guid` | Usuário que solicitou |
+
+Métodos: `Record(tenantId, subscriptionId, fromPlanId, toPlanId, reason, changedBy, now)`.
+
+Invariantes: imutável após criação; `FromPlanId` nulo apenas quando `Reason = Initial`; `ForcedUpgrade` ocorre quando o tenant ultrapassa a faixa de profissionais do plano.
+
 #### `UsageQuota`
 Cota de consumo de um recurso medido, por tenant e por período de faturamento.
 

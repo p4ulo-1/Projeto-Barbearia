@@ -471,6 +471,100 @@ A geração inicial e a publicação estão incluídas no plano. **Alterações 
 
 ---
 
+## Fases de operação plena — F16 a F20
+
+> **Contexto:** F0–F15 entregaram domínio, API, integrações e frontend. Um levantamento do estado real em 2026-11-11 identificou quatro blocos que impedem a operação por um cliente sem intervenção técnica. O detalhamento está em `docs/funcionalidades.md` seção 6A.
+>
+> **Critério de conclusão:** um estabelecimento se cadastra, configura o site, escolhe e troca de plano, e o sistema executa sozinho notificações e cobranças — tudo pela interface.
+
+### F16 — Billing com escrita (2 semanas)
+
+**Objetivo:** permitir escolher, trocar e cancelar o plano pela API e pela interface.
+
+| # | Entrega | Critério de aceite | Rastreia |
+| --- | --- | --- | --- |
+| F16.1 | `POST /billing/subscription` — contratar plano | Assinatura criada com o plano escolhido | U57 |
+| F16.2 | `PATCH /billing/subscription` — trocar de plano | Upgrade e downgrade aplicados com efeito no próximo ciclo | U57 |
+| F16.3 | `POST /billing/subscription/cancel` | Assinatura cancelada; acesso mantido até o fim do período pago | U57 |
+| F16.4 | Regra de upgrade por faixa de profissionais | Tenant que ultrapassa o limite é bloqueado até subir de categoria | U57 |
+| F16.5 | Histórico de mudanças de plano | Cada mudança registrada com data, plano anterior e novo | U57 |
+| F16.6 | `SubscriptionService` na camada de aplicação | Lógica fora do controller, testável sem subir a API | N12 |
+| F16.7 | Testes de billing | Contratar, trocar, cancelar, upgrade forçado, isolamento por tenant | U57 |
+
+### F17 — Webhooks (2 semanas)
+
+**Objetivo:** receber eventos dos provedores. Sem isso, o Servia nunca sabe que um pagamento foi aprovado ou que uma mensagem chegou.
+
+| # | Entrega | Critério de aceite | Rastreia |
+| --- | --- | --- | --- |
+| F17.1 | `POST /webhooks/mercadopago` | Pagamento aprovado confirma a fatura e ativa a assinatura | U52 |
+| F17.2 | `POST /webhooks/whatsapp` | Mensagem recebida entra na conversa e dispara resposta automática | U48 |
+| F17.3 | Validação de assinatura do webhook | Evento com assinatura inválida é rejeitado com 401 | N03 |
+| F17.4 | Idempotência persistida | `IIdempotencyStore` sobre o banco; reinício não reprocessa evento | U52 |
+| F17.5 | Tratamento de evento desconhecido | Evento não mapeado é registrado e ignorado, sem erro 500 | N07 |
+| F17.6 | Testes de webhook | Assinatura válida, inválida, evento repetido, evento desconhecido | U52, U48 |
+
+### F18 — Frontend de escrita (4 semanas)
+
+**Objetivo:** tornar as 7 páginas do painel operáveis. Hoje todas fazem apenas `GET`.
+
+| # | Entrega | Critério de aceite | Rastreia |
+| --- | --- | --- | --- |
+| F18.1 | Agenda com ações | Criar, remarcar, cancelar e concluir pela interface | U28–U30 |
+| F18.2 | Serviços com ações | Criar, alterar preço e desativar | U19 |
+| F18.3 | Equipe com ações | Criar profissional, vincular serviço, bloquear agenda | U22, U24 |
+| F18.4 | Clientes com ações | Cadastrar, editar e anonimizar (LGPD) | U11, U15 |
+| F18.5 | Financeiro com ações | Registrar pagamento e lançar receita/despesa | U51 |
+| F18.6 | Site com ações | Criar, editar seções, publicar e rollback | U37–U43 |
+| F18.7 | Assinatura com ações | Escolher plano, trocar e cancelar | U57 |
+| F18.8 | Tela de provisionamento | Administrador da plataforma cria tenant pela interface | U01 |
+| F18.9 | Feedback de erro e carregamento | Toda ação mostra estado, erro e confirmação | N06 |
+| F18.10 | Testes de componente | Formulários validam entrada e tratam erro da API | N12 |
+
+### F19 — Jobs em background (3 semanas)
+
+**Objetivo:** executar as rotinas que dependem de tempo. Hoje nenhuma roda sozinha.
+
+| # | Entrega | Critério de aceite | Rastreia |
+| --- | --- | --- | --- |
+| F19.1 | Infraestrutura de jobs | `BackgroundService` com execução periódica e log | N07 |
+| F19.2 | Envio de notificações agendadas | Lembrete e confirmação enviados no horário | U45 |
+| F19.3 | Cobrança de assinatura no vencimento | Fatura gerada e cobrada na data | U52 |
+| F19.4 | Régua de inadimplência | Aviso, bloqueio de escrita e suspensão conforme política | U57 |
+| F19.5 | Expiração de `ScheduleLock` | Trava expirada é marcada inativa e libera o horário | U28 |
+| F19.6 | Renovação de clube e pacote | Período renovado e consumo zerado | M01, M02 |
+| F19.7 | Campanha de inativos | Clientes sem visita recebem a campanha, respeitando consentimento | M15 |
+| F19.8 | Aplicação da retenção de dados | Dados expirados removidos conforme política | N04 |
+| F19.9 | Testes de job | Cada rotina testada com tempo controlado | N12 |
+
+### F20 — Bootstrap e operação (1 semana)
+
+| # | Entrega | Critério de aceite | Rastreia |
+| --- | --- | --- | --- |
+| F20.1 | Comando de criação do primeiro `PlatformAdmin` | `dotnet run --seed-admin` cria o administrador sem SQL manual | U01 |
+| F20.2 | Documentação do fluxo de onboarding | Passo a passo para colocar o primeiro cliente no ar | N11 |
+
+---
+
+## Resumo das fases de operação plena
+
+| Fase | Escopo | Semanas |
+| --- | --- | --- |
+| F16 | Billing com escrita | 2 |
+| F17 | Webhooks | 2 |
+| F18 | Frontend de escrita | 4 |
+| F19 | Jobs em background | 3 |
+| F20 | Bootstrap e operação | 1 |
+| **Total** | | **12 semanas** |
+
+**Estado atual:** F0–F15 concluídas (152 entregas, 837 testes). **Estado operável:** exige F16–F20.
+
+### Dívida arquitetural registrada (não bloqueia operação)
+
+9 dos 13 controllers acessam `AppDbContext` diretamente; a camada de aplicação tem apenas 3 serviços. A lógica deveria migrar para serviços de aplicação, testáveis sem subir a API. Recomendação para uma fase de refatoração posterior.
+
+---
+
 ## Funcionalidades do núcleo entregues nas fases
 
 Funcionalidades do catálogo que compõem o núcleo universal e são construídas do zero nas fases indicadas. Nenhuma delas é herdada do código acadêmico (ADR-001).

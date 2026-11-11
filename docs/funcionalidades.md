@@ -388,6 +388,77 @@ Cada linha é rastreável até o consumo que a originou, e o tenant visualiza o 
 
 ---
 
+## 6A. Lacunas para operação plena (2026-11-11)
+
+O roadmap F0–F15 foi concluído: domínio, API, integrações e frontend existem e são testados. Um levantamento do estado real, porém, identificou **quatro blocos de lacunas** que impedem o sistema de ser operado por um cliente sem intervenção técnica.
+
+**Critério de "100% funcional e operante":** um estabelecimento consegue se cadastrar, configurar o site, escolher e trocar de plano, e o sistema executa sozinho as rotinas de notificação e cobrança — tudo pela interface, sem acesso ao banco ou à API por fora.
+
+### 6A.1. Billing sem escrita (bloco F16)
+
+O `BillingController` tem **4 endpoints, todos `GET`**. Não existe forma de escolher, trocar ou cancelar um plano após o provisionamento.
+
+| Lacuna | Impacto |
+| --- | --- |
+| Sem `POST /billing/subscription` | O plano só é definido no provisionamento; não há upgrade nem downgrade |
+| Sem `POST /billing/subscription/cancel` | Cliente não consegue encerrar a assinatura |
+| Sem regra de upgrade por faixa | A regra "ao ultrapassar o limite de profissionais, sobe de categoria" (U57) não é aplicada |
+| Sem histórico de mudanças de plano | Não há rastreabilidade de quando o tenant mudou de categoria |
+
+### 6A.2. Webhooks ausentes (bloco F17)
+
+As integrações foram implementadas como **clientes** (o Servia chama o provedor), mas não como **receptores**. Sem webhook, o Servia nunca sabe que um pagamento foi aprovado ou que uma mensagem chegou.
+
+| Lacuna | Impacto |
+| --- | --- |
+| Sem `POST /webhooks/mercadopago` | Pagamento aprovado não confirma a fatura; assinatura não ativa |
+| Sem `POST /webhooks/whatsapp` | Mensagem recebida do cliente não entra na conversa; bot não responde |
+| Sem validação de assinatura do webhook | Qualquer origem poderia forjar um evento |
+| Sem idempotência persistida | `IIdempotencyStore` é em memória; reinício reprocessa eventos |
+
+### 6A.3. Frontend somente leitura (bloco F18)
+
+As **7 páginas do painel** fazem apenas `GET`. A única página com escrita é o login.
+
+| Página | Estado atual | Necessário |
+| --- | --- | --- |
+| `/painel` — Agenda | Lista por data | Criar, remarcar, cancelar, concluir |
+| `/painel/servicos` | Lista | Criar, alterar preço, desativar |
+| `/painel/equipe` | Lista | Criar profissional, vincular serviço, bloquear agenda |
+| `/painel/clientes` | Lista com busca | Cadastrar, editar, anonimizar (LGPD) |
+| `/painel/financeiro` | Relatório do mês | Registrar pagamento, lançar receita/despesa |
+| `/painel/site` | Exibe estado | Criar site, editar seções, publicar, rollback |
+| `/painel/assinatura` | Exibe plano | Escolher plano, trocar, cancelar |
+
+Além disso, falta a **tela de provisionamento** para o administrador da plataforma — a API existe (`POST /platform/tenants`), a interface não.
+
+### 6A.4. Nenhum job em background (bloco F19)
+
+Não há `BackgroundService` nem `IHostedService`. Toda rotina que depende de tempo nunca executa.
+
+| Rotina | Entidade existe | Executa sozinha |
+| --- | --- | --- |
+| Enviar lembrete de agendamento | `Notification` com `ScheduledAt` | ❌ |
+| Enviar confirmação após criação | `Notification` | ❌ |
+| Cobrar assinatura no vencimento | `PlatformInvoice` com `DueDate` | ❌ |
+| Aplicar régua de inadimplência | `DelinquencyPolicy` | ❌ |
+| Expirar `ScheduleLock` | `ScheduleLock.ExpiresAt` | ❌ |
+| Renovar período de clube | `Membership.Renew` | ❌ |
+| Disparar campanha de inativos | `ReactivationCampaign` | ❌ |
+| Aplicar retenção de dados | `RetentionPolicy` | ❌ |
+
+### 6A.5. Lacuna de bootstrap
+
+Não existe endpoint nem comando para criar o **primeiro administrador da plataforma**. Hoje é necessário inserir no banco com hash PBKDF2 calculado à mão.
+
+### 6A.6. Dívida arquitetural (não bloqueia operação)
+
+**9 dos 13 controllers** acessam `AppDbContext` diretamente. A lógica de negócio vive nos controllers, não na camada de aplicação — que tem apenas 3 serviços (`AppointmentService`, `AuthenticationService`, `TenantProvisioner`).
+
+Isso não impede a operação, mas viola a separação descrita no `ARCH.md` e dificulta testar a lógica sem subir a API. Registrado como recomendação, não como bloqueio.
+
+---
+
 ## 7. Pendências e dependências externas
 
 ### 7.1. Pendências abertas
