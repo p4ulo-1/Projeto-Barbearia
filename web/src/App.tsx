@@ -20,6 +20,8 @@ import { ServicesPage, TeamPage } from './pages/catalog';
 import { AgendaPage, CustomersPage } from './pages/operations';
 import { FinancePage, SitePage, SubscriptionPage } from './pages/management';
 import { PublicSitePage, BookingWidgetPage } from './pages/public';
+import { LandingPage } from './landing/LandingPage';
+import { SignupPage } from './landing/SignupPage';
 
 const BASE_URL = import.meta.env['VITE_API_URL'] ?? 'http://localhost:8080';
 
@@ -49,7 +51,25 @@ function AppRoutes() {
   return (
     <Routes>
       {/* Públicas */}
-      <Route path="/" element={<PublicSitePage baseUrl={BASE_URL} />} />
+      <Route
+        path="/"
+        element={
+          <LandingPage
+            onSignup={() => navigate('/criar-conta')}
+            onSignIn={() => navigate('/entrar')}
+          />
+        }
+      />
+      <Route
+        path="/criar-conta"
+        element={
+          <SignupPage
+            onSuccess={() => navigate('/painel')}
+            onBack={() => navigate('/')}
+          />
+        }
+      />
+      <Route path="/site" element={<PublicSitePage baseUrl={BASE_URL} />} />
       <Route path="/agendar" element={<BookingWidgetPage baseUrl={BASE_URL} />} />
       <Route path="/entrar" element={<SignInPage />} />
 
