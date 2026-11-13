@@ -1,5 +1,6 @@
 using Servia.Domain.Common;
 using Servia.Domain.Sites;
+using Servia.Domain.Tenancy;
 
 namespace Servia.Domain.Ai;
 
@@ -12,19 +13,35 @@ namespace Servia.Domain.Ai;
 /// biblioteca controlada e propriedades previstas no schema. Uma proposta
 /// com componente ou propriedade desconhecida é rejeitada na construção —
 /// a IA não consegue introduzir código arbitrário.
+///
+/// <b>Isolamento:</b> a proposta pertence a um tenant. Persistir o
+/// <see cref="TenantId"/> garante que uma proposta nunca seja lida por
+/// outro estabelecimento, mesmo que o identificador vaze.
 /// </summary>
-public sealed class AiChangeSet
+public sealed class AiChangeSet : ITenantScoped
 {
     private readonly List<AiSectionProposal> _sections = [];
 
-    private AiChangeSet(Guid id, string summary, SiteTheme theme)
+    private AiChangeSet(Guid id, Guid tenantId, string summary, SiteTheme theme)
     {
         Id = id;
+        TenantId = tenantId;
         Summary = summary;
         Theme = theme;
     }
 
+    /// <summary>
+    /// Construtor sem parâmetros exigido pelo EF Core para materializar a
+    /// entidade. Não valida invariantes: a validação ocorre em <see cref="Create"/>.
+    /// </summary>
+    private AiChangeSet()
+    {
+        Summary = string.Empty;
+    }
+
     public Guid Id { get; private set; }
+
+    public Guid TenantId { get; private set; }
 
     /// <summary>Resumo legível da proposta, para o usuário revisar.</summary>
     public string Summary { get; private set; }
@@ -33,14 +50,19 @@ public sealed class AiChangeSet
 
     public IReadOnlyCollection<AiSectionProposal> Sections => _sections;
 
-    public static AiChangeSet Create(string summary, SiteTheme theme)
+    public static AiChangeSet Create(Guid tenantId, string summary, SiteTheme theme)
     {
+        if (tenantId == Guid.Empty)
+        {
+            throw new DomainRuleException("O estabelecimento é obrigatório.");
+        }
+
         if (string.IsNullOrWhiteSpace(summary))
         {
             throw new DomainRuleException("O resumo da proposta é obrigatório.");
         }
 
-        return new AiChangeSet(Guid.NewGuid(), summary.Trim(), theme);
+        return new AiChangeSet(Guid.NewGuid(), tenantId, summary.Trim(), theme);
     }
 
     /// <summary>
@@ -111,9 +133,19 @@ public sealed class AiSectionProposal
         SortOrder = sortOrder;
     }
 
-    public SiteComponentType ComponentType { get; }
+    /// <summary>
+    /// Construtor sem parâmetros exigido pelo EF Core para materializar a
+    /// entidade. Não valida invariantes: a validação ocorre em
+    /// <see cref="AiChangeSet.AddSection"/>.
+    /// </summary>
+    private AiSectionProposal()
+    {
+        Configuration = new Dictionary<string, string>();
+    }
 
-    public IReadOnlyDictionary<string, string> Configuration { get; }
+    public SiteComponentType ComponentType { get; private set; }
 
-    public int SortOrder { get; }
+    public IReadOnlyDictionary<string, string> Configuration { get; private set; }
+
+    public int SortOrder { get; private set; }
 }

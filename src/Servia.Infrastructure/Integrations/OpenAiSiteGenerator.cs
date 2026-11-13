@@ -177,7 +177,7 @@ public sealed class OpenAiSiteGenerator : IAiSiteGenerator
                     proposal.Theme.LayoutStyle ?? SiteTheme.Default.LayoutStyle);
 
             var changeSet = AiChangeSet.Create(
-                proposal.Summary ?? $"Site para {request.BusinessName}", theme);
+                request.TenantId, proposal.Summary ?? $"Site para {request.BusinessName}", theme);
 
             foreach (var section in proposal.Sections)
             {

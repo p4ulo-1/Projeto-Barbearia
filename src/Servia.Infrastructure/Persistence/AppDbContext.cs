@@ -80,6 +80,19 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, ITenant
     // Sites
     public DbSet<Site> Sites => Set<Site>();
 
+    // Onboarding assistido por IA (itens 1 e 2) e arquivos do site.
+    public DbSet<OnboardingSession> OnboardingSessions => Set<OnboardingSession>();
+
+    public DbSet<AiChangeSet> AiChangeSets => Set<AiChangeSet>();
+
+    /// <summary>Alterações direcionadas do site (C12).</summary>
+    public DbSet<AiSiteChange> AiSiteChanges => Set<AiSiteChange>();
+
+    public DbSet<SiteAsset> SiteAssets => Set<SiteAsset>();
+
+    /// <summary>Contadores de tentativas de agendamento público (C3).</summary>
+    public DbSet<PublicBookingAttempt> PublicBookingAttempts => Set<PublicBookingAttempt>();
+
     // Billing
     public DbSet<PlatformInvoice> PlatformInvoices => Set<PlatformInvoice>();
 

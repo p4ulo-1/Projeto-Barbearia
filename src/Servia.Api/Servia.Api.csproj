@@ -21,4 +21,8 @@
     <ProjectReference Include="..\Servia.Infrastructure\Servia.Infrastructure.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="Servia.Tests" />
+  </ItemGroup>
+
 </Project>

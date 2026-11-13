@@ -11,7 +11,7 @@ namespace Servia.Tests.Ai;
 public class AiChangeSetTests
 {
     private static AiChangeSet NewChangeSet() =>
-        AiChangeSet.Create("Site clássico para barbearia", SiteTheme.Default);
+        AiChangeSet.Create(Guid.NewGuid(), "Site clássico para barbearia", SiteTheme.Default);
 
     [Fact]
     public void Criar_Proposta_Valida()
@@ -26,7 +26,7 @@ public class AiChangeSetTests
     public void Criar_Proposta_Sem_Resumo_Lanca_Excecao()
     {
         Assert.Throws<DomainRuleException>(() =>
-            AiChangeSet.Create("  ", SiteTheme.Default));
+            AiChangeSet.Create(Guid.NewGuid(), "  ", SiteTheme.Default));
     }
 
     // ---------- F8.6: guardrails ----------

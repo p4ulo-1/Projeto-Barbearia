@@ -23,6 +23,53 @@ namespace Servia.Infrastructure.Persistence.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("Servia.Domain.Ai.AiChangeSet", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Summary")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.ComplexProperty(typeof(Dictionary<string, object>), "Theme", "Servia.Domain.Ai.AiChangeSet.Theme#SiteTheme", b1 =>
+                        {
+                            b1.IsRequired();
+
+                            b1.Property<string>("FontFamily")
+                                .IsRequired()
+                                .HasMaxLength(100)
+                                .HasColumnType("character varying(100)")
+                                .HasColumnName("Theme_Font");
+
+                            b1.Property<string>("LayoutStyle")
+                                .IsRequired()
+                                .HasMaxLength(50)
+                                .HasColumnType("character varying(50)")
+                                .HasColumnName("Theme_Layout");
+
+                            b1.Property<string>("PrimaryColor")
+                                .IsRequired()
+                                .HasMaxLength(7)
+                                .HasColumnType("character varying(7)")
+                                .HasColumnName("Theme_Primary");
+
+                            b1.Property<string>("SecondaryColor")
+                                .IsRequired()
+                                .HasMaxLength(7)
+                                .HasColumnType("character varying(7)")
+                                .HasColumnName("Theme_Secondary");
+                        });
+
+                    b.HasKey("Id");
+
+                    b.ToTable("AiChangeSets", (string)null);
+                });
+
             modelBuilder.Entity("Servia.Domain.Ai.AiOperationLog", b =>
                 {
                     b.Property<Guid>("Id")
@@ -59,6 +106,37 @@ namespace Servia.Infrastructure.Persistence.Migrations
                     b.HasIndex("TenantId", "OccurredAt");
 
                     b.ToTable("AiOperationLogs", (string)null);
+                });
+
+            modelBuilder.Entity("Servia.Domain.Ai.AiSiteChange", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("DecidedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Request")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "Status");
+
+                    b.ToTable("AiSiteChanges", (string)null);
                 });
 
             modelBuilder.Entity("Servia.Domain.Appointments.Appointment", b =>
@@ -1494,6 +1572,88 @@ namespace Servia.Infrastructure.Persistence.Migrations
                     b.ToTable("TenantBackups", (string)null);
                 });
 
+            modelBuilder.Entity("Servia.Domain.Sites.OnboardingSession", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("ApprovedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("ApprovedBy")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("BusinessName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("CollectedFacts")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("CollectedFacts");
+
+                    b.Property<Guid?>("GeneratedChangeSetId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("LastActivityAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Segment")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<DateTimeOffset>("StartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "Status");
+
+                    b.ToTable("OnboardingSessions", (string)null);
+                });
+
+            modelBuilder.Entity("Servia.Domain.Sites.PublicBookingAttempt", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ClientKey")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<int>("Count")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("WindowEnd")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("WindowStart")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("WindowEnd");
+
+                    b.HasIndex("TenantId", "ClientKey", "WindowStart")
+                        .IsUnique();
+
+                    b.ToTable("PublicBookingAttempts", (string)null);
+                });
+
             modelBuilder.Entity("Servia.Domain.Sites.Site", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1518,6 +1678,10 @@ namespace Servia.Infrastructure.Persistence.Migrations
 
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uuid");
+
+                    b.Property<int>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("integer");
 
                     b.ComplexProperty(typeof(Dictionary<string, object>), "Theme", "Servia.Domain.Sites.Site.Theme#SiteTheme", b1 =>
                         {
@@ -1550,10 +1714,72 @@ namespace Servia.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("CustomDomain")
+                        .IsUnique()
+                        .HasFilter("\"CustomDomain\" IS NOT NULL");
+
                     b.HasIndex("Subdomain")
                         .IsUnique();
 
                     b.ToTable("Sites", (string)null);
+                });
+
+            modelBuilder.Entity("Servia.Domain.Sites.SiteAsset", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Checksum")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<string>("ContentType")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("FileName")
+                        .IsRequired()
+                        .HasMaxLength(260)
+                        .HasColumnType("character varying(260)");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<Guid?>("OnboardingSessionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("RejectionReason")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<long>("SizeInBytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("StoragePath")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("UploadedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "OnboardingSessionId");
+
+                    b.ToTable("SiteAssets", (string)null);
                 });
 
             modelBuilder.Entity("Servia.Domain.Team.Professional", b =>
@@ -1807,6 +2033,118 @@ namespace Servia.Infrastructure.Persistence.Migrations
                         .IsUnique();
 
                     b.ToTable("Tenants", (string)null);
+                });
+
+            modelBuilder.Entity("Servia.Domain.Ai.AiChangeSet", b =>
+                {
+                    b.OwnsMany("Servia.Domain.Ai.AiSectionProposal", "Sections", b1 =>
+                        {
+                            b1.Property<int>("Id")
+                                .ValueGeneratedOnAdd()
+                                .HasColumnType("integer");
+
+                            NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b1.Property<int>("Id"));
+
+                            b1.Property<Guid>("ChangeSetId")
+                                .HasColumnType("uuid");
+
+                            b1.Property<string>("ComponentType")
+                                .IsRequired()
+                                .HasMaxLength(30)
+                                .HasColumnType("character varying(30)");
+
+                            b1.Property<string>("Configuration")
+                                .IsRequired()
+                                .HasColumnType("text")
+                                .HasColumnName("Configuration");
+
+                            b1.Property<int>("SortOrder")
+                                .HasColumnType("integer");
+
+                            b1.HasKey("Id");
+
+                            b1.HasIndex("ChangeSetId");
+
+                            b1.ToTable("AiChangeSetSections", (string)null);
+
+                            b1.WithOwner()
+                                .HasForeignKey("ChangeSetId");
+                        });
+
+                    b.Navigation("Sections");
+                });
+
+            modelBuilder.Entity("Servia.Domain.Ai.AiSiteChange", b =>
+                {
+                    b.OwnsMany("Servia.Domain.Ai.AiPageChange", "Pages", b1 =>
+                        {
+                            b1.Property<int>("Id")
+                                .ValueGeneratedOnAdd()
+                                .HasColumnType("integer");
+
+                            NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b1.Property<int>("Id"));
+
+                            b1.Property<Guid>("ChangeId")
+                                .HasColumnType("uuid");
+
+                            b1.Property<string>("PageSlug")
+                                .IsRequired()
+                                .HasMaxLength(100)
+                                .HasColumnType("character varying(100)");
+
+                            b1.HasKey("Id");
+
+                            b1.HasIndex("ChangeId");
+
+                            b1.ToTable("AiSiteChangePages", (string)null);
+
+                            b1.WithOwner()
+                                .HasForeignKey("ChangeId");
+
+                            b1.OwnsMany("Servia.Domain.Ai.AiFieldChange", "Fields", b2 =>
+                                {
+                                    b2.Property<int>("Id")
+                                        .ValueGeneratedOnAdd()
+                                        .HasColumnType("integer");
+
+                                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b2.Property<int>("Id"));
+
+                                    b2.Property<string>("ComponentType")
+                                        .IsRequired()
+                                        .HasMaxLength(30)
+                                        .HasColumnType("character varying(30)");
+
+                                    b2.Property<string>("CurrentValue")
+                                        .HasMaxLength(2000)
+                                        .HasColumnType("character varying(2000)");
+
+                                    b2.Property<string>("FieldKey")
+                                        .IsRequired()
+                                        .HasMaxLength(100)
+                                        .HasColumnType("character varying(100)");
+
+                                    b2.Property<int>("PageId")
+                                        .HasColumnType("integer");
+
+                                    b2.Property<string>("ProposedValue")
+                                        .IsRequired()
+                                        .HasMaxLength(2000)
+                                        .HasColumnType("character varying(2000)");
+
+                                    b2.HasKey("Id");
+
+                                    b2.HasIndex("PageId");
+
+                                    b2.ToTable("AiSiteChangeFields", (string)null);
+
+                                    b2.WithOwner()
+                                        .HasForeignKey("PageId");
+                                });
+
+                            b1.Navigation("Fields");
+                        });
+
+                    b.Navigation("Pages");
                 });
 
             modelBuilder.Entity("Servia.Domain.Appointments.Appointment", b =>
@@ -2081,6 +2419,44 @@ namespace Servia.Infrastructure.Persistence.Migrations
                     b.Navigation("Messages");
                 });
 
+            modelBuilder.Entity("Servia.Domain.Sites.OnboardingSession", b =>
+                {
+                    b.OwnsMany("Servia.Domain.Sites.OnboardingMessage", "Messages", b1 =>
+                        {
+                            b1.Property<Guid>("Id")
+                                .HasColumnType("uuid");
+
+                            b1.Property<string>("Content")
+                                .IsRequired()
+                                .HasMaxLength(4000)
+                                .HasColumnType("character varying(4000)");
+
+                            b1.Property<Guid>("OnboardingSessionId")
+                                .HasColumnType("uuid");
+
+                            b1.Property<string>("Role")
+                                .IsRequired()
+                                .HasMaxLength(20)
+                                .HasColumnType("character varying(20)");
+
+                            b1.Property<DateTimeOffset>("SentAt")
+                                .HasColumnType("timestamp with time zone");
+
+                            b1.HasKey("Id");
+
+                            b1.HasIndex("OnboardingSessionId");
+
+                            b1.HasIndex("SentAt");
+
+                            b1.ToTable("OnboardingMessages", (string)null);
+
+                            b1.WithOwner()
+                                .HasForeignKey("OnboardingSessionId");
+                        });
+
+                    b.Navigation("Messages");
+                });
+
             modelBuilder.Entity("Servia.Domain.Sites.Site", b =>
                 {
                     b.OwnsMany("Servia.Domain.Sites.SitePage", "Pages", b1 =>
@@ -2244,6 +2620,53 @@ namespace Servia.Infrastructure.Persistence.Migrations
                         .HasForeignKey("TenantId", "ProfessionalId")
                         .HasPrincipalKey("TenantId", "Id")
                         .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Servia.Domain.Tenancy.Tenant", b =>
+                {
+                    b.OwnsOne("Servia.Domain.Tenancy.EstablishmentSchedule", "Schedule", b1 =>
+                        {
+                            b1.Property<Guid>("TenantId")
+                                .HasColumnType("uuid");
+
+                            b1.HasKey("TenantId");
+
+                            b1.ToTable("Tenants");
+
+                            b1.WithOwner()
+                                .HasForeignKey("TenantId");
+
+                            b1.OwnsMany("Servia.Domain.Tenancy.EstablishmentDaySchedule", "Days", b2 =>
+                                {
+                                    b2.Property<Guid>("TenantId")
+                                        .HasColumnType("uuid");
+
+                                    b2.Property<string>("DayOfWeek")
+                                        .HasMaxLength(15)
+                                        .HasColumnType("character varying(15)");
+
+                                    b2.Property<TimeOnly?>("CloseTime")
+                                        .HasColumnType("time without time zone");
+
+                                    b2.Property<bool>("IsOpen")
+                                        .HasColumnType("boolean");
+
+                                    b2.Property<TimeOnly?>("OpenTime")
+                                        .HasColumnType("time without time zone");
+
+                                    b2.HasKey("TenantId", "DayOfWeek");
+
+                                    b2.ToTable("TenantScheduleDays", (string)null);
+
+                                    b2.WithOwner()
+                                        .HasForeignKey("TenantId");
+                                });
+
+                            b1.Navigation("Days");
+                        });
+
+                    b.Navigation("Schedule")
                         .IsRequired();
                 });
 #pragma warning restore 612, 618

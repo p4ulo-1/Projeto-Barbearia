@@ -18,7 +18,7 @@ namespace Servia.Tests.Api;
 /// Testar em SQLite mascararia violações de chave estrangeira, diferenças
 /// de tradução de consultas e semântica de texto.
 /// </summary>
-public sealed class IsolatedApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
+public class IsolatedApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
 {
     private readonly PostgreSqlContainer _container = new PostgreSqlBuilder()
         .WithImage("postgres:17-alpine")

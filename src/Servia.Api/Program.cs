@@ -12,6 +12,10 @@ using Servia.Application.Jobs;
 using Servia.Application.Webhooks;
 using Servia.Application.Appointments;
 using Servia.Domain.Ai;
+using Servia.Domain.Sites;
+using Servia.Application.Sites;
+using Servia.Application.Onboarding;
+using Servia.Infrastructure.Storage;
 using Servia.Domain.Appointments;
 using Servia.Domain.Billing;
 using Servia.Domain.Identity;
@@ -49,12 +53,14 @@ builder.Services.AddSingleton<ITenantContext, TenantContext>();
 
 // Repositórios: a aplicação depende do contrato, não da implementação.
 builder.Services.AddScoped<IAppointmentRepository, AppointmentRepository>();
+builder.Services.AddScoped<IAvailabilityRepository, AvailabilityRepository>();
 
 // Tempo: injetado para permitir testes determinísticos.
 builder.Services.AddSingleton(TimeProvider.System);
 
 // Casos de uso.
 builder.Services.AddScoped<AppointmentService>();
+builder.Services.AddScoped<AvailabilityService>();
 
 // ---------- Autenticacao (F10) ----------
 var jwtOptions = builder.Configuration.GetSection("Jwt").Get<JwtOptions>() ?? new JwtOptions();
@@ -109,6 +115,7 @@ builder.Services.AddScoped<IScheduledJob, DelinquencyJob>();
 builder.Services.AddScoped<IScheduledJob, ScheduleLockCleanupJob>();
 builder.Services.AddScoped<IScheduledJob, MembershipRenewalJob>();
 builder.Services.AddScoped<IScheduledJob, ProcessedEventRetentionJob>();
+builder.Services.AddScoped<IScheduledJob, PublicBookingAttemptCleanupJob>();
 builder.Services.AddScoped<JobRunner>();
 
 // Cadastro publico (F21).
@@ -123,6 +130,29 @@ if (builder.Environment.IsDevelopment())
 else
 {
     builder.Services.AddSingleton<ISignupThrottle, InMemorySignupThrottle>();
+}
+
+// Limite do agendamento publico (C3).
+//
+// O contador e persistido no PostgreSQL (compartilhado entre instancias) e
+// usa INSERT ... ON CONFLICT DO UPDATE para ser atomico. Os limites vem da
+// configuracao (PublicBooking:Throttle), nao de constantes no codigo.
+//
+// Em Development o limite e desligado: os testes de integracao vem todos do
+// mesmo IP e seriam bloqueados, impedindo validar o restante.
+var bookingThrottleOptions = builder.Configuration
+    .GetSection("PublicBooking:Throttle")
+    .Get<PublicBookingThrottleOptions>() ?? new PublicBookingThrottleOptions();
+
+builder.Services.AddSingleton(bookingThrottleOptions);
+
+if (builder.Environment.IsDevelopment())
+{
+    builder.Services.AddSingleton<IPublicBookingThrottle, UnlimitedPublicBookingThrottle>();
+}
+else
+{
+    builder.Services.AddScoped<IPublicBookingThrottle, PostgresPublicBookingThrottle>();
 }
 builder.Services.AddHostedService<JobHostedService>();
 
@@ -203,7 +233,29 @@ if (!string.IsNullOrWhiteSpace(openAiOptions?.ApiKey))
 {
     builder.Services.AddSingleton(openAiOptions);
     builder.Services.AddHttpClient<IAiSiteGenerator, OpenAiSiteGenerator>();
+    builder.Services.AddHttpClient<IAiConversationProvider, OpenAiConversationProvider>();
 }
+else
+{
+    // Sem credencial, a IA fica indisponivel — estado valido. Os provedores
+    // nulos mantem a aplicacao no ar e falham com motivo explicito, em vez
+    // de impedir a inicializacao ou simular uma integracao inexistente.
+    builder.Services.AddSingleton<IAiSiteGenerator, UnconfiguredSiteGenerator>();
+    builder.Services.AddSingleton<IAiConversationProvider, UnconfiguredConversationProvider>();
+}
+
+// Onboarding assistido por IA e sites publicos (itens 1 a 3).
+builder.Services.AddScoped<IOnboardingRepository, OnboardingRepository>();
+builder.Services.AddScoped<ISiteAssetRepository, SiteAssetRepository>();
+builder.Services.AddScoped<IPublicSiteReader, PublicSiteReader>();
+builder.Services.AddScoped<SiteAssetService>();
+builder.Services.AddScoped<OnboardingService>();
+
+// Armazenamento local de arquivos do site. O caminho e configuravel; o
+// padrao fica sob App_Data, fora do diretorio de conteudo servido.
+var assetRoot = builder.Configuration["Storage:AssetRoot"]
+    ?? Path.Combine(builder.Environment.ContentRootPath, "App_Data", "site-assets");
+builder.Services.AddSingleton<ISiteAssetStorage>(new LocalSiteAssetStorage(assetRoot));
 builder.Services.AddSingleton<IAuthorizationHandler, PermissionAuthorizationHandler>();
 
 // Health check (F0.6): verifica a API e a conectividade com o banco.

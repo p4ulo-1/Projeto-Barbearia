@@ -136,7 +136,7 @@ public class AiGenerationPolicyTests
     [Fact]
     public void Geracao_Bem_Sucedida_Nao_Usa_Fallback()
     {
-        var changeSet = AiChangeSet.Create("Proposta", SiteTheme.Default);
+        var changeSet = AiChangeSet.Create(Guid.NewGuid(), "Proposta", SiteTheme.Default);
         var result = AiGenerationResult.Generated(changeSet, 10);
 
         Assert.False(AiGenerationPolicy.ShouldUseFallback(result));
