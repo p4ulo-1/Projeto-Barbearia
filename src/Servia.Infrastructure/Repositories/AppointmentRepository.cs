@@ -48,6 +48,15 @@ public sealed class AppointmentRepository(AppDbContext context) : IAppointmentRe
         await context.Appointments.AddAsync(appointment, cancellationToken);
     }
 
+    public async Task AddCustomerAsync(
+        Servia.Domain.Customers.Customer customer,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(customer);
+
+        await context.Customers.AddAsync(customer, cancellationToken);
+    }
+
     public Task SaveChangesAsync(CancellationToken cancellationToken = default) =>
         context.SaveChangesAsync(cancellationToken);
 

@@ -107,6 +107,13 @@ public sealed class JobRepository(AppDbContext context) : IJobRepository
         context.ProcessedEvents.RemoveRange(events);
     }
 
+    public Task<int> RemoveExpiredBookingAttemptsAsync(
+        DateTimeOffset before,
+        CancellationToken cancellationToken = default) =>
+        context.PublicBookingAttempts
+            .Where(attempt => attempt.WindowEnd < before)
+            .ExecuteDeleteAsync(cancellationToken);
+
     public Task SaveChangesAsync(CancellationToken cancellationToken = default) =>
         context.SaveChangesAsync(cancellationToken);
 }

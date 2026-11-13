@@ -259,3 +259,26 @@ public sealed class ProcessedEventRetentionJob(
         await repository.SaveChangesAsync(cancellationToken);
     }
 }
+
+/// <summary>
+/// Remove contadores de tentativas de agendamento cuja janela expirou (C3).
+///
+/// O limite em si não depende da limpeza (a janela fixa já reinicia a
+/// contagem), mas sem remover as linhas antigas a tabela cresceria sem
+/// limite. Roda com folga: só apaga janelas encerradas há mais de um dia.
+/// </summary>
+public sealed class PublicBookingAttemptCleanupJob(
+    IJobRepository repository,
+    TimeProvider timeProvider) : IScheduledJob
+{
+    public string Name => "public-booking-attempt-cleanup";
+
+    public TimeSpan Interval => TimeSpan.FromHours(6);
+
+    public async Task ExecuteAsync(CancellationToken cancellationToken = default)
+    {
+        var threshold = timeProvider.GetUtcNow().AddDays(-1);
+
+        await repository.RemoveExpiredBookingAttemptsAsync(threshold, cancellationToken);
+    }
+}

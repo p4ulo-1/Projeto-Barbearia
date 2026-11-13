@@ -59,6 +59,14 @@ public interface IJobRepository
     /// <summary>Remove registros de eventos expirados.</summary>
     void RemoveProcessedEvents(IEnumerable<ProcessedEvent> events);
 
+    /// <summary>
+    /// Remove contadores de tentativas de agendamento cuja janela já expirou
+    /// (C3). Mantém a tabela pequena sem afetar o limite vigente.
+    /// </summary>
+    Task<int> RemoveExpiredBookingAttemptsAsync(
+        DateTimeOffset before,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Persiste as alterações pendentes.</summary>
     Task SaveChangesAsync(CancellationToken cancellationToken = default);
 }

@@ -356,6 +356,11 @@ internal sealed class FakeJobRepository : IJobRepository
         }
     }
 
+    public Task<int> RemoveExpiredBookingAttemptsAsync(
+        DateTimeOffset before,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult(0);
+
     public Task SaveChangesAsync(CancellationToken cancellationToken = default) =>
         Task.CompletedTask;
 }

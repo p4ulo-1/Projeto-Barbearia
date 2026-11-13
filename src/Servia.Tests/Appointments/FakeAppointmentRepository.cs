@@ -52,6 +52,17 @@ internal sealed class FakeAppointmentRepository : IAppointmentRepository
         return Task.CompletedTask;
     }
 
+    /// <summary>Clientes adicionados na mesma transação (C6).</summary>
+    public List<Servia.Domain.Customers.Customer> AddedCustomers { get; } = [];
+
+    public Task AddCustomerAsync(
+        Servia.Domain.Customers.Customer customer,
+        CancellationToken cancellationToken = default)
+    {
+        AddedCustomers.Add(customer);
+        return Task.CompletedTask;
+    }
+
     public Task<T> ExecuteSerializableAsync<T>(
         Func<CancellationToken, Task<T>> operation,
         CancellationToken cancellationToken = default) =>

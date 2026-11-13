@@ -22,8 +22,22 @@ public sealed class AppointmentService(
     /// <summary>
     /// Cria um agendamento, rejeitando conflito de horário.
     /// </summary>
+    public Task<AppointmentResult> CreateAsync(
+        CreateAppointmentCommand command,
+        CancellationToken cancellationToken = default) =>
+        CreateAsync(command, newCustomer: null, cancellationToken);
+
+    /// <summary>
+    /// Cria um agendamento, rejeitando conflito de horário.
+    ///
+    /// <paramref name="newCustomer"/> permite criar o cliente na mesma
+    /// transação do agendamento (C6). Quando informado, o cliente só é
+    /// persistido se o agendamento for criado — um horário ocupado não deixa
+    /// cliente órfão.
+    /// </summary>
     public async Task<AppointmentResult> CreateAsync(
         CreateAppointmentCommand command,
+        Servia.Domain.Customers.Customer? newCustomer,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(command);
@@ -53,6 +67,12 @@ public sealed class AppointmentService(
                     {
                         return AppointmentResult.Conflict(
                             "Este horário conflita com outro agendamento.");
+                    }
+
+                    // C6: cliente novo entra na mesma transacao do agendamento.
+                    if (newCustomer is not null)
+                    {
+                        await repository.AddCustomerAsync(newCustomer, token);
                     }
 
                     var appointment = Appointment.Create(

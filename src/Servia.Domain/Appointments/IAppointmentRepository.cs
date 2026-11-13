@@ -31,6 +31,17 @@ public interface IAppointmentRepository
     /// <summary>Adiciona um novo agendamento.</summary>
     Task AddAsync(Appointment appointment, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Adiciona um cliente novo na mesma transação do agendamento (C6).
+    ///
+    /// Usado pelo agendamento público: o cliente só deve existir se o
+    /// agendamento for criado. Persistir o cliente antes deixaria um cliente
+    /// órfão quando o horário estivesse ocupado.
+    /// </summary>
+    Task AddCustomerAsync(
+        Servia.Domain.Customers.Customer customer,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Persiste as alterações pendentes.</summary>
     Task SaveChangesAsync(CancellationToken cancellationToken = default);
 
