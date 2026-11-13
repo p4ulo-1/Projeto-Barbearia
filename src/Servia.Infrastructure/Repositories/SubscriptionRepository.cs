@@ -98,6 +98,10 @@ public sealed class PlanRepository(AppDbContext context) : IPlanRepository
 
 /// <summary>
 /// Implementação EF Core de <see cref="IProfessionalCountReader"/> (F16.4).
+///
+/// Conta apenas quem ocupa vaga no plano: ativo <b>e</b> prestador de
+/// serviços. O perfil de acesso não participa da contagem — um
+/// administrador que atende conta, um profissional que não atende não conta.
 /// </summary>
 public sealed class ProfessionalCountReader(AppDbContext context) : IProfessionalCountReader
 {
@@ -105,6 +109,8 @@ public sealed class ProfessionalCountReader(AppDbContext context) : IProfessiona
         Guid tenantId,
         CancellationToken cancellationToken = default) =>
         context.Professionals
-            .Where(professional => professional.TenantId == tenantId && professional.IsActive)
+            .Where(professional => professional.TenantId == tenantId
+                && professional.IsActive
+                && professional.IsServiceProvider)
             .CountAsync(cancellationToken);
 }

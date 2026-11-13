@@ -34,7 +34,8 @@ public sealed class Professional : ITenantScoped
         string? bio,
         string? photoUrl,
         WorkSchedule schedule,
-        bool isActive)
+        bool isActive,
+        bool isServiceProvider)
     {
         Id = id;
         TenantId = tenantId;
@@ -45,6 +46,7 @@ public sealed class Professional : ITenantScoped
         PhotoUrl = photoUrl;
         Schedule = schedule;
         IsActive = isActive;
+        IsServiceProvider = isServiceProvider;
     }
 
     public Guid Id { get; private set; }
@@ -67,6 +69,21 @@ public sealed class Professional : ITenantScoped
 
     public bool IsActive { get; private set; }
 
+    /// <summary>
+    /// Indica se a pessoa presta serviços e pode receber agendamentos.
+    ///
+    /// <b>Independe do perfil de acesso:</b> um administrador ou recepcionista
+    /// que também atende é um prestador; um profissional cadastrado que não
+    /// atende não é. Apenas prestadores ativos ocupam vaga no plano.
+    /// </summary>
+    public bool IsServiceProvider { get; private set; }
+
+    /// <summary>
+    /// Indica se o profissional ocupa uma vaga no plano: precisa estar ativo
+    /// e prestar serviços.
+    /// </summary>
+    public bool OccupiesPlanSlot => IsActive && IsServiceProvider;
+
     public static Professional Create(
         Guid tenantId,
         string name,
@@ -74,7 +91,8 @@ public sealed class Professional : ITenantScoped
         string? title = null,
         string? bio = null,
         string? photoUrl = null,
-        Guid? userId = null)
+        Guid? userId = null,
+        bool isServiceProvider = true)
     {
         if (tenantId == Guid.Empty)
         {
@@ -97,8 +115,18 @@ public sealed class Professional : ITenantScoped
             Normalize(bio),
             Normalize(photoUrl),
             schedule,
-            isActive: true);
+            isActive: true,
+            isServiceProvider);
     }
+
+    /// <summary>
+    /// Define se a pessoa presta serviços. Ao passar a prestar, passa a
+    /// ocupar vaga no plano; ao deixar de prestar, a vaga é liberada.
+    /// A validação do limite do plano é responsabilidade da camada de
+    /// aplicação, que conhece a assinatura vigente.
+    /// </summary>
+    public void SetServiceProvider(bool isServiceProvider) =>
+        IsServiceProvider = isServiceProvider;
 
     /// <summary>Atualiza os dados de apresentação do profissional.</summary>
     public void UpdateProfile(string name, string? title, string? bio, string? photoUrl)

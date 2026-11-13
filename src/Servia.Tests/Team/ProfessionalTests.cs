@@ -66,6 +66,48 @@ public class ProfessionalTests
     }
 
     [Fact]
+    public void Profissional_Nasce_Prestador_E_Ocupa_Vaga()
+    {
+        var professional = NewProfessional();
+
+        Assert.True(professional.IsServiceProvider);
+        Assert.True(professional.OccupiesPlanSlot);
+    }
+
+    [Fact]
+    public void Profissional_Sem_Atuacao_Nao_Ocupa_Vaga()
+    {
+        var professional = Professional.Create(
+            TenantId, "Recepção", Schedule(), isServiceProvider: false);
+
+        Assert.False(professional.IsServiceProvider);
+        Assert.False(professional.OccupiesPlanSlot);
+    }
+
+    [Fact]
+    public void Alterar_Atuacao_Atualiza_Ocupacao_Da_Vaga()
+    {
+        var professional = NewProfessional();
+
+        professional.SetServiceProvider(false);
+        Assert.False(professional.OccupiesPlanSlot);
+
+        professional.SetServiceProvider(true);
+        Assert.True(professional.OccupiesPlanSlot);
+    }
+
+    [Fact]
+    public void Profissional_Inativo_Nao_Ocupa_Vaga_Mesmo_Sendo_Prestador()
+    {
+        var professional = NewProfessional();
+
+        professional.Deactivate();
+
+        Assert.True(professional.IsServiceProvider);
+        Assert.False(professional.OccupiesPlanSlot);
+    }
+
+    [Fact]
     public void Atualizar_Jornada_Substitui_A_Jornada_Anterior()
     {
         var professional = NewProfessional();

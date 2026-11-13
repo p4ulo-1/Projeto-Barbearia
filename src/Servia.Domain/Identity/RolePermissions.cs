@@ -1,3 +1,5 @@
+using Servia.Domain.Common;
+
 namespace Servia.Domain.Identity;
 
 /// <summary>
@@ -37,6 +39,15 @@ public static class RolePermissions
         Permission.ManageFinancialEntries
     };
 
+    /// <summary>
+    /// Administrador do estabelecimento: funcionário indicado pelo Owner.
+    ///
+    /// Tem acesso amplo às operações e aos dados do estabelecimento —
+    /// equipe, serviços, clientes, agenda, configurações e financeiro
+    /// interno. <b>Não</b> tem <see cref="Permission.ManageBilling"/>: a
+    /// relação comercial com a plataforma (contratar/alterar/cancelar plano)
+    /// é exclusiva do <see cref="Role.Owner"/>.
+    /// </summary>
     private static readonly IReadOnlySet<Permission> AdministratorPermissions = new HashSet<Permission>
     {
         Permission.ViewTenantSettings,
@@ -49,7 +60,8 @@ public static class RolePermissions
         Permission.CancelAnyAppointment,
         Permission.ViewCustomers,
         Permission.ManageCustomers,
-        Permission.ViewFinancialReports
+        Permission.ViewFinancialReports,
+        Permission.ManageFinancialEntries
     };
 
     private static readonly IReadOnlySet<Permission> ProfessionalPermissions = new HashSet<Permission>
@@ -61,13 +73,23 @@ public static class RolePermissions
         Permission.ViewOwnCommissions
     };
 
+    /// <summary>
+    /// Recepcionista: permissões operacionais superiores às do profissional
+    /// comum, com foco na administração da agenda de toda a equipe.
+    ///
+    /// Vê os relatórios financeiros (visão operacional do caixa), mas não
+    /// lança pagamentos nem transações — a escrita financeira permanece com
+    /// o administrador/proprietário.
+    /// </summary>
     private static readonly IReadOnlySet<Permission> ReceptionistPermissions = new HashSet<Permission>
     {
         Permission.ViewServices,
         Permission.ViewTeamAgenda,
         Permission.ManageAppointments,
+        Permission.CancelAnyAppointment,
         Permission.ViewCustomers,
-        Permission.ManageCustomers
+        Permission.ManageCustomers,
+        Permission.ViewFinancialReports
     };
 
     private static readonly IReadOnlySet<Permission> CustomerPermissions = new HashSet<Permission>
@@ -104,4 +126,88 @@ public static class RolePermissions
     /// Indica se o papel pertence a um estabelecimento.
     /// </summary>
     public static bool IsTenantRole(Role role) => role != Role.PlatformAdmin;
+
+    /// <summary>
+    /// Permissões exclusivas do <see cref="Role.Owner"/> (titularidade da
+    /// conta e relação comercial com a plataforma). Não podem ser concedidas
+    /// a papéis personalizados nem a outros papéis predefinidos.
+    /// </summary>
+    public static IReadOnlySet<Permission> OwnerExclusivePermissions { get; } =
+        new HashSet<Permission> { Permission.ManageBilling };
+
+    /// <summary>
+    /// Permissões exclusivas da plataforma. Nunca pertencem a um tenant.
+    /// </summary>
+    public static IReadOnlySet<Permission> PlatformPermissions { get; } =
+        new HashSet<Permission>
+        {
+            Permission.ManagePlatformTenants,
+            Permission.ManagePlatformPlans
+        };
+
+    /// <summary>
+    /// Permissões que podem ser concedidas a um papel personalizado: todas
+    /// as de tenant, exceto as exclusivas do Owner e as de plataforma.
+    /// </summary>
+    public static IReadOnlySet<Permission> AssignableToCustomRole { get; } =
+        Enum.GetValues<Permission>()
+            .Where(permission => !OwnerExclusivePermissions.Contains(permission)
+                && !PlatformPermissions.Contains(permission))
+            .ToHashSet();
+
+    /// <summary>
+    /// Garante que a permissão pode ser concedida a um papel personalizado.
+    /// </summary>
+    public static void EnsureAssignableToCustomRole(Permission permission)
+    {
+        if (OwnerExclusivePermissions.Contains(permission))
+        {
+            throw new DomainRuleException(
+                $"A permissão {permission} é exclusiva do proprietário e não pode ser concedida a um papel personalizado.");
+        }
+
+        if (PlatformPermissions.Contains(permission))
+        {
+            throw new DomainRuleException(
+                $"A permissão {permission} é exclusiva da plataforma e não pode ser concedida a um papel personalizado.");
+        }
+    }
+
+    /// <summary>
+    /// Garante que o ator não concede permissões que ele próprio não possui.
+    ///
+    /// Impede escalonamento de privilégios: quem administra a equipe
+    /// (<see cref="Permission.ManageTeam"/>) não pode criar ou atribuir um
+    /// papel com permissões além das suas.
+    ///
+    /// O <see cref="Role.Owner"/> é a autoridade máxima do tenant: pode
+    /// conceder qualquer permissão <b>atribuível</b> a papel personalizado,
+    /// inclusive as de escopo próprio (ViewOwnAgenda/ViewOwnCommissions), que
+    /// ele não exerce diretamente. As exclusivas do Owner e da plataforma
+    /// continuam bloqueadas por <see cref="EnsureAssignableToCustomRole"/>.
+    /// </summary>
+    public static void EnsureCanGrant(
+        IReadOnlySet<Permission> actorPermissions,
+        IEnumerable<Permission> granted)
+    {
+        ArgumentNullException.ThrowIfNull(actorPermissions);
+        ArgumentNullException.ThrowIfNull(granted);
+
+        var isOwner = actorPermissions.SetEquals(OwnerPermissions);
+
+        foreach (var permission in granted)
+        {
+            if (isOwner)
+            {
+                EnsureAssignableToCustomRole(permission);
+                continue;
+            }
+
+            if (!actorPermissions.Contains(permission))
+            {
+                throw new DomainRuleException(
+                    $"Você não pode conceder a permissão {permission}, que não possui.");
+            }
+        }
+    }
 }

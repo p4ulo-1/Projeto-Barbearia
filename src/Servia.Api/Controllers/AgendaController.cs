@@ -10,6 +10,7 @@ using Servia.Domain.Common;
 using Servia.Domain.Identity;
 using Servia.Domain.Team;
 using Servia.Domain.Tenancy;
+using Servia.Infrastructure.Identity;
 using Servia.Infrastructure.Persistence;
 
 namespace Servia.Api.Controllers;
@@ -31,6 +32,55 @@ public sealed class AgendaController(
     ITenantContext tenantContext,
     TimeProvider timeProvider) : ControllerBase
 {
+    /// <summary>
+    /// Garante que o usuário autenticado pode administrar o compromisso do
+    /// profissional informado (seção 3 do pedido de ajustes).
+    ///
+    /// Profissional comum: só a própria agenda. Recepcionista e
+    /// administrador: qualquer profissional do estabelecimento.
+    /// </summary>
+    private async Task EnsureCanManageAsync(Guid professionalId, CancellationToken cancellationToken)
+    {
+        var role = ResolveRole();
+        var userProfessionalId = await ResolveUserProfessionalIdAsync(cancellationToken);
+
+        AppointmentAccessPolicy.EnsureCanManage(role, userProfessionalId, professionalId);
+    }
+
+    /// <summary>Papel do usuário autenticado, a partir da claim <c>role</c>.</summary>
+    private Role ResolveRole()
+    {
+        var claim = User.FindFirst(JwtTokenIssuer.RoleClaim)?.Value;
+
+        return Enum.TryParse<Role>(claim, out var role)
+            ? role
+            : throw new DomainRuleException("Usuário não identificado.");
+    }
+
+    /// <summary>
+    /// Profissional vinculado ao usuário autenticado, quando houver.
+    /// Um administrador ou recepcionista que também atende tem vínculo.
+    /// </summary>
+    private async Task<Guid?> ResolveUserProfessionalIdAsync(CancellationToken cancellationToken)
+    {
+        var userId = ResolveUserId();
+
+        return await context.Professionals
+            .Where(professional => professional.UserId == userId)
+            .Select(professional => (Guid?)professional.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    private Guid ResolveUserId()
+    {
+        var claim = User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value
+            ?? User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+
+        return Guid.TryParse(claim, out var userId)
+            ? userId
+            : throw new DomainRuleException("Usuário não identificado.");
+    }
+
     /// <summary>
     /// Consulta os horários disponíveis de um profissional em uma data.
     /// </summary>
@@ -69,6 +119,9 @@ public sealed class AgendaController(
         var tenantId = tenantContext.TenantId
             ?? throw new DomainRuleException("Estabelecimento não identificado.");
 
+        // Seção 3: profissional comum só cria na própria agenda.
+        await EnsureCanManageAsync(request.ProfessionalId, cancellationToken);
+
         var result = await appointmentService.CreateAsync(
             new CreateAppointmentCommand(
                 tenantId,
@@ -104,7 +157,19 @@ public sealed class AgendaController(
     {
         var query = context.Appointments.Where(appointment => appointment.Date == date);
 
-        if (professionalId.HasValue)
+        // Seção 3: o profissional comum só enxerga a própria agenda. Os
+        // demais papéis podem filtrar por qualquer profissional.
+        var role = ResolveRole();
+
+        if (AppointmentAccessPolicy.CanManageOnlyOwnAppointments(role))
+        {
+            var ownProfessionalId = await ResolveUserProfessionalIdAsync(cancellationToken)
+                ?? throw new DomainRuleException(
+                    "Seu usuário não está vinculado a um profissional.");
+
+            query = query.Where(appointment => appointment.ProfessionalId == ownProfessionalId);
+        }
+        else if (professionalId.HasValue)
         {
             query = query.Where(appointment => appointment.ProfessionalId == professionalId.Value);
         }
@@ -137,6 +202,9 @@ public sealed class AgendaController(
             throw NotFoundException.For("Agendamento", id);
         }
 
+        // Seção 3: profissional comum só remarca a própria agenda.
+        await EnsureCanManageAsync(appointment.ProfessionalId, cancellationToken);
+
         appointment.Reschedule(request.Date, request.Time);
         await context.SaveChangesAsync(cancellationToken);
 
@@ -161,6 +229,9 @@ public sealed class AgendaController(
             throw NotFoundException.For("Agendamento", id);
         }
 
+        // Seção 3: profissional comum só cancela a própria agenda.
+        await EnsureCanManageAsync(appointment.ProfessionalId, cancellationToken);
+
         appointment.Cancel(request?.Reason);
         await context.SaveChangesAsync(cancellationToken);
 
@@ -181,6 +252,9 @@ public sealed class AgendaController(
         {
             throw NotFoundException.For("Agendamento", id);
         }
+
+        // Seção 3: profissional comum só conclui a própria agenda.
+        await EnsureCanManageAsync(appointment.ProfessionalId, cancellationToken);
 
         appointment.Complete(timeProvider.GetUtcNow());
         await context.SaveChangesAsync(cancellationToken);

@@ -27,10 +27,53 @@ public class RolePermissionsTests
     }
 
     [Fact]
-    public void Administrator_Nao_Gere_Billing()
+    public void Administrator_Gere_Financas_Internas_Mas_Nao_Billing()
     {
+        // Seção 1: o administrador administra o financeiro interno, mas a
+        // relação comercial com a plataforma (plano) é exclusiva do Owner.
         Assert.False(RolePermissions.Has(Role.Administrator, Permission.ManageBilling));
+        Assert.True(RolePermissions.Has(Role.Administrator, Permission.ManageFinancialEntries));
+        Assert.True(RolePermissions.Has(Role.Administrator, Permission.ViewFinancialReports));
         Assert.True(RolePermissions.Has(Role.Administrator, Permission.ManageTeam));
+    }
+
+    [Fact]
+    public void Owner_Tem_Todas_As_Permissoes_Do_Administrator()
+    {
+        // Seção 1: o Owner possui todas as permissões do Administrator,
+        // além das exclusivas de titularidade.
+        Assert.All(RolePermissions.For(Role.Administrator), permission =>
+            Assert.True(RolePermissions.Has(Role.Owner, permission),
+                $"Owner deveria ter {permission}."));
+
+        Assert.True(RolePermissions.Has(Role.Owner, Permission.ManageBilling));
+    }
+
+    [Fact]
+    public void ManageBilling_E_Exclusiva_Do_Owner()
+    {
+        Assert.True(RolePermissions.OwnerExclusivePermissions.Contains(Permission.ManageBilling));
+
+        Assert.All(TenantRoles.Where(role => role != Role.Owner), role =>
+            Assert.False(RolePermissions.Has(role, Permission.ManageBilling),
+                $"{role} não deveria ter ManageBilling."));
+    }
+
+    [Fact]
+    public void Administrator_Tem_Todas_As_Permissoes_De_Tenant_Exceto_As_Exclusivas()
+    {
+        // O administrador tem todas as permissões de tenant, exceto as de
+        // escopo "próprio" (profissional) e as exclusivas do Owner.
+        var tenantPermissions = Enum.GetValues<Permission>()
+            .Where(permission => permission is not (Permission.ManagePlatformTenants
+                or Permission.ManagePlatformPlans
+                or Permission.ViewOwnAgenda
+                or Permission.ViewOwnCommissions)
+                && !RolePermissions.OwnerExclusivePermissions.Contains(permission));
+
+        Assert.All(tenantPermissions, permission =>
+            Assert.True(RolePermissions.Has(Role.Administrator, permission),
+                $"Administrador deveria ter {permission}."));
     }
 
     [Fact]
@@ -48,11 +91,16 @@ public class RolePermissionsTests
     }
 
     [Fact]
-    public void Receptionist_Gere_Agenda_Mas_Nao_Financas()
+    public void Receptionist_Gere_Agenda_E_Ve_Financas_Sem_Lancar()
     {
+        // Seção 1: recepcionista tem permissões operacionais superiores ao
+        // profissional comum, especialmente na agenda. Vê o financeiro, mas
+        // não lança pagamentos/transações.
         Assert.True(RolePermissions.Has(Role.Receptionist, Permission.ManageAppointments));
+        Assert.True(RolePermissions.Has(Role.Receptionist, Permission.CancelAnyAppointment));
         Assert.True(RolePermissions.Has(Role.Receptionist, Permission.ManageCustomers));
-        Assert.False(RolePermissions.Has(Role.Receptionist, Permission.ViewFinancialReports));
+        Assert.True(RolePermissions.Has(Role.Receptionist, Permission.ViewFinancialReports));
+        Assert.False(RolePermissions.Has(Role.Receptionist, Permission.ManageFinancialEntries));
     }
 
     [Fact]
