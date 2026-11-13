@@ -140,7 +140,17 @@ internal sealed class SiteConfiguration : IEntityTypeConfiguration<Site>
         builder.Property(site => site.Id).ValueGeneratedNever();
         builder.Property(site => site.TenantId).IsRequired();
         builder.Property(site => site.Subdomain).HasMaxLength(40).IsRequired();
-        builder.Property(site => site.CustomDomain).HasMaxLength(200);
+
+        // C10/identidade: o dominio proprio e armazenado em minusculas. O
+        // resolvedor publico compara o host normalizado (minusculo), entao
+        // normalizar na escrita evita divergencia por caixa. O conversor
+        // garante consistencia independente do que o escritor enviar.
+        builder.Property(site => site.CustomDomain)
+            .HasMaxLength(200)
+            .HasConversion(
+                value => value == null ? null : value.Trim().ToLowerInvariant(),
+                value => value);
+
         builder.Property(site => site.Status).HasConversion<string>().HasMaxLength(20).IsRequired();
         builder.Property(site => site.PublishedVersionId);
 
@@ -195,6 +205,21 @@ internal sealed class SiteConfiguration : IEntityTypeConfiguration<Site>
 
         // Subdominio unico: e o endereco do site.
         builder.HasIndex(site => site.Subdomain).IsUnique();
+
+        // Dominio proprio unico quando informado (lacuna da auditoria). O
+        // filtro exclui NULL, permitindo varios sites sem dominio proprio.
+        // Como o valor e gravado em minusculas (conversor), a unicidade
+        // tambem vale para variacoes de caixa.
+        builder.HasIndex(site => site.CustomDomain)
+            .IsUnique()
+            .HasFilter("\"CustomDomain\" IS NOT NULL");
+
+        // C10: concorrencia otimista no agregado Site. `Version` e um inteiro
+        // real, incrementado a cada publicacao; o EF inclui o valor original
+        // no WHERE do UPDATE, abortando a publicacao concorrente.
+        builder.Property(site => site.Version)
+            .IsConcurrencyToken()
+            .IsRequired();
     }
 
     private static IReadOnlyDictionary<string, string> DeserializeConfiguration(string json) =>

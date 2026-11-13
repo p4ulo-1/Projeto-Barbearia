@@ -27,6 +27,7 @@ namespace Servia.Api.Controllers;
 public sealed class AgendaController(
     AppDbContext context,
     AppointmentService appointmentService,
+    AvailabilityService availabilityService,
     ITenantContext tenantContext,
     TimeProvider timeProvider) : ControllerBase
 {
@@ -43,62 +44,12 @@ public sealed class AgendaController(
         [FromQuery, Range(1, 1440)] int durationMinutes,
         CancellationToken cancellationToken)
     {
-        var professional = await context.Professionals
-            .FirstOrDefaultAsync(item => item.Id == professionalId, cancellationToken);
+        var tenantId = tenantContext.TenantId
+            ?? throw new DomainRuleException("Estabelecimento não identificado.");
 
-        if (professional is null)
-        {
-            throw NotFoundException.For("Profissional", professionalId);
-        }
-
-        // Profissional que nao trabalha na data nao tem horario disponivel.
-        if (!professional.Schedule.WorksOn(date))
-        {
-            return Ok(new AvailabilityResponse(professionalId, date, []));
-        }
-
-        var occupied = await context.Appointments
-            .Where(appointment =>
-                appointment.ProfessionalId == professionalId
-                && appointment.Date == date
-                && appointment.Status == AppointmentStatus.Confirmed)
-            .ToListAsync(cancellationToken);
-
-        var dayStart = new DateTimeOffset(date.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);
-        var dayEnd = dayStart.AddDays(1);
-
-        // PostgreSQL traduz a comparacao de DateTimeOffset diretamente.
-        var blocks = await context.ScheduleBlocks
-            .Where(block =>
-                block.ProfessionalId == professionalId
-                && block.Start < dayEnd
-                && block.End > dayStart)
-            .ToListAsync(cancellationToken);
-
-        var slots = new List<TimeOnly>();
-
-        foreach (var slot in professional.Schedule.GenerateSlots(durationMinutes))
-        {
-            var candidate = TimeRange.From(slot, durationMinutes);
-
-            var conflictsWithAppointment = occupied.Any(appointment =>
-                appointment.OccupiedRange.Overlaps(candidate));
-
-            if (conflictsWithAppointment)
-            {
-                continue;
-            }
-
-            var slotStart = new DateTimeOffset(date.ToDateTime(slot), TimeSpan.Zero);
-            var slotEnd = slotStart.AddMinutes(durationMinutes);
-
-            var blocked = blocks.Any(block => block.Overlaps(slotStart, slotEnd));
-
-            if (!blocked)
-            {
-                slots.Add(slot);
-            }
-        }
+        // C9: disponibilidade centralizada. O controller nao recalcula regras.
+        var slots = await availabilityService.GetAvailableSlotsAsync(
+            tenantId, professionalId, date, durationMinutes, cancellationToken);
 
         return Ok(new AvailabilityResponse(professionalId, date, slots));
     }

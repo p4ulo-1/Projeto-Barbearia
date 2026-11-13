@@ -56,6 +56,13 @@ public sealed class Site : ITenantScoped
     /// <summary>Versão atualmente publicada, quando houver.</summary>
     public Guid? PublishedVersionId { get; private set; }
 
+    /// <summary>
+    /// Token de concorrência otimista (C10). Incrementado a cada publicação;
+    /// o EF inclui o valor original no <c>WHERE</c> do <c>UPDATE</c>, então
+    /// duas publicações concorrentes não conseguem gravar a mesma versão.
+    /// </summary>
+    public int Version { get; private set; }
+
     public IReadOnlyCollection<SitePage> Pages => _pages;
 
     public IReadOnlyCollection<SitePublication> Publications => _publications;
@@ -126,6 +133,67 @@ public sealed class Site : ITenantScoped
     public void ChangeTheme(SiteTheme theme) => Theme = theme;
 
     /// <summary>
+    /// Define o domínio próprio do site.
+    ///
+    /// Normaliza para minúsculas (o resolvedor público compara o host em
+    /// minúsculas) e valida o formato. O banco garante a unicidade quando
+    /// informado; vários sites podem ficar sem domínio próprio.
+    /// </summary>
+    public void SetCustomDomain(string domain)
+    {
+        if (string.IsNullOrWhiteSpace(domain))
+        {
+            throw new DomainRuleException("O domínio próprio é obrigatório.");
+        }
+
+        var normalized = domain.Trim().ToLowerInvariant();
+
+        if (!IsValidDomain(normalized))
+        {
+            throw new DomainRuleException(
+                "O domínio próprio deve conter apenas letras minúsculas, números, pontos e hífen.");
+        }
+
+        CustomDomain = normalized;
+    }
+
+    /// <summary>Remove o domínio próprio do site.</summary>
+    public void ClearCustomDomain() => CustomDomain = null;
+
+    private static bool IsValidDomain(string value)
+    {
+        // Hostname simples: rótulos alfanuméricos/hífen separados por ponto,
+        // 3 a 200 caracteres, sem rótulo começando/terminando em hífen.
+        if (value.Length is < 3 or > 200)
+        {
+            return false;
+        }
+
+        var labels = value.Split('.');
+
+        if (labels.Length < 2)
+        {
+            return false;
+        }
+
+        foreach (var label in labels)
+        {
+            if (label.Length is 0 or > 63 || label[0] == '-' || label[^1] == '-')
+            {
+                return false;
+            }
+
+            if (!label.All(character =>
+                char.IsAsciiLetterLower(character) || char.IsAsciiDigit(character) || character == '-'))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>
     /// Publica o rascunho atual, gerando uma nova versão imutável (F3.6).
     /// </summary>
     public SitePublication Publish(Guid publishedBy, DateTimeOffset now)
@@ -154,6 +222,9 @@ public sealed class Site : ITenantScoped
         _publications.Add(publication);
         PublishedVersionId = publication.Id;
         Status = SiteStatus.Published;
+
+        // C10: avanca o token de concorrencia a cada publicacao.
+        Version++;
 
         return publication;
     }
