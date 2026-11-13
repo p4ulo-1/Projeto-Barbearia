@@ -463,6 +463,9 @@ namespace Servia.Infrastructure.Persistence.Migrations
                     b.Property<int>("Consumed")
                         .HasColumnType("integer");
 
+                    b.Property<long>("ConsumedTokens")
+                        .HasColumnType("bigint");
+
                     b.Property<int>("Included")
                         .HasColumnType("integer");
 
@@ -943,6 +946,33 @@ namespace Servia.Infrastructure.Persistence.Migrations
                     b.ToTable("Transactions", (string)null);
                 });
 
+            modelBuilder.Entity("Servia.Domain.Identity.CustomRole", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Permissions")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("Permissions");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "Name")
+                        .IsUnique();
+
+                    b.ToTable("CustomRoles", (string)null);
+                });
+
             modelBuilder.Entity("Servia.Domain.Identity.Invitation", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1034,6 +1064,9 @@ namespace Servia.Infrastructure.Persistence.Migrations
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("CustomRoleId")
+                        .HasColumnType("uuid");
 
                     b.Property<string>("Email")
                         .IsRequired()
@@ -1793,6 +1826,11 @@ namespace Servia.Infrastructure.Persistence.Migrations
 
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean");
+
+                    b.Property<bool>("IsServiceProvider")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true);
 
                     b.Property<string>("Name")
                         .IsRequired()

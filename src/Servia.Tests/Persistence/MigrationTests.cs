@@ -161,6 +161,51 @@ public class MigrationTests : IAsyncLifetime
         Assert.Equal(SiteCustomizationLevel.Full, business.CustomizationLevel);
     }
 
+    [Fact]
+    public async Task Planos_Tem_Os_Dados_Comerciais_Definidos()
+    {
+        // Seção 4.1: o backend é a fonte única de verdade dos dados dos
+        // planos. Este teste fixa os valores que o frontend consome pela API.
+        await using var context = CreateContext();
+        await PlanSeeder.SeedAsync(context);
+
+        var plans = await context.Plans.ToDictionaryAsync(plan => plan.Code);
+
+        Assert.Equal(99m, plans["ESSENCIAL"].MonthlyPrice.Amount);
+        Assert.Equal(3, plans["ESSENCIAL"].IncludedProfessionals);
+        Assert.Equal(100, plans["ESSENCIAL"].IncludedAiUnits);
+
+        Assert.Equal(199m, plans["PRO"].MonthlyPrice.Amount);
+        Assert.Equal(7, plans["PRO"].IncludedProfessionals);
+        Assert.Equal(500, plans["PRO"].IncludedAiUnits);
+
+        Assert.Equal(299m, plans["PREMIUM"].MonthlyPrice.Amount);
+        Assert.Equal(15, plans["PREMIUM"].IncludedProfessionals);
+        Assert.Equal(1500, plans["PREMIUM"].IncludedAiUnits);
+
+        Assert.Equal(499m, plans["BUSINESS"].MonthlyPrice.Amount);
+        Assert.True(plans["BUSINESS"].HasUnlimitedProfessionals);
+        Assert.Equal(5000, plans["BUSINESS"].IncludedAiUnits);
+    }
+
+    [Fact]
+    public async Task Seed_Nao_Sobrescreve_Plano_Existente()
+    {
+        // Seção 4.2: a atualização dos planos é controlada e preserva os
+        // registros existentes (e, por consequência, assinaturas/históricos).
+        await using var context = CreateContext();
+        await PlanSeeder.SeedAsync(context);
+
+        var essential = await context.Plans.FirstAsync(plan => plan.Code == "ESSENCIAL");
+        essential.ChangePrice(Servia.Domain.Common.Money.From(123m));
+        await context.SaveChangesAsync();
+
+        await PlanSeeder.SeedAsync(context);
+
+        var reloaded = await context.Plans.FirstAsync(plan => plan.Code == "ESSENCIAL");
+        Assert.Equal(123m, reloaded.MonthlyPrice.Amount);
+    }
+
     // ---------- Auxiliares ----------
 
     private static async Task<List<string>> GetTablesAsync(AppDbContext context) =>

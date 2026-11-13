@@ -66,6 +66,11 @@ internal sealed class UsageQuotaConfiguration : IEntityTypeConfiguration<UsageQu
         builder.Property(quota => quota.PeriodEnd).IsRequired();
         builder.Property(quota => quota.Included).IsRequired();
         builder.Property(quota => quota.Consumed).IsRequired();
+
+        // Consumo real de IA em tokens (entrada + saída), preservado com
+        // precisão entre operações.
+        builder.Property(quota => quota.ConsumedTokens).IsRequired();
+
         builder.Property(quota => quota.PurchasedExtra).IsRequired();
         builder.Property(quota => quota.TenantLimit);
         builder.Property(quota => quota.BillingMode).HasConversion<string>().HasMaxLength(20).IsRequired();
@@ -73,6 +78,8 @@ internal sealed class UsageQuotaConfiguration : IEntityTypeConfiguration<UsageQu
         builder.Ignore(quota => quota.Available);
         builder.Ignore(quota => quota.Remaining);
         builder.Ignore(quota => quota.IsOverIncluded);
+        builder.Ignore(quota => quota.AiTokenLimit);
+        builder.Ignore(quota => quota.HasAiCapacity);
 
         // Unico por tenant, recurso e periodo: impede cota duplicada.
         builder.HasIndex(quota => new { quota.TenantId, quota.Resource, quota.PeriodStart }).IsUnique();

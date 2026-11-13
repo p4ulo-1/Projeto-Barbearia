@@ -24,7 +24,8 @@ public sealed class OnboardingService(
     IOnboardingRepository repository,
     IAiConversationProvider conversation,
     IAiSiteGenerator generator,
-    TimeProvider timeProvider)
+    TimeProvider timeProvider,
+    Servia.Application.Billing.AiUsageService aiUsage)
 {
     /// <summary>
     /// Informações mínimas que a conversa deve reunir antes da geração.
@@ -167,12 +168,18 @@ public sealed class OnboardingService(
                 $"A configuração só pode ser gerada durante a coleta. Estado atual: '{session.Status}'.");
         }
 
+        // Política provisória: bloqueia quando a franquia de IA está esgotada.
+        await aiUsage.EnsureAvailableAsync(tenantId, cancellationToken);
+
         var result = await generator.GenerateAsync(BuildRequest(session), cancellationToken);
 
         if (!result.Success || result.ChangeSet is null)
         {
             return OnboardingResult.Invalid(result.FailureReason ?? "A geração falhou.");
         }
+
+        // Registra o consumo real (tokens). Sem cobrança de excedente.
+        await aiUsage.RecordConsumptionAsync(tenantId, result.UnitsConsumed, cancellationToken);
 
         // Guardrail: a proposta precisa estar completa antes de ser aceita.
         // O AiChangeSet já rejeitou componente/propriedade fora do schema;
@@ -228,6 +235,9 @@ public sealed class OnboardingService(
             return OnboardingResult.Invalid("A configuração atual não foi encontrada.");
         }
 
+        // Política provisória: bloqueia quando a franquia de IA está esgotada.
+        await aiUsage.EnsureAvailableAsync(tenantId, cancellationToken);
+
         var result = await generator.RefineAsync(
             BuildRequest(session), current, instruction, cancellationToken);
 
@@ -235,6 +245,9 @@ public sealed class OnboardingService(
         {
             return OnboardingResult.Invalid(result.FailureReason ?? "O ajuste falhou.");
         }
+
+        // Registra o consumo real (tokens). Sem cobrança de excedente.
+        await aiUsage.RecordConsumptionAsync(tenantId, result.UnitsConsumed, cancellationToken);
 
         if (!result.ChangeSet.IsComplete())
         {

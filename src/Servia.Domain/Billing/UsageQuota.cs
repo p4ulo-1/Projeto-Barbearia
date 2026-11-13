@@ -12,9 +12,18 @@ namespace Servia.Domain.Billing;
 ///
 /// <b>Franquia de IA (F4.15):</b> vem do plano contratado.
 /// <b>Créditos antecipados (F4.16):</b> somam-se à franquia após o pagamento.
+///
+/// <b>Unidade de IA:</b> a franquia é expressa em <b>créditos</b>; o provedor
+/// informa <b>tokens</b> (entrada + saída). A conversão é
+/// <see cref="AiTokensPerCredit"/> tokens por crédito.
 /// </summary>
 public sealed class UsageQuota : ITenantScoped
 {
+    /// <summary>
+    /// Tokens de IA equivalentes a 1 crédito (decisão comercial).
+    /// </summary>
+    public const int AiTokensPerCredit = 10_000;
+
     private UsageQuota(
         Guid id,
         Guid tenantId,
@@ -56,6 +65,13 @@ public sealed class UsageQuota : ITenantScoped
 
     public int Consumed { get; private set; }
 
+    /// <summary>
+    /// Consumo acumulado de IA em <b>tokens</b> (entrada + saída), exatamente
+    /// como informado pelo provedor. Preserva a precisão entre operações;
+    /// <see cref="Consumed"/> é a projeção em créditos.
+    /// </summary>
+    public long ConsumedTokens { get; private set; }
+
     /// <summary>Créditos comprados antecipadamente (F4.16).</summary>
     public int PurchasedExtra { get; private set; }
 
@@ -72,6 +88,39 @@ public sealed class UsageQuota : ITenantScoped
 
     /// <summary>Indica se o consumo já ultrapassou a franquia.</summary>
     public bool IsOverIncluded => Consumed > Included;
+
+    /// <summary>
+    /// Limite da franquia em tokens de IA (créditos × 10.000).
+    /// </summary>
+    public long AiTokenLimit => (long)Available * AiTokensPerCredit;
+
+    /// <summary>
+    /// Indica se ainda há franquia de IA disponível para uma nova operação.
+    /// </summary>
+    public bool HasAiCapacity => ConsumedTokens < AiTokenLimit;
+
+    /// <summary>
+    /// Acumula o consumo real em tokens, convertendo para créditos de forma
+    /// <b>precisa</b>: o total de tokens é somado e só então dividido por
+    /// <see cref="AiTokensPerCredit"/>, sem arredondar cada operação.
+    ///
+    /// O consumo nunca ultrapassa o limite disponível (sem cobrança de
+    /// excedente nesta política).
+    /// </summary>
+    public void AccumulateAiTokens(long tokens)
+    {
+        if (tokens <= 0)
+        {
+            return;
+        }
+
+        // Acumula o total real em tokens, limitado à franquia.
+        ConsumedTokens = Math.Min(ConsumedTokens + tokens, AiTokenLimit);
+
+        // Projeção em créditos: divisão inteira do total acumulado, o que
+        // preserva a precisão entre operações (frações não são perdidas).
+        Consumed = (int)(ConsumedTokens / AiTokensPerCredit);
+    }
 
     public static UsageQuota Create(
         Guid tenantId,
@@ -169,6 +218,7 @@ public sealed class UsageQuota : ITenantScoped
         PeriodEnd = periodEnd;
         Included = included;
         Consumed = 0;
+        ConsumedTokens = 0;
         PurchasedExtra = 0;
     }
 }

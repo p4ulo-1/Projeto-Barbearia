@@ -101,7 +101,8 @@ public sealed class BillingController(
                 quota.Included,
                 quota.Consumed,
                 quota.PurchasedExtra,
-                quota.Remaining))
+                quota.Remaining,
+                quota.ConsumedTokens))
             .ToListAsync(cancellationToken);
 
         return Ok(items);
@@ -130,7 +131,7 @@ public sealed class BillingController(
 
     /// <summary>Contrata um plano para o estabelecimento (F16.1).</summary>
     [HttpPost("subscription")]
-    [RequirePermission(Permission.ManageTenantSettings)]
+    [RequirePermission(Permission.ManageBilling)]
     [ProducesResponseType<SubscriptionResponse>(StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> SubscribeAsync(
@@ -152,7 +153,7 @@ public sealed class BillingController(
 
     /// <summary>Troca o plano da assinatura (F16.2).</summary>
     [HttpPatch("subscription")]
-    [RequirePermission(Permission.ManageTenantSettings)]
+    [RequirePermission(Permission.ManageBilling)]
     [ProducesResponseType<SubscriptionResponse>(StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> ChangePlanAsync(
@@ -174,7 +175,7 @@ public sealed class BillingController(
 
     /// <summary>Cancela a assinatura (F16.3).</summary>
     [HttpPost("subscription/cancel")]
-    [RequirePermission(Permission.ManageTenantSettings)]
+    [RequirePermission(Permission.ManageBilling)]
     [ProducesResponseType<SubscriptionResponse>(StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> CancelAsync(CancellationToken cancellationToken)
@@ -276,9 +277,17 @@ public sealed record InvoiceResponse(
     Guid Id, DateOnly PeriodStart, DateOnly PeriodEnd,
     DateOnly DueDate, string Status, decimal Total);
 
-/// <summary>Representação de consumo.</summary>
+/// <summary>
+/// Representação de consumo. Para IA, <c>Consumed</c> é em créditos e
+/// <c>ConsumedTokens</c> é o total real de tokens (entrada + saída).
+/// </summary>
 public sealed record UsageResponse(
-    string Resource, int Included, int Consumed, int PurchasedExtra, int Remaining);
+    string Resource,
+    int Included,
+    int Consumed,
+    int PurchasedExtra,
+    int Remaining,
+    long ConsumedTokens);
 
 /// <summary>Representação de plano.</summary>
 public sealed record PlanResponse(
