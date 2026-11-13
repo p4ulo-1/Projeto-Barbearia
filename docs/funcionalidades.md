@@ -169,6 +169,16 @@ Recursos disponíveis para todos os tenants, independentemente do segmento.
 | U35 | Sinal para reserva | Exigência de pagamento antecipado para confirmar | ❌ |
 | U36 | Sessões prolongadas | Suporte a serviços com duração longa e múltiplos blocos | ❌ |
 
+### 1.5.1. Expediente do estabelecimento (regra de negócio)
+
+| ID | Regra | Descrição |
+| --- | --- | --- |
+| BR1 | Expediente configurável pelo administrador | O expediente é configurado pelo administrador no cadastro e pode ser alterado depois (`GET/PUT /api/v1/tenant/settings/schedule`). |
+| BR2 | Horário por dia da semana | Cada dia da semana tem seu próprio horário de abertura/fechamento; um dia pode estar **fechado**. Não há horário único para a semana. |
+| BR3 | Independência do expediente | O expediente descreve quando o estabelecimento atende ao público. **Não** determina nem restringe os agendamentos de serviços. |
+| BR4 | Agendamento depende só do profissional | A disponibilidade considera exclusivamente a jornada do profissional, seus bloqueios, os agendamentos existentes e a duração do serviço. O profissional pode ter horário livre com o estabelecimento fechado; o estabelecimento pode estar aberto sem nenhum profissional disponível. |
+| BR5 | Padrão sem configuração | O expediente é opcional no cadastro. Quando não informado, o estabelecimento é considerado **fechado 24 horas por dia, todos os dias**. O administrador pode configurá-lo depois. Essa condição não restringe agendamentos, que dependem só do profissional. |
+
 ### 1.6. Site e presença digital
 
 | ID | Funcionalidade | Descrição | Existe hoje |

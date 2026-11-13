@@ -61,6 +61,12 @@ public sealed partial class Tenant
 
     public DateTimeOffset CreatedAt { get; private set; }
 
+    /// <summary>
+    /// Expediente semanal do estabelecimento (independente dos profissionais).
+    /// Nasce <b>fechado</b> até o administrador configurar.
+    /// </summary>
+    public EstablishmentSchedule Schedule { get; private set; } = EstablishmentSchedule.ClosedByDefault();
+
     /// <summary>Indica se o tenant pode escrever dados.</summary>
     public bool CanWrite => Status is TenantStatus.Trial or TenantStatus.Active;
 
@@ -127,6 +133,17 @@ public sealed partial class Tenant
         Name = name.Trim();
         Segment = segment;
         Document = document.Trim();
+    }
+
+    /// <summary>
+    /// Atualiza o expediente do estabelecimento (administrador). O expediente
+    /// não afeta os agendamentos — estes dependem só do profissional.
+    /// </summary>
+    public void UpdateSchedule(EstablishmentSchedule schedule)
+    {
+        ArgumentNullException.ThrowIfNull(schedule);
+
+        Schedule = schedule;
     }
 
     /// <summary>Ativa o tenant ao fim do trial ou após regularização.</summary>

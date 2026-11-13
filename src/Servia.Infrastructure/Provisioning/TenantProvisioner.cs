@@ -53,6 +53,13 @@ public sealed class TenantProvisioner(AppDbContext context, TimeProvider timePro
             request.Document,
             now);
 
+        // Expediente informado no cadastro (opcional). Sem ele, o tenant
+        // nasce fechado todos os dias até o administrador configurar (BR5).
+        if (request.Schedule is not null)
+        {
+            tenant.UpdateSchedule(request.Schedule);
+        }
+
         var subscription = Subscription.StartTrial(tenant.Id, plan.Id, today);
 
         var owner = User.CreateForTenant(
@@ -112,7 +119,8 @@ public sealed record ProvisionTenantRequest(
     string PlanCode,
     string OwnerName,
     string OwnerEmail,
-    string OwnerPasswordHash);
+    string OwnerPasswordHash,
+    EstablishmentSchedule? Schedule = null);
 
 /// <summary>Resultado do provisionamento.</summary>
 public sealed record ProvisionedTenant(Tenant Tenant, Subscription Subscription, User Owner);

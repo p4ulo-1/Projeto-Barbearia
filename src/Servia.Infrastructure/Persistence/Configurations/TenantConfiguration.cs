@@ -43,6 +43,24 @@ internal sealed class TenantConfiguration : IEntityTypeConfiguration<Tenant>
 
         builder.Property(tenant => tenant.CreatedAt).IsRequired();
 
+        // Expediente do estabelecimento: uma linha por dia da semana. É
+        // independente dos profissionais; serve para exibir se o
+        // estabelecimento atende ao público, não para agendar.
+        builder.OwnsOne(tenant => tenant.Schedule, schedule =>
+        {
+            schedule.OwnsMany(s => s.Days, days =>
+            {
+                days.ToTable("TenantScheduleDays");
+                days.WithOwner().HasForeignKey("TenantId");
+                days.Property(day => day.DayOfWeek).HasConversion<string>().HasMaxLength(15).IsRequired();
+                days.Property(day => day.IsOpen).IsRequired();
+                days.Property(day => day.OpenTime);
+                days.Property(day => day.CloseTime);
+                days.HasKey("TenantId", nameof(EstablishmentDaySchedule.DayOfWeek));
+                days.Ignore(day => day.Hours);
+            });
+        });
+
         // Índice crítico: resolução do tenant por subdomínio.
         builder.HasIndex(tenant => tenant.Slug).IsUnique();
 
