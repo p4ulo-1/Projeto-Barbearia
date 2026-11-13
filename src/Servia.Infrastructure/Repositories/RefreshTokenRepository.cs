@@ -45,6 +45,32 @@ public sealed class RefreshTokenRepository(AppDbContext context) : IRefreshToken
         await context.RefreshTokens.AddAsync(token, cancellationToken);
     }
 
+    /// <summary>
+    /// Revoga todos os tokens de renovação ativos de um usuário.
+    ///
+    /// Usado quando as permissões efetivas mudam (papel personalizado
+    /// alterado, atribuído, removido ou excluído): o próximo refresh passa a
+    /// emitir um token com as permissões atuais, em vez de manter as antigas.
+    /// </summary>
+    public async Task RevokeAllForUserAsync(
+        Guid tenantId,
+        Guid userId,
+        DateTimeOffset now,
+        string reason,
+        CancellationToken cancellationToken = default)
+    {
+        var active = await context.RefreshTokens
+            .Where(token => token.TenantId == tenantId
+                && token.UserId == userId
+                && token.RevokedAt == null)
+            .ToListAsync(cancellationToken);
+
+        foreach (var token in active)
+        {
+            token.RevokeIfActive(now, reason);
+        }
+    }
+
     public Task SaveChangesAsync(CancellationToken cancellationToken = default) =>
         context.SaveChangesAsync(cancellationToken);
 }

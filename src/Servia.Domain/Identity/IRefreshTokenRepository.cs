@@ -28,6 +28,17 @@ public interface IRefreshTokenRepository
     /// <summary>Registra um novo token.</summary>
     Task AddAsync(RefreshToken token, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Revoga todos os tokens de renovação ativos do usuário, forçando a
+    /// próxima renovação a emitir um token com as permissões atuais.
+    /// </summary>
+    Task RevokeAllForUserAsync(
+        Guid tenantId,
+        Guid userId,
+        DateTimeOffset now,
+        string reason,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Persiste as alterações pendentes.</summary>
     Task SaveChangesAsync(CancellationToken cancellationToken = default);
 }
