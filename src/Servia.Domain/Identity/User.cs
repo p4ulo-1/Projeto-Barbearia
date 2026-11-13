@@ -54,6 +54,13 @@ public sealed class User : ITenantScoped
     /// </summary>
     public Guid TenantId { get; private set; }
 
+    /// <summary>
+    /// Papel personalizado atribuído, quando houver. Quando preenchido, as
+    /// permissões efetivas vêm do papel personalizado; caso contrário, do
+    /// papel predefinido <see cref="Role"/>.
+    /// </summary>
+    public Guid? CustomRoleId { get; private set; }
+
     public string Name { get; private set; }
 
     /// <summary>E-mail único dentro do tenant.</summary>
@@ -144,9 +151,19 @@ public sealed class User : ITenantScoped
             now);
     }
 
-    /// <summary>Indica se o usuário possui a permissão informada.</summary>
+    /// <summary>
+    /// Indica se o usuário possui a permissão informada, considerando o papel
+    /// personalizado quando atribuído.
+    /// </summary>
     public bool HasPermission(Permission permission) =>
         IsActive && RolePermissions.Has(Role, permission);
+
+    /// <summary>
+    /// Permissões efetivas do usuário. Quando há papel personalizado, são as
+    /// permissões dele; caso contrário, as do papel predefinido.
+    /// </summary>
+    public IReadOnlySet<Permission> EffectivePermissions(CustomRole? customRole) =>
+        customRole is not null ? customRole.Permissions : RolePermissions.For(Role);
 
     /// <summary>Altera o papel do usuário dentro do tenant.</summary>
     public void ChangeRole(Role role)
@@ -159,6 +176,30 @@ public sealed class User : ITenantScoped
 
         Role = role;
     }
+
+    /// <summary>
+    /// Atribui um papel personalizado ao usuário. O papel predefinido
+    /// permanece como referência, mas as permissões efetivas passam a ser as
+    /// do papel personalizado.
+    /// </summary>
+    public void AssignCustomRole(Guid customRoleId)
+    {
+        if (customRoleId == Guid.Empty)
+        {
+            throw new DomainRuleException("O papel personalizado é obrigatório.");
+        }
+
+        if (IsPlatformAdmin)
+        {
+            throw new DomainRuleException(
+                "Um administrador da plataforma não recebe papel personalizado de estabelecimento.");
+        }
+
+        CustomRoleId = customRoleId;
+    }
+
+    /// <summary>Remove o papel personalizado; volta a valer o papel predefinido.</summary>
+    public void ClearCustomRole() => CustomRoleId = null;
 
     /// <summary>Atualiza os dados de perfil.</summary>
     public void UpdateProfile(string name, string email)

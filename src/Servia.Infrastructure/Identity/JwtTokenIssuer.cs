@@ -26,6 +26,13 @@ public sealed class JwtTokenIssuer : ITokenIssuer
     /// <summary>Claim que carrega o papel do usuário.</summary>
     public const string RoleClaim = "role";
 
+    /// <summary>
+    /// Claim que carrega as permissões efetivas do usuário (uma por claim).
+    /// Permite que papéis personalizados funcionem sem um segundo mecanismo
+    /// de autorização: o handler lê esta claim quando presente.
+    /// </summary>
+    public const string PermissionClaim = "perm";
+
     /// <summary>Validade do token de acesso, em minutos.</summary>
     public const int AccessTokenLifetimeMinutes = 15;
 
@@ -57,9 +64,21 @@ public sealed class JwtTokenIssuer : ITokenIssuer
         _audience = options.Audience;
     }
 
-    public AccessToken Issue(User user, DateTimeOffset now)
+    public AccessToken Issue(User user, DateTimeOffset now) =>
+        Issue(user, RolePermissions.For(user.Role), now);
+
+    /// <summary>
+    /// Emite o token com as permissões efetivas informadas. Usado quando o
+    /// usuário tem papel personalizado, cujas permissões diferem do papel
+    /// predefinido.
+    /// </summary>
+    public AccessToken Issue(
+        User user,
+        IReadOnlySet<Permission> effectivePermissions,
+        DateTimeOffset now)
     {
         ArgumentNullException.ThrowIfNull(user);
+        ArgumentNullException.ThrowIfNull(effectivePermissions);
 
         var expiresAt = now.AddMinutes(AccessTokenLifetimeMinutes);
 
@@ -71,6 +90,9 @@ public sealed class JwtTokenIssuer : ITokenIssuer
             new(RoleClaim, user.Role.ToString()),
             new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
         };
+
+        claims.AddRange(effectivePermissions.Select(
+            permission => new Claim(PermissionClaim, permission.ToString())));
 
         var token = new JwtSecurityToken(
             issuer: _issuer,

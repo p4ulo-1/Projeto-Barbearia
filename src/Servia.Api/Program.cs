@@ -91,6 +91,7 @@ if (!builder.Environment.IsDevelopment())
 builder.Services.AddSingleton<ITokenIssuer, JwtTokenIssuer>();
 builder.Services.AddSingleton<IPasswordHasher, Pbkdf2PasswordHasher>();
 builder.Services.AddScoped<IUserRepository, UserRepository>();
+builder.Services.AddScoped<ICustomRoleRepository, CustomRoleRepository>();
 builder.Services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
 builder.Services.AddScoped<AuthenticationService>();
 builder.Services.AddScoped<TenantProvisioner>();
@@ -101,6 +102,10 @@ builder.Services.AddScoped<ISubscriptionRepository, SubscriptionRepository>();
 builder.Services.AddScoped<IPlanRepository, PlanRepository>();
 builder.Services.AddScoped<IProfessionalCountReader, ProfessionalCountReader>();
 builder.Services.AddScoped<SubscriptionService>();
+
+// Consumo de créditos de IA (política provisória: bloqueio, sem cobrança).
+builder.Services.AddScoped<IAiUsageRepository, AiUsageRepository>();
+builder.Services.AddScoped<AiUsageService>();
 
 // Webhooks (F17).
 builder.Services.AddScoped<IWebhookRepository, WebhookRepository>();
@@ -325,9 +330,16 @@ if (app.Environment.IsDevelopment())
     var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
     await context.Database.MigrateAsync();
+}
 
-    // F11.3: garante os planos comerciais da plataforma.
-    await PlanSeeder.SeedAsync(context);
+// F11.3: garante os planos comerciais da plataforma em TODOS os ambientes.
+// A operacao e idempotente (nao duplica planos existentes) e nao altera
+// planos ja cadastrados, preservando assinaturas e historicos. Sem isso,
+// producao subiria sem planos e o cadastro/contratacao falharia.
+using (var planScope = app.Services.CreateScope())
+{
+    var planContext = planScope.ServiceProvider.GetRequiredService<AppDbContext>();
+    await PlanSeeder.SeedAsync(planContext);
 }
 
 // F15.3: em producao, exige HTTPS. O redirecionamento e feito pelo proxy

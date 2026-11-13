@@ -24,8 +24,28 @@ public sealed class AuthenticationService(
     IPasswordHasher passwordHasher,
     ITokenIssuer tokenIssuer,
     TimeProvider timeProvider,
-    ITenantContext tenantContext)
+    ITenantContext tenantContext,
+    ICustomRoleRepository customRoles)
 {
+    /// <summary>
+    /// Permissões efetivas do usuário: as do papel personalizado, quando
+    /// atribuído; caso contrário, as do papel predefinido.
+    /// </summary>
+    private async Task<IReadOnlySet<Permission>> ResolvePermissionsAsync(
+        User user,
+        CancellationToken cancellationToken)
+    {
+        if (user.CustomRoleId is null)
+        {
+            return RolePermissions.For(user.Role);
+        }
+
+        var customRole = await customRoles.FindAsync(
+            user.TenantId, user.CustomRoleId.Value, cancellationToken);
+
+        return customRole?.Permissions ?? RolePermissions.For(user.Role);
+    }
+
     /// <summary>Validade do token de renovação, em dias.</summary>
     public const int RefreshTokenLifetimeDays = RefreshToken.DefaultLifetimeDays;
 
@@ -67,7 +87,9 @@ public sealed class AuthenticationService(
         var now = timeProvider.GetUtcNow();
         user.RegisterLogin(now);
 
-        var accessToken = tokenIssuer.Issue(user, now);
+        var permissions = await ResolvePermissionsAsync(user, cancellationToken);
+
+        var accessToken = tokenIssuer.Issue(user, permissions, now);
         var (refreshEntity, clearRefreshToken) = IssueRefreshToken(user, now);
 
         await refreshTokens.AddAsync(refreshEntity, cancellationToken);
@@ -133,7 +155,9 @@ public sealed class AuthenticationService(
         // Rotação: o token usado deixa de valer imediatamente.
         stored.Revoke(now, "Rotação de token");
 
-        var accessToken = tokenIssuer.Issue(user, now);
+        var permissions = await ResolvePermissionsAsync(user, cancellationToken);
+
+        var accessToken = tokenIssuer.Issue(user, permissions, now);
         var (newEntity, clearRefreshToken) = IssueRefreshToken(user, now);
 
         await refreshTokens.AddAsync(newEntity, cancellationToken);

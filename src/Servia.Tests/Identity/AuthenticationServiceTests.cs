@@ -23,9 +23,10 @@ public class AuthenticationServiceTests
     private readonly Pbkdf2PasswordHasher _hasher = new(iterations: 1_000);
     private readonly FixedTimeProvider _time = new(Now);
     private readonly TenantContext _tenantContext = new();
+    private readonly FakeCustomRoleRepository _customRoles = new();
 
     private AuthenticationService NewService() =>
-        new(_users, _tokens, _hasher, new FakeTokenIssuer(), _time, _tenantContext);
+        new(_users, _tokens, _hasher, new FakeTokenIssuer(), _time, _tenantContext, _customRoles);
 
     private User SeedUser(Role role = Role.Owner, bool active = true)
     {
@@ -273,14 +274,43 @@ internal sealed class FakeRefreshTokenRepository : IRefreshTokenRepository
         return Task.CompletedTask;
     }
 
+    public Task RevokeAllForUserAsync(
+        Guid tenantId,
+        Guid userId,
+        DateTimeOffset now,
+        string reason,
+        CancellationToken cancellationToken = default)
+    {
+        foreach (var token in _tokens.Where(
+            token => token.TenantId == tenantId && token.UserId == userId))
+        {
+            token.RevokeIfActive(now, reason);
+        }
+
+        return Task.CompletedTask;
+    }
+
     public Task SaveChangesAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
 }
 
 /// <summary>Emissor de token falso, para testes determinísticos.</summary>
 internal sealed class FakeTokenIssuer : ITokenIssuer
 {
+    /// <summary>Últimas permissões efetivas recebidas, para asserção.</summary>
+    public IReadOnlySet<Permission>? LastPermissions { get; private set; }
+
     public AccessToken Issue(User user, DateTimeOffset now) =>
-        new($"token-{user.Id}-{now.ToUnixTimeSeconds()}", now.AddMinutes(15));
+        Issue(user, RolePermissions.For(user.Role), now);
+
+    public AccessToken Issue(
+        User user,
+        IReadOnlySet<Permission> effectivePermissions,
+        DateTimeOffset now)
+    {
+        LastPermissions = effectivePermissions;
+
+        return new($"token-{user.Id}-{now.ToUnixTimeSeconds()}", now.AddMinutes(15));
+    }
 }
 
 /// <summary>Provedor de tempo controlável.</summary>
@@ -291,4 +321,33 @@ internal sealed class FixedTimeProvider(DateTimeOffset now) : TimeProvider
     public override DateTimeOffset GetUtcNow() => _now;
 
     public void Advance(TimeSpan delta) => _now = _now.Add(delta);
+}
+
+/// <summary>Repositório de papéis personalizados em memória.</summary>
+internal sealed class FakeCustomRoleRepository : ICustomRoleRepository
+{
+    private readonly List<CustomRole> _roles = [];
+
+    public void Add(CustomRole role) => _roles.Add(role);
+
+    public Task<IReadOnlyList<CustomRole>> ListAsync(
+        Guid tenantId, CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlyList<CustomRole>>(
+            _roles.Where(role => role.TenantId == tenantId).ToList());
+
+    public Task<CustomRole?> FindAsync(
+        Guid tenantId, Guid customRoleId, CancellationToken cancellationToken = default) =>
+        Task.FromResult(_roles.FirstOrDefault(
+            role => role.TenantId == tenantId && role.Id == customRoleId));
+
+    public Task AddAsync(CustomRole role, CancellationToken cancellationToken = default)
+    {
+        _roles.Add(role);
+        return Task.CompletedTask;
+    }
+
+    public void Remove(CustomRole role) => _roles.Remove(role);
+
+    public Task SaveChangesAsync(CancellationToken cancellationToken = default) =>
+        Task.CompletedTask;
 }

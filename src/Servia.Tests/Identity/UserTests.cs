@@ -195,4 +195,54 @@ public class UserTests
         user.Activate();
         Assert.True(user.CanSignIn);
     }
+
+    // ---------- Papel personalizado (seção 3) ----------
+
+    [Fact]
+    public void Atribuir_E_Remover_Papel_Personalizado()
+    {
+        var user = User.CreateForTenant(
+            TenantId, "Bia", "bia@exemplo.com", "hash", Role.Professional, Now);
+        var roleId = Guid.NewGuid();
+
+        user.AssignCustomRole(roleId);
+        Assert.Equal(roleId, user.CustomRoleId);
+
+        user.ClearCustomRole();
+        Assert.Null(user.CustomRoleId);
+    }
+
+    [Fact]
+    public void Atribuir_Papel_Vazio_E_Rejeitado()
+    {
+        var user = NewOwner();
+
+        Assert.Throws<DomainRuleException>(() => user.AssignCustomRole(Guid.Empty));
+    }
+
+    [Fact]
+    public void Permissoes_Efetivas_Usam_O_Papel_Personalizado()
+    {
+        var user = User.CreateForTenant(
+            TenantId, "Bia", "bia@exemplo.com", "hash", Role.Professional, Now);
+
+        var customRole = CustomRole.Create(
+            TenantId, "Caixa", [Permission.ViewFinancialReports, Permission.ManageCustomers]);
+
+        var effective = user.EffectivePermissions(customRole);
+
+        Assert.Contains(Permission.ViewFinancialReports, effective);
+        Assert.Contains(Permission.ManageCustomers, effective);
+        Assert.DoesNotContain(Permission.ViewOwnAgenda, effective);
+    }
+
+    [Fact]
+    public void Sem_Papel_Personalizado_Usa_O_Papel_Predefinido()
+    {
+        var user = NewOwner();
+
+        var effective = user.EffectivePermissions(customRole: null);
+
+        Assert.Contains(Permission.ManageBilling, effective);
+    }
 }

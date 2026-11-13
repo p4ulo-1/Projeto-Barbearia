@@ -36,6 +36,8 @@ internal sealed class UserConfiguration : IEntityTypeConfiguration<User>
             .HasMaxLength(20)
             .IsRequired();
 
+        builder.Property(user => user.CustomRoleId);
+
         builder.Property(user => user.IsActive).IsRequired();
 
         builder.Property(user => user.CreatedAt).IsRequired();

@@ -68,6 +68,24 @@ public sealed class PermissionAuthorizationHandler : AuthorizationHandler<Permis
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(requirement);
 
+        // Permissões efetivas assinadas no token (papel predefinido ou
+        // personalizado). Quando presentes, são a fonte da verdade.
+        var permissionClaims = context.User
+            .FindAll(Infrastructure.Identity.JwtTokenIssuer.PermissionClaim)
+            .Select(claim => claim.Value)
+            .ToList();
+
+        if (permissionClaims.Count > 0)
+        {
+            if (permissionClaims.Contains(requirement.Permission.ToString(), StringComparer.Ordinal))
+            {
+                context.Succeed(requirement);
+            }
+
+            return Task.CompletedTask;
+        }
+
+        // Compatibilidade: tokens emitidos antes da claim de permissões.
         var roleClaim = context.User.FindFirst(Infrastructure.Identity.JwtTokenIssuer.RoleClaim)?.Value;
 
         if (roleClaim is null || !Enum.TryParse<Role>(roleClaim, out var role))

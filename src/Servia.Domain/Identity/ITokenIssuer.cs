@@ -10,9 +10,16 @@ namespace Servia.Domain.Identity;
 public interface ITokenIssuer
 {
     /// <summary>
-    /// Emite um token de acesso para o usuário.
+    /// Emite um token de acesso para o usuário, usando as permissões do
+    /// papel predefinido.
     /// </summary>
     AccessToken Issue(User user, DateTimeOffset now);
+
+    /// <summary>
+    /// Emite um token de acesso com as permissões efetivas informadas.
+    /// Usado quando o usuário tem papel personalizado.
+    /// </summary>
+    AccessToken Issue(User user, IReadOnlySet<Permission> effectivePermissions, DateTimeOffset now);
 }
 
 /// <summary>Token de acesso emitido.</summary>

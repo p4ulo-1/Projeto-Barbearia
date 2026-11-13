@@ -55,6 +55,9 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, ITenant
 
     public DbSet<Invitation> Invitations => Set<Invitation>();
 
+    /// <summary>Papéis personalizados por tenant (seção 3).</summary>
+    public DbSet<CustomRole> CustomRoles => Set<CustomRole>();
+
     public DbSet<AuditEntry> AuditEntries => Set<AuditEntry>();
 
     // Catalogo
