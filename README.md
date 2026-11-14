@@ -70,9 +70,9 @@ Base comum disponível para todos os estabelecimentos:
 - registro de pagamentos e gestão financeira;
 - relatórios e indicadores.
 
-### Módulos opcionais
+### Módulos disponíveis em todos os planos
 
-Habilitados conforme o plano e o modelo de negócio:
+**Todos os planos liberam todos os módulos.** A diferenciação entre planos está na quantidade de profissionais incluídos, no grau de personalização do site e na franquia mensal de IA — nunca no acesso a módulos. Os módulos são:
 
 - clubes de assinatura e pacotes de serviços;
 - cobranças recorrentes;
