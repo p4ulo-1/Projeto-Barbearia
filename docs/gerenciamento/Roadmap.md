@@ -1,14 +1,15 @@
-# Roadmap — Plataforma SaaS de Gestão e Atendimento
+# Roadmap — Servia
 
-> **Status:** v3 — execução concluída em 2026-11-11.
-> **Escopo do MVP:** completo — F0–F15.
+> **Status:** v4 — atualizado em 2026-11-14.
+> **Escopo do MVP:** F0–F21 entregues; operação comercial plena pendente (ver §"O que falta para operação comercial").
 > **Unidade de planejamento:** fases com entregas verificáveis. Prazos em semanas relativas ao início da fase.
+> **Documentos relacionados:** catálogo em [`../produto/funcionalidades.md`](../produto/funcionalidades.md); arquitetura em [`../arquitetura/ARCH.md`](../arquitetura/ARCH.md); decisões em [`../arquitetura/ADR.md`](../arquitetura/ADR.md).
 
 ---
 
-## Estado de execução (2026-11-11)
+## Estado de execução (2026-11-14)
 
-**Todas as 16 fases foram implementadas, testadas e commitadas.**
+**Todas as 22 fases (F0–F21) foram implementadas, testadas e commitadas.** O que resta não é fase de roadmap: são pendências de operação comercial, segurança obrigatória e observabilidade, registradas em §"O que falta para operação comercial".
 
 | Fase | Escopo | Entregas | Situação |
 | --- | --- | --- | --- |
@@ -29,7 +30,7 @@
 | F14 | Frontend do SaaS | 10 | ✅ |
 | F15 | Go-live | 7 | ✅ |
 
-**Total:** 152 entregas, 837 testes automatizados, build sem erros nem avisos.
+**Total:** 152 entregas das fases F0–F15, mais as entregas de F16–F21. **1011 atributos `[Fact]`/`[Theory]`** no código atual (verificado em 2026-11-14). Build sem erros.
 
 ### Auditoria de qualidade (2026-11-11)
 
@@ -53,8 +54,29 @@ Não é código — é infraestrutura e credenciais:
 - Domínio próprio e certificado SSL
 - Agregador de logs externo
 - Ambiente de produção provisionado
-- Aprovação como Solution Partner da Meta
-- Credenciais reais dos provedores (Mercado Pago, Meta, OpenAI)
+- Credenciais reais dos provedores (Mercado Pago, OpenAI)
+- Acesso à WhatsApp Business Platform, quando a integração for retomada
+
+> **Atualização (2026-11-14):** a aprovação como Solution Partner da Meta **deixou de ser dependência** — o estabelecimento é titular da própria conta e paga diretamente à Meta (ADR-023).
+
+### O que falta para operação comercial
+
+As fases F0–F21 entregaram domínio, API, integrações e frontend. O que resta são pendências identificadas na auditoria do ARCH, não fases de roadmap:
+
+| # | Pendência | Impacto |
+| --- | --- | --- |
+| 1 | **Ciclo financeiro do billing** — gateway, fatura, inadimplência | O tenant contrata e nada é cobrado |
+| 2 | **Cookie `HttpOnly` + CSRF + CORS** | Segurança obrigatória; o novo frontend depende |
+| 3 | **Política de consumo de IA** — compra de créditos, aquisição automática, notificação | Franquia e bloqueio existem; o resto não |
+| 4 | **Cobrança de alteração pós-publicação** | Tabela aprovada, não implementada |
+| 5 | **Observabilidade** — logs, métricas, trace, alertas | Só health checks |
+| 6 | **Notificações** — criação, preferências, canais | Job existe; fila nunca alimentada |
+| 7 | **Lock distribuído para jobs** | Rotinas duplicam em múltiplas instâncias |
+| 8 | **Bloqueio de escrita por inadimplência** | `Tenant.CanWrite` não é aplicado |
+| 9 | **Recuperação de senha e convite de equipe** | Catálogo |
+| 10 | **Endpoint de escrita de `CustomDomain`** | Catálogo |
+
+> **Detalhamento:** [`../../docs/private/PLANO_DESENVOLVIMENTO.md`](../../docs/private/PLANO_DESENVOLVIMENTO.md) (fora do Git).
 
 ---
 
@@ -77,7 +99,7 @@ Não é código — é infraestrutura e credenciais:
 
 **MVP** = F0 + F1 + F2 + F3 + F4 + F5 + F6 + F7 + F8 + F9. Total estimado: **40 semanas**.
 
-> **Nota:** o escopo do MVP foi ampliado por decisão do responsável do produto em 2026-11-04. A primeira versão entrega o produto completo descrito em `docs/descricao_produto.md`, incluindo WhatsApp, IA de site e módulos opcionais. As fases F5–F9 deixam de ser pós-MVP.
+> **Nota:** o escopo do MVP foi ampliado por decisão do responsável do produto em 2026-11-04. A primeira versão entrega o produto completo descrito em `../produto/descricao_produto.md`, incluindo WhatsApp, IA de site e módulos opcionais. As fases F5–F9 deixam de ser pós-MVP.
 
 ---
 
@@ -473,7 +495,7 @@ A geração inicial e a publicação estão incluídas no plano. **Alterações 
 
 ## Fases de operação plena — F16 a F20
 
-> **Contexto:** F0–F15 entregaram domínio, API, integrações e frontend. Um levantamento do estado real em 2026-11-11 identificou quatro blocos que impedem a operação por um cliente sem intervenção técnica. O detalhamento está em `docs/funcionalidades.md` seção 6A.
+> **Contexto:** F0–F15 entregaram domínio, API, integrações e frontend. Um levantamento do estado real em 2026-11-11 identificou quatro blocos que impedem a operação por um cliente sem intervenção técnica. O detalhamento está em `../produto/funcionalidades.md`.
 >
 > **Critério de conclusão:** um estabelecimento se cadastra, configura o site, escolhe e troca de plano, e o sistema executa sozinho notificações e cobranças — tudo pela interface.
 
@@ -574,7 +596,7 @@ A geração inicial e a publicação estão incluídas no plano. **Alterações 
 | F21 | Cadastro público e landing page | 4 |
 | **Total** | | **16 semanas** |
 
-**Estado atual:** F0–F15 concluídas (152 entregas, 837 testes). **Estado operável:** exige F16–F21.
+**Estado atual:** F0–F21 concluídas. **Estado operável:** exige as pendências de operação comercial listadas abaixo.
 
 ### Decisão de sequenciamento (2026-11-11)
 
@@ -586,7 +608,7 @@ O cadastro público (F21.1–F21.4) é pré-requisito do CTA "Começar agora": s
 
 ### Dívida arquitetural registrada (não bloqueia operação)
 
-9 dos 13 controllers acessam `AppDbContext` diretamente; a camada de aplicação tem apenas 3 serviços. A lógica deveria migrar para serviços de aplicação, testáveis sem subir a API. Recomendação para uma fase de refatoração posterior.
+**13 de 20 controllers** acessam `AppDbContext` diretamente; a camada de aplicação tem **8 serviços**. A lógica deveria migrar para serviços de aplicação, testáveis sem subir a API. Recomendação para uma fase de refatoração posterior.
 
 ---
 

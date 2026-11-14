@@ -116,7 +116,7 @@ k6 run -e BASE_URL=http://localhost:8080 tests/load/smoke.js
 ## Resultado da execução local (sem Docker)
 
 Executado em 2026-11-10 contra a API rodando localmente
-(`dotnet run`, SQLite, porta 5099), com o medidor `runner.mjs`:
+(`dotnet run`, PostgreSQL 17, porta 5099), com o medidor `runner.mjs`:
 
 | Métrica | Resultado | Critério | Situação |
 | --- | --- | --- | --- |

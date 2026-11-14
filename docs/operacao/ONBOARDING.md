@@ -137,6 +137,67 @@ O cliente faz isso pelo painel. A ordem importa: a agenda depende de serviços e
 
 **Verificação:** um agendamento criado em `/painel` aparece na lista do dia.
 
+### 6.1. Onboarding conversacional com IA
+
+O site pode ser criado por conversa com a IA, em vez de manualmente:
+
+```bash
+# 1. Iniciar a sessão
+POST /api/v1/onboarding/start
+
+# 2. Conversar (a IA coleta os fatos necessários)
+POST /api/v1/onboarding/sessions/{id}/messages
+
+# 3. Gerar a configuração
+POST /api/v1/onboarding/sessions/{id}/generate
+
+# 4. Ajustar, se necessário
+POST /api/v1/onboarding/sessions/{id}/adjustments
+
+# 5. Enviar para aprovação
+POST /api/v1/onboarding/sessions/{id}/submit
+
+# 6. Aprovar (obrigatório antes de publicar)
+POST /api/v1/onboarding/sessions/{id}/approve
+
+# 7. Publicar
+POST /api/v1/onboarding/sessions/{id}/publish
+```
+
+**Estados:** `Collecting → Reviewing → AwaitingApproval → Approved → Published`. Publicar sem aprovar retorna `400`.
+
+**Sem `OpenAi__ApiKey`:** o onboarding responde `400` com motivo explícito — nunca simula.
+
+### 6.2. Expediente do estabelecimento
+
+O expediente é configurável e **independe dos profissionais**:
+
+```bash
+GET  /api/v1/tenant/settings/schedule
+PUT  /api/v1/tenant/settings/schedule
+```
+
+**Regra (BR5):** sem configuração, o estabelecimento é considerado **fechado 24/7**. Isso **não** restringe agendamentos — eles dependem só da jornada do profissional.
+
+### 6.3. Papéis e permissões
+
+| Papel | Pode |
+| --- | --- |
+| **Owner** | Tudo no estabelecimento, incluindo contratar e administrar o plano |
+| **Administrator** | Equipe, serviços, clientes, agenda, configurações, financeiro interno — **não** contrata plano |
+| **Receptionist** | Agenda de qualquer profissional, clientes — **não** gerencia a equipe |
+| **Professional** | Apenas os próprios compromissos |
+
+**Papéis personalizados:** `POST /api/v1/team/roles` (requer `ManageTeam`). Permissões exclusivas do Owner e da plataforma são bloqueadas.
+
+**Atuação como prestador:** `PATCH /api/v1/team/professionals/{id}/service-provider` — independente do papel de acesso.
+
+### 6.4. Franquia de IA
+
+Cada plano concede uma franquia mensal de IA: Essencial 100 créditos, Pro 500, Premium 1.500, Business 5.000. **1 crédito = 10.000 tokens.** Ao esgotar, novas operações de IA são bloqueadas até o próximo período.
+
+**Verificação:** `GET /api/v1/billing/usage` mostra o consumo do período.
+
 ---
 
 ## 7. Verificar o isolamento
@@ -160,9 +221,10 @@ Sem credencial, a integração fica desabilitada — a aplicação sobe normalme
 | Integração | Variável | Sem ela |
 | --- | --- | --- |
 | Mercado Pago | `MercadoPago__AccessToken` | Cobrança não funciona |
-| WhatsApp | `MetaWhatsApp__AccessToken` | Envio falha com motivo explícito |
-| OpenAI | `OpenAi__ApiKey` | Geração de site indisponível |
+| OpenAI | `OpenAi__ApiKey` | Geração de site e onboarding indisponíveis |
 | Webhooks | `MercadoPago__WebhookSecret`, `MetaWhatsApp__WebhookSecret` | Eventos rejeitados com 401 |
+
+> **WhatsApp (2026-11-14):** o estabelecimento é titular da própria conta WhatsApp Business Platform e **paga diretamente à Meta**. O Servia fornece integração, orientação e estimativas, mas **não intermedia a cobrança**. A integração está **pausada** — não configure `MetaWhatsApp__AccessToken` esperando envio de mensagens pelo tenant: não há endpoint de envio.
 
 > **Segredos nunca no código.** Use variáveis de ambiente ou cofre.
 
@@ -176,9 +238,11 @@ Sem credencial, a integração fica desabilitada — a aplicação sobe normalme
 - [ ] Quatro planos disponíveis
 - [ ] Primeiro cliente cadastrado e consegue entrar
 - [ ] Serviços e profissionais cadastrados
-- [ ] Site criado e publicado
+- [ ] Expediente do estabelecimento configurado (ou conscientemente deixado fechado)
+- [ ] Site criado e publicado (manual ou por onboarding com IA)
 - [ ] Agendamento de teste criado com sucesso
 - [ ] Isolamento verificado entre dois tenants
+- [ ] Franquia de IA conferida em `GET /billing/usage`
 - [ ] Integrações configuradas (ou conscientemente desabilitadas)
 
 ---
@@ -192,6 +256,7 @@ Sem credencial, a integração fica desabilitada — a aplicação sobe normalme
 | Login retorna 401 | Verifique se o tenant existe e o e-mail está correto |
 | Cadastro retorna 409 | Slug ou e-mail já usado |
 | Cadastro retorna 429 | Limite de tentativas por IP; aguarde 10 minutos |
-| Envio de WhatsApp falha | Verifique `MetaWhatsApp__AccessToken` |
+| Onboarding retorna 400 | Verifique `OpenAi__ApiKey`; o provedor não configurado falha com motivo |
+| IA bloqueada | Franquia do período esgotada; verifique `GET /billing/usage` |
 
 O [RUNBOOK](RUNBOOK.md) tem o procedimento completo para cada incidente.

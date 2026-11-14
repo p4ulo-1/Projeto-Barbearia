@@ -5,8 +5,8 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Status-Roadmap%20Conclu%C3%ADdo-brightgreen?style=for-the-badge" />
-  <img src="https://img.shields.io/badge/Testes-837%20passando-brightgreen?style=for-the-badge" />
+  <img src="https://img.shields.io/badge/Status-F0--F21%20entregues-brightgreen?style=for-the-badge" />
+  <img src="https://img.shields.io/badge/Testes-1011%20automatizados-brightgreen?style=for-the-badge" />
   <img src="https://img.shields.io/badge/Modelo-SaaS%20Multi--tenant-blue?style=for-the-badge" />
   <img src="https://img.shields.io/badge/PostgreSQL-17-336791?style=for-the-badge&logo=postgresql&logoColor=white" />
   <img src="https://img.shields.io/badge/React-TypeScript-61DAFB?style=for-the-badge&logo=react&logoColor=white" />
@@ -130,7 +130,7 @@ O repositório separa a aplicação cliente da aplicação servidora, sobre uma 
 
 ### Isolamento multi-tenant
 
-Toda entidade de negócio carrega `TenantId`, e o `AppDbContext` aplica filtro global por tenant. A estratégia está detalhada em [`docs/gerenciamento/ARCH.md`](docs/gerenciamento/ARCH.md) e registrada em [`docs/gerenciamento/ADR.md`](docs/gerenciamento/ADR.md).
+Toda entidade de negócio carrega `TenantId`, e o `AppDbContext` aplica filtro global por tenant. A estratégia está detalhada em [`docs/arquitetura/ARCH.md`](docs/arquitetura/ARCH.md) e registrada em [`docs/arquitetura/ADR.md`](docs/arquitetura/ADR.md).
 
 ---
 
@@ -183,7 +183,7 @@ API REST desenvolvida em **C# com ASP.NET Core**, utilizando arquitetura em cama
 - OpenAPI (apenas em desenvolvimento)
 - xUnit + Testcontainers
 
-O código está em [`src/`](src/). A arquitetura está em [`docs/gerenciamento/ARCH.md`](docs/gerenciamento/ARCH.md).
+O código está em [`src/`](src/). A arquitetura está em [`docs/arquitetura/ARCH.md`](docs/arquitetura/ARCH.md).
 
 ---
 
@@ -226,7 +226,7 @@ O schema é aplicado por migrations (`MigrateAsync`), nunca por `EnsureCreated`.
 
 ## 🧪 Testes
 
-**837 testes automatizados**, todos executados contra **PostgreSQL 17** via Testcontainers.
+**1011 atributos `[Fact]`/`[Theory]`**, executados contra **PostgreSQL 17** via Testcontainers.
 
 | Grupo | Cobertura |
 | --- | --- |
@@ -301,23 +301,27 @@ $env:VITE_API_URL="http://localhost:5099"; npm run dev
 
 ## 📚 Documentação
 
+A documentação está organizada por finalidade:
+
 | Documento | Conteúdo |
 | --- | --- |
-| [`docs/descricao_produto.md`](docs/descricao_produto.md) | Visão de produto, segmentos e proposta de valor |
-| [`docs/levantamento_lacunas.md`](docs/levantamento_lacunas.md) | Inventário do código legado e o que muda na migração (F1.4) |
-| [`docs/funcionalidades.md`](docs/funcionalidades.md) | Catálogo de funcionalidades por categoria |
-| [`docs/classes.md`](docs/classes.md) | Modelo de classes e diagrama Mermaid |
-| [`docs/gerenciamento/Roadmap.md`](docs/gerenciamento/Roadmap.md) | Fases de entrega e critérios de saída |
-| [`docs/gerenciamento/ADR.md`](docs/gerenciamento/ADR.md) | Decisões de arquitetura registradas |
-| [`docs/gerenciamento/ARCH.md`](docs/gerenciamento/ARCH.md) | Arquitetura de solução |
-| [`docs/gerenciamento/RUNBOOK.md`](docs/gerenciamento/RUNBOOK.md) | Procedimentos operacionais e de incidentes |
-| [`docs/av2/`](docs/av2/) | Especificação, modelo de classes e rastreabilidade |
+| [`docs/produto/descricao_produto.md`](docs/produto/descricao_produto.md) | Visão, objetivos, proposta de valor, público e princípios do produto |
+| [`docs/produto/funcionalidades.md`](docs/produto/funcionalidades.md) | Catálogo de funcionalidades com estado real, planos e regras comerciais |
+| [`docs/arquitetura/ARCH.md`](docs/arquitetura/ARCH.md) | Arquitetura de solução: implementado, aprovado e planejado |
+| [`docs/arquitetura/classes.md`](docs/arquitetura/classes.md) | Modelo de classes, regras de negócio, decisões de modelagem e diagramas |
+| [`docs/arquitetura/ADR.md`](docs/arquitetura/ADR.md) | Decisões arquiteturais e comerciais (ADR-001 a ADR-027) |
+| [`docs/gerenciamento/Roadmap.md`](docs/gerenciamento/Roadmap.md) | Fases de entrega, estado de execução e pendências |
+| [`docs/operacao/ONBOARDING.md`](docs/operacao/ONBOARDING.md) | Colocar o primeiro cliente no ar |
+| [`docs/operacao/RUNBOOK.md`](docs/operacao/RUNBOOK.md) | Procedimentos operacionais e de incidentes |
+| [`tests/load/README.md`](tests/load/README.md) | Teste de carga com k6 |
+
+> **Estrutura:** `docs/produto/` (visão e catálogo), `docs/arquitetura/` (arquitetura, modelo e decisões), `docs/gerenciamento/` (roadmap), `docs/operacao/` (operação).
 
 ---
 
 ## 📊 Estado Atual
 
-**Status:** ✅ Roadmap concluído — 16 fases, 152 entregas, 837 testes.
+**Status:** ✅ Fases F0–F21 entregues. **1011 atributos `[Fact]`/`[Theory]`** no código atual (verificado em 2026-11-14). Operação comercial plena pendente — ver §"O que falta para operação comercial".
 
 ### Fases concluídas
 
@@ -339,6 +343,12 @@ $env:VITE_API_URL="http://localhost:5099"; npm run dev
 | F13 | API de negócio | 11 |
 | F14 | Frontend do SaaS | 10 |
 | F15 | Go-live | 7 |
+| F16 | Billing com escrita | 7 |
+| F17 | Webhooks | 6 |
+| F18 | Frontend de escrita | 10 |
+| F19 | Jobs em background | 9 |
+| F20 | Bootstrap e operação | 2 |
+| F21 | Cadastro público e landing page | 9 |
 
 ### Auditoria de qualidade (2026-11-11)
 
@@ -358,23 +368,29 @@ Oito etapas executadas, cada uma com commit independente:
 ### Verificação
 
 ```text
-Build:  0 erros, 0 avisos
-Testes: 837 passando, 0 falhas (PostgreSQL 17)
+Build:  0 erros
+Testes: 1011 atributos [Fact]/[Theory] (PostgreSQL 17 via Testcontainers)
 Docker: API e PostgreSQL healthy
 ```
 
-### O que falta para operação plena
+> **Números verificados em 2026-11-14.** A suíte completa não foi reexecutada nesta atualização documental; o número refere-se aos atributos de teste presentes no código.
 
-O roadmap F0–F15 está concluído, mas um levantamento do estado real identificou **quatro blocos de lacunas** que impedem operar o sistema sem intervenção técnica:
+### O que falta para operação comercial
 
-| Bloco | Lacuna | Fase |
+As fases F0–F21 entregaram domínio, API, integrações e frontend. O que resta **não é fase de roadmap** — são pendências identificadas na auditoria do ARCH:
+
+| # | Pendência | Impacto |
 | --- | --- | --- |
-| Billing | `BillingController` só tem `GET` — não há como trocar ou cancelar plano | F16 |
-| Webhooks | Integrações são clientes, não receptores — pagamento e mensagem não chegam | F17 |
-| Frontend | As 7 páginas do painel fazem apenas `GET` | F18 |
-| Jobs | Nenhum `BackgroundService` — notificações e cobranças não rodam sozinhas | F19 |
+| 1 | **Ciclo financeiro do billing** — gateway, fatura, inadimplência | O tenant contrata e nada é cobrado |
+| 2 | **Cookie `HttpOnly` + CSRF + CORS** | Segurança obrigatória; o novo frontend depende |
+| 3 | **Política de consumo de IA** — compra de créditos, aquisição automática, notificação | Franquia e bloqueio existem; o resto não |
+| 4 | **Cobrança de alteração pós-publicação** | Tabela aprovada, não implementada |
+| 5 | **Observabilidade** — logs, métricas, trace, alertas | Só health checks |
+| 6 | **Notificações** — criação, preferências, canais | Job existe; fila nunca alimentada |
+| 7 | **Lock distribuído para jobs** | Rotinas duplicam em múltiplas instâncias |
+| 8 | **Bloqueio de escrita por inadimplência** | `Tenant.CanWrite` não é aplicado |
 
-**Total estimado:** 12 semanas (F16–F20).
+O detalhamento está em [`docs/gerenciamento/Roadmap.md`](docs/gerenciamento/Roadmap.md) §"O que falta para operação comercial" e no catálogo em [`docs/produto/funcionalidades.md`](docs/produto/funcionalidades.md) §5.
 
 ### O que falta para produção
 
@@ -383,10 +399,10 @@ Além das fases acima, infraestrutura e credenciais:
 - Domínio próprio e certificado SSL
 - Agregador de logs externo
 - Ambiente de produção provisionado
-- Aprovação como Solution Partner da Meta
-- Credenciais reais dos provedores (Mercado Pago, Meta, OpenAI)
+- Credenciais reais dos provedores (Mercado Pago, OpenAI)
+- Acesso à WhatsApp Business Platform, quando a integração for retomada
 
-O detalhamento está em [`docs/gerenciamento/Roadmap.md`](docs/gerenciamento/Roadmap.md) e em [`docs/funcionalidades.md`](docs/funcionalidades.md) seção 6A.
+> **WhatsApp (2026-11-14):** o estabelecimento é titular da própria conta WhatsApp Business Platform e paga diretamente à Meta. O Servia fornece integração, orientação e estimativas, mas **não intermedia a cobrança**. A integração está **pausada** (ADR-023).
 
 ---
 
@@ -402,4 +418,4 @@ As alterações devem ser organizadas em commits coerentes, permitindo acompanha
 
 ## 🎓 Nota sobre a Origem
 
-A identificação acadêmica e a equipe original estão registradas no topo deste documento, na seção [Identificação Acadêmica](#-identificação-acadêmica). O código acadêmico foi removido do repositório em 2026-11-10 (ADR-001); o registro do que existia está em [`docs/levantamento_lacunas.md`](docs/levantamento_lacunas.md).
+A identificação acadêmica e a equipe original estão registradas no topo deste documento, na seção [Identificação Acadêmica](#-identificação-acadêmica). O código acadêmico foi removido do repositório em 2026-11-10 (ADR-001); a decisão e o contexto estão em [`docs/arquitetura/ADR.md`](docs/arquitetura/ADR.md) (ADR-001).

@@ -1,9 +1,11 @@
-# Modelo de Classes — Plataforma SaaS
+# Modelo de Classes — Servia
 
-> **Status:** baseline v2, revisado em 2026-11-10 conforme `docs/diretrizes.md`.
-> **Escopo:** modelo de domínio completo da plataforma (multi-tenant), incluindo entidades já existentes e as novas.
+> **Status:** v3 — revisado em 2026-11-14 contra o código em `src/Servia.Domain/`.
+> **Escopo:** modelo conceitual do domínio da plataforma multi-tenant. Representa o **sistema real**, não estruturas planejadas.
 > **Convenção:** entidades de negócio carregam `TenantId`; agregados protegem invariantes por métodos de domínio, não por setters públicos.
-> **Identidade:** não existe identidade global de usuário. Cada tenant tem seus próprios cadastros (diretrizes §3.1).
+> **Identidade:** não existe identidade global de usuário. Cada tenant tem seus próprios cadastros.
+> **Documentos relacionados:** arquitetura em [`ARCH.md`](ARCH.md); decisões em [`ADR.md`](ADR.md); catálogo em [`../produto/funcionalidades.md`](../produto/funcionalidades.md).
+> **Base:** verificado em 2026-11-14. Entidades, campos e interfaces conferidos contra o código.
 
 ---
 
@@ -11,18 +13,20 @@
 
 | Contexto | Responsabilidade | Agregados principais |
 | --- | --- | --- |
-| **Plataforma** | Tenants, planos, assinatura do SaaS, faturamento da plataforma, consumo tarifado | `Tenant`, `Plan`, `Subscription`, `PlatformInvoice`, `UsageQuota`, `CreditPurchase` |
-| **Identidade e Acesso** | Usuários, papéis, permissões, sessões | `User`, `Role`, `Permission`, `RefreshToken`, `Invitation` |
-| **Catálogo** | Serviços, categorias, combos, vínculo com profissionais | `Service`, `ServiceCategory`, `ServiceVariant`, `ServiceCombo` |
+| **Tenancy** | Tenants, planos, assinatura do SaaS, expediente | `Tenant`, `Plan`, `Subscription`, `PlanChange`, `EstablishmentSchedule` |
+| **Identidade e Acesso** | Usuários, papéis, permissões, sessões | `User`, `CustomRole`, `Role`, `Permission`, `RefreshToken`, `Invitation` |
+| **Catálogo** | Serviços, categorias, variações, combos | `Service`, `ServiceCategory`, `ServiceVariant`, `ServiceCombo` |
 | **Equipe** | Profissionais, jornada, bloqueios, vínculo com serviços | `Professional`, `WorkSchedule`, `ScheduleBlock`, `ProfessionalService` |
-| **Agendamento** | Disponibilidade, reservas, estados do atendimento, concorrência | `Appointment`, `AvailabilitySlot`, `WaitlistEntry`, `ScheduleLock` |
-| **Clientes** | Cadastro, histórico, preferências, consentimento | `Customer`, `CustomerPreference`, `ConsentRecord` |
-| **Financeiro** | Pagamentos, receitas, despesas, comissões — **domínio independente do billing** | `Payment`, `Transaction`, `CommissionRule`, `CommissionEntry` |
+| **Agendamento** | Reservas, estados do atendimento, concorrência, acesso | `Appointment`, `ScheduleLock`, `WaitlistEntry`, `AppointmentAccessPolicy` |
+| **Clientes** | Cadastro, preferências | `Customer`, `CustomerPreference` |
+| **Financeiro** | Pagamentos, transações, comissões, conciliação — **domínio independente do billing** | `Payment`, `Transaction`, `CommissionRule`, `CommissionEntry`, `CommissionStatement`, `Reconciliation` |
+| **Billing** | Faturas, cotas de consumo, compras de crédito, cobrança de alteração, régua | `PlatformInvoice`, `UsageQuota`, `CreditPurchase`, `SiteChangeCharge`, `DelinquencyPolicy`, `BillingRules` |
 | **Assinaturas do negócio** | Clubes, pacotes, benefícios | `MembershipPlan`, `Membership`, `ServicePackage`, `PackageUsage` |
-| **Site e Conteúdo** | Site por tenant, páginas, seções, publicação | `Site`, `SitePage`, `SiteSection`, `SitePublication` |
-| **IA** | Geração e personalização de site, guardrails, cobrança de alteração | `AiGenerationRequest`, `AiChangeSet`, `AiOperationLog`, `SiteChangeCharge` |
-| **Comunicação** | Notificações, templates, conversas WhatsApp | `Notification`, `MessageTemplate`, `Conversation`, `Message` |
-| **Auditoria** | Registro imutável de ações sensíveis | `AuditEntry` |
+| **Site e Conteúdo** | Site por tenant, páginas, seções, publicação, assets, onboarding | `Site`, `SitePage`, `SiteSection`, `SitePublication`, `SiteAsset`, `OnboardingSession`, `PublicSite` |
+| **IA** | Geração e personalização de site, guardrails, alteração cirúrgica | `AiGenerationRequest`, `AiChangeSet`, `AiSiteChange`, `AiOperationLog` |
+| **Comunicação** | Notificações, templates, conversas WhatsApp, política de envio | `Notification`, `MessageTemplate`, `Conversation`, `Message`, `MessagingPolicy` |
+| **Operações** | Auditoria, métricas, alertas, backup, retenção, LGPD | `AuditEntry`, `OperationMetrics`, `AlertRule`, `TenantBackup`, `RetentionPolicy`, `DataSubjectRequest`, `ProcessedEvent` |
+| **Políticas** | Políticas de segmento injetáveis | `IBookingPolicy`, `IAvailabilityPolicy`, `IOvernightPolicy` + implementações |
 
 ---
 
@@ -66,7 +70,7 @@ Plano comercial da plataforma.
 
 Métodos: `AllowsProfessionals(count)`, `AllowsCustomization(level)`, `AiAllowance()`.
 
-Invariantes: **não existe preço por profissional excedente** — ao ultrapassar `IncludedProfessionals`, o tenant precisa subir de plano (diretrizes §8.2 / decisão D9). Todos os planos incluem todos os módulos; a diferenciação é quantidade de profissionais, grau de personalização do site e **franquia mensal de IA**. A franquia de WhatsApp **não** é do plano: o consumo é tarifado e a franquia gratuita vem da Meta.
+Invariantes: **não existe preço por profissional excedente** — ao ultrapassar `IncludedProfessionals`, o tenant precisa subir de plano (diretrizes §8.2 / decisão D9). Todos os planos incluem todos os módulos; a diferenciação é quantidade de profissionais, grau de personalização do site e **franquia mensal de IA**. **WhatsApp não tem franquia nem cobrança intermediada pelo Servia** (ADR-023): o estabelecimento é titular da própria conta e paga diretamente à Meta.
 
 #### `Subscription`
 Assinatura de um tenant a um plano.
@@ -138,7 +142,7 @@ Invariantes:
 
 - `TryConsume` retorna falso quando `Consumed + quantity > Included + PurchasedExtra` **ou** quando ultrapassa `TenantLimit`.
 - O consumo nunca ultrapassa o limite sem autorização (diretrizes §7.1).
-- Para WhatsApp, `Included` reflete a **franquia gratuita da Meta repassada ao tenant** — não há subsídio de mensagens com custo.
+- Para WhatsApp, `Included` é **resíduo do modelo anterior** (Solution Partner, ADR-019, superado por ADR-023). Nenhuma cota de WhatsApp é criada em produção.
 - Para IA, `Included` é a **franquia mensal do plano**; o excedente é cobrado adicionalmente.
 - Os dois recursos são contabilizados e cobrados **separadamente**.
 
@@ -799,35 +803,58 @@ Somente inserção; sem métodos de alteração ou exclusão.
 
 | Tipo | Membros | Regras |
 | --- | --- | --- |
-| `Money` | `Amount: decimal`, `Currency: string` | `Amount >= 0`; moeda ISO 4217 |
-| `DateRange` | `Start: DateOnly`, `End: DateOnly` | `Start <= End` |
-| `TimeRange` | `Start: TimeOnly`, `End: TimeOnly` | `Start < End` |
-| `PhoneNumber` | `CountryCode`, `Number` | Normalização E.164 |
-| `EmailAddress` | `Value` | Validação de formato |
+| `Money` | `Amount: decimal`, `Currency: string` | `Amount >= 0`; moeda ISO 4217; `Add`, `Subtract`, `MultiplyBy`, `DivideBy` |
+| `TimeRange` | `StartMinutes: int`, `EndMinutes: int` | `Start < End`; `Overlaps`, `IsContainedIn`; `MinutesPerDay = 1440` |
+| `SiteTheme` | Cores, fonte, layout | `record struct`; usado por `Site.ChangeTheme` |
+
+> **Correção (2026-11-14):** `DateRange`, `PhoneNumber` e `EmailAddress` **não existem** no código. Foram removidos desta tabela. `SiteTheme` foi incluído por ser objeto de valor real do contexto de Sites.
+
+### 3.1. Exceções de domínio
+
+| Tipo | Uso |
+| --- | --- |
+| `DomainRuleException` | Violação de regra de negócio → `400` |
+| `NotFoundException` | Recurso inexistente → `404` |
+| `ConcurrencyConflictException` | Conflito de concorrência otimista → `409` |
 
 ---
 
 ## 4. Interfaces de domínio e aplicação
 
+> **Correção (2026-11-14):** a tabela anterior listava 10 interfaces que **não existem** no código (`ITenantMembershipValidator`, `IWhatsAppPartnerGateway`, `IConsumptionBillingService`, `ICommissionPolicy`, `IBenefitPolicy`, `IUsageQuotaService`, `INotificationSender`, `IRepository<T>`, `IUnitOfWork`, `IClock`). Foram removidas. A tabela abaixo lista as **30 interfaces reais** do domínio.
+
 | Interface | Responsabilidade |
 | --- | --- |
 | `ITenantScoped` | Marca entidades de negócio que possuem `TenantId`; base do filtro global do EF Core |
 | `ITenantContext` | Resolve o tenant da requisição e alimenta o filtro global |
-| `ITenantMembershipValidator` | Verifica que o usuário autenticado pertence ao tenant em que tenta atuar (diretrizes §3) |
-| `IWhatsAppPartnerGateway` | Abstrai a operação do WhatsApp como Solution Partner da Meta: envio, tarifação e repasse da franquia gratuita |
-| `IConsumptionBillingService` | Apura consumo por recurso e gera linhas de cobrança separadas (WhatsApp e IA) |
-| `IBookingPolicy` | Política de agendamento por segmento: antecedência, sinal, no-show, cancelamento |
-| `IAvailabilityPolicy` | Política de disponibilidade por segmento: granularidade, duração variável, múltiplos blocos |
-| `ICommissionPolicy` | Política de cálculo de comissão |
-| `IBenefitPolicy` | Política de consumo de clube e pacote |
-| `IUsageQuotaService` | Mede e limita consumo por tenant (WhatsApp, alterações de site) |
-| `IPaymentGateway` | Abstrai o gateway de pagamento; implementação confirmada: Mercado Pago (cobrança, assinatura, estorno, webhook) |
-| `IMessagingProvider` | Abstrai Cloud API da Meta e provedores alternativos |
-| `IAiSiteGenerator` | Abstrai o provedor de LLM para geração de site |
-| `INotificationSender` | Envio por e-mail, WhatsApp e SMS |
-| `IRepository<T>` | Contrato genérico de repositório por agregado |
-| `IUnitOfWork` | Transação e commit por caso de uso |
-| `IClock` | Abstração de tempo para testes determinísticos |
+| `IAppointmentRepository` | Persistência de agendamentos, travas e clientes |
+| `IAvailabilityRepository` | Disponibilidade do profissional e do estabelecimento |
+| `IUserRepository` | Persistência de usuários |
+| `IRefreshTokenRepository` | Sessões e revogação em massa |
+| `ICustomRoleRepository` | Papéis personalizados |
+| `ISubscriptionRepository` | Assinaturas e histórico de planos |
+| `IPlanRepository` | Consulta de planos |
+| `IProfessionalCountReader` | Contagem de profissionais que ocupam vaga |
+| `IAiUsageRepository` | Cotas de consumo de IA |
+| `IOnboardingRepository` | Sessões de onboarding, propostas, sites e assets |
+| `IPublicSiteReader` | Resolução de site publicado por host |
+| `ISiteAssetRepository` | Persistência de assets do site |
+| `ISiteAssetStorage` | Armazenamento físico de assets |
+| `IPublicBookingThrottle` | Limite de tentativas de agendamento público |
+| `ISignupThrottle` | Limite de cadastros públicos |
+| `IJobRepository` | Consultas das rotinas periódicas |
+| `IWebhookRepository` | Eventos processados, faturas e conversas |
+| `IWebhookSignatureValidator` | Validação HMAC de webhook |
+| `IWebhookTenantResolver` | Resolução do tenant de um webhook |
+| `IPaymentGateway` | Gateway de pagamento (Mercado Pago) |
+| `IMessagingProvider` | Provedor de mensageria (WhatsApp) |
+| `IAiSiteGenerator` | Provedor de LLM para geração de site |
+| `IAiConversationProvider` | Provedor de LLM para conversa de onboarding |
+| `IPasswordHasher` | Hash e verificação de senha |
+| `ITokenIssuer` | Emissão de access token |
+| `IBookingPolicy` | Política de agendamento por segmento |
+| `IAvailabilityPolicy` | Política de disponibilidade por segmento |
+| `IOvernightPolicy` | Política de atendimento que ultrapassa a meia-noite |
 
 ---
 
@@ -1472,11 +1499,197 @@ classDiagram
 7. **`AvailabilitySlot` não é persistido** — é calculado a partir de `WorkSchedule`, `ScheduleBlock` e `Appointment` existentes.
 8. **Não existe identidade global de usuário** (diretrizes §3.1) — a mesma pessoa física tem registros `User` independentes em cada tenant. Não há tabela de identidade compartilhada, não há vínculo entre os registros e o e-mail é único apenas dentro do tenant. Isso é intencional: reforça o isolamento e evita uma entidade global que atravesse a fronteira dos tenants.
 9. **`ScheduleLock` é a garantia de concorrência** (diretrizes §4.1) — a verificação de disponibilidade **não** é suficiente sozinha. A reserva adquire a trava dentro de transação, e o índice único parcial em `(TenantId, ProfessionalId, Date, StartTime)` faz o banco rejeitar a segunda reserva concorrente. A trava tem expiração para não bloquear a agenda em caso de falha.
-10. **`UsageQuota` mede consumo tarifado, não bloqueio de módulo** (diretrizes §7.1) — o consumo é medido por tenant e por período, e `TryConsume` falha ao atingir o limite. O bloqueio acontece no servidor, nunca no cliente. Todos os planos têm acesso a WhatsApp e IA; o que varia é a franquia incluída.
+10. **`UsageQuota` mede consumo, não bloqueio de módulo** — o consumo é medido por tenant e por período. Todos os planos têm acesso a todos os módulos; o que varia é a franquia de IA incluída. `TryConsume` existe para recursos genéricos; hoje só a cota de IA é criada em produção (`AiUsageService`).
 11. **`SiteChangeCharge` separa geração de alteração** — a geração inicial e a publicação estão incluídas no plano; apenas alterações posteriores ao lançamento geram cobrança avulsa.
-12. **Políticas em vez de condicionais de segmento** (diretrizes §2) — `IBookingPolicy`, `IAvailabilityPolicy`, `ICommissionPolicy` e `IBenefitPolicy` são injetadas no núcleo. O núcleo não consulta `Segment` para decidir comportamento.
+12. **Políticas em vez de condicionais de segmento** — `IBookingPolicy`, `IAvailabilityPolicy` e `IOvernightPolicy` existem com implementações. **`ICommissionPolicy` e `IBenefitPolicy` não existem.** As políticas existentes **não são injetadas** em `AppointmentService`/`AvailabilityService` — só aparecem em testes. `IOvernightPolicy` é a única aplicada no fluxo (`Appointment.Create`).
 13. **Financeiro e billing são domínios independentes** (diretrizes §8) — `Payment`/`Transaction`/`CommissionEntry` pertencem ao tenant; `PlatformInvoice`/`Subscription`/`SiteChangeCharge` pertencem à plataforma. Nenhum agregado de um contexto referencia o outro em suas regras.
-14. **WhatsApp é operado pelo Servia como Solution Partner** — o Servia centraliza a integração e o pagamento à Meta. O estabelecimento não contrata a Meta diretamente; consome o serviço operado. A operação depende de aprovação e linha de crédito junto à Meta.
-15. **Consumo de WhatsApp é tarifado, sem subsídio** — mensagens com custo **não** são incluídas gratuitamente nos planos. A franquia gratuita da Meta é **repassada** ao tenant (`UsageQuota.Included`), não retida pela plataforma. O estabelecimento escolhe entre cobrança automática (`Automatic`) e compra antecipada de créditos (`PrepaidCredits`), e pode definir `TenantLimit` próprio.
-16. **Franquia de IA é própria do plano** — `Plan.IncludedAiUnits` define a franquia mensal; o excedente é cobrado adicionalmente. A franquia de IA é independente da de WhatsApp.
-17. **WhatsApp e IA são cobrados em linhas separadas** — `IConsumptionBillingService` apura cada recurso e gera linhas distintas na fatura, permitindo ao tenant identificar a origem do custo e controlar gastos.
+14. **WhatsApp: o estabelecimento é titular da própria conta** — decisão de 2026-11-14. O estabelecimento configura o pagamento diretamente na Meta; o Servia fornece integração, orientação e estimativas de custo, mas **não intermedia a cobrança**, não vende créditos e não mantém carteira ou franquia. A integração está **pausada**. `UsageQuota` mantém `QuotaResource.WhatsAppMessages` como resíduo do modelo anterior, sem fluxo de produção.
+15. **Consumo de IA: 1 crédito = 10.000 tokens** — `UsageQuota.AiTokensPerCredit`. O consumo é acumulado pelo total real de tokens (entrada + saída) informado pelo provedor, sem arredondar por operação (`AccumulateAiTokens`). A franquia é mensal (`Plan.IncludedAiUnits`: 100/500/1500/5000). Ao esgotar, `AiUsageService.EnsureAvailableAsync` **bloqueia** novas operações.
+16. **Compra de créditos e aquisição automática** — `CreditPurchase` existe como entidade (compra manual) e `UsageQuota.AddExtra` aplica os créditos após pagamento confirmado. **Nenhum fluxo de produção os utiliza.** A autorização de aquisição automática **não existe** como entidade. Não há cobrança ilimitada por token excedente.
+17. **`SiteChangeCharge` separa geração de alteração** — a geração inicial e a publicação estão incluídas no plano; apenas alterações posteriores ao lançamento geram cobrança. A tabela de preços aprovada (R$ 39 a partir de R$ 499, R$ 120/hora fora da tabela) **não existe no código**; a entidade existe sem fluxo.
+18. **`AiSiteChange` é alteração cirúrgica** — diferente de `AiChangeSet` (site inteiro na geração inicial), `AiSiteChange` identifica página, componente e campo. `SiteChangeApplier` aplica só o aprovado. **Infraestrutura sem fluxo**: `AiSiteChange.Create` e `SiteChangeApplier.Apply` têm 0 chamadores em produção.
+19. **`CustomRole` permite papéis personalizados** — entidade `ITenantScoped` com permissões atribuíveis. `ManageBilling` e permissões de plataforma são bloqueadas. `RolePermissions.EnsureCanGrant` impede escalonamento; auto-atribuição bloqueada.
+20. **`Professional.IsServiceProvider` desacopla papel de atuação** — o perfil de acesso não define ocupação de vaga no plano. `OccupiesPlanSlot = IsActive && IsServiceProvider`.
+21. **`EstablishmentSchedule` é independente dos profissionais** — o expediente descreve quando o estabelecimento atende ao público; **não** restringe agendamentos. Sem configuração, `ClosedByDefault()`.
+22. **`OnboardingSession` conduz o onboarding com IA** — estados `Collecting → Reviewing → AwaitingApproval → Approved → Published`. Nenhuma transição é automática; publicar exige aprovação explícita.
+23. **`PublicSite` é projeção de leitura** — `PublicSiteReader` resolve o site publicado por host e devolve uma projeção (`PublicSite`, `PublicSitePage`, `PublicSiteSection`), não a entidade `Site` completa.
+24. **`AppointmentAccessPolicy` protege a agenda** — profissional comum só administra a própria agenda; recepcionista/administrador/proprietário, qualquer agenda.
+
+---
+
+## 7. Regras de negócio do domínio de agendamento
+
+> **Origem:** especificação verificável do domínio de agendamento, consolidada aqui a partir da documentação de avaliação. Cada regra tem critério de aceitação verificável por teste nomeado.
+
+### R1 — Só agendamentos confirmados podem mudar de estado
+
+**Enunciado:** as transições `Cancel`, `Complete` e `Reschedule` só são permitidas a partir do estado `Confirmed`.
+
+**Objeto responsável:** `Appointment` (método privado `EnsureConfirmed`).
+
+**Invariante protegida:** um agendamento em estado terminal (`Cancelled` ou `Completed`) nunca volta a ser alterado.
+
+| # | Critério | Verificação |
+| --- | --- | --- |
+| R1-CA1 | Cancelar a partir de `Confirmed` é permitido | `AppointmentTests.Cancelar_Agendamento_Confirmado_Muda_Para_Cancelado` |
+| R1-CA2 | Cancelar a partir de `Cancelled` é rejeitado | `AppointmentTests.Cancelar_Agendamento_Ja_Cancelado_Lanca_Excecao` |
+| R1-CA3 | Remarcar a partir de `Cancelled` é rejeitado | `AppointmentTests.Remarcar_Agendamento_Cancelado_Lanca_Excecao` |
+
+### R2 — Não é possível concluir um atendimento futuro
+
+**Enunciado:** a conclusão exige que a data e hora do agendamento sejam anteriores ou iguais ao instante atual.
+
+**Objeto responsável:** `Appointment.Complete`.
+
+| # | Critério | Verificação |
+| --- | --- | --- |
+| R2-CA1 | Concluir atendimento passado é permitido | `AppointmentTests.Concluir_Atendimento_Passado_Muda_Para_Concluido` |
+| R2-CA2 | Concluir atendimento futuro é rejeitado | `AppointmentTests.Concluir_Atendimento_Futuro_Lanca_Excecao` |
+
+### R3 — A jornada exige início anterior ao fim
+
+**Enunciado:** uma jornada de trabalho só é válida se o horário de início for estritamente anterior ao de fim.
+
+**Objeto responsável:** `WorkSchedule` (construtor).
+
+| # | Critério | Verificação |
+| --- | --- | --- |
+| R3-CA1 | Jornada com início anterior ao fim é aceita | `WorkScheduleTests.Criar_Jornada_Valida_Aceita` |
+| R3-CA2 | Jornada com início igual ao fim é rejeitada | `WorkScheduleTests.Criar_Jornada_Inicio_Igual_Fim_Lanca_Excecao` |
+| R3-CA3 | Jornada com início posterior ao fim é rejeitada | `WorkScheduleTests.Criar_Jornada_Inicio_Maior_Fim_Lanca_Excecao` |
+
+### R4 — O serviço deve caber integralmente na jornada
+
+**Enunciado:** um horário só é válido se o intervalo `[início, início + duração]` estiver contido em `[início da jornada, fim da jornada]`.
+
+**Objeto responsável:** `WorkSchedule.FitsWithinSchedule`.
+
+### R5 — Dois agendamentos do mesmo profissional não podem se sobrepor
+
+**Enunciado:** a sobreposição é verificada no serviço de aplicação, não na entidade.
+
+**Objeto responsável:** `AppointmentService.HasOverlap`.
+
+**Garantia de concorrência:** a verificação prévia não é suficiente. A reserva usa transação `Serializable` + `ScheduleLock` com índice único parcial.
+
+### R6 — Atendimento que ultrapassa a meia-noite depende da política
+
+**Enunciado:** `TimeRange` representa um intervalo dentro de um dia. O atendimento que termina após a meia-noite é decidido por `IOvernightPolicy`.
+
+**Objeto responsável:** `Appointment.Create` (aplica `NoOvernightPolicy` por padrão).
+
+| Política | Comportamento |
+| --- | --- |
+| `NoOvernightPolicy` | Proíbe atendimento que termina após a meia-noite (padrão) |
+| `AllowOvernightPolicy` | Permite, com limite de 4 horas após a meia-noite |
+
+---
+
+## 8. Decisões de modelagem
+
+> **Origem:** análise de modelagem consolidada a partir da documentação de avaliação. Cada decisão compara alternativas e justifica a escolha implementada.
+
+### Decisão 1 — Onde proteger a regra de não sobreposição
+
+**Pergunta:** a regra "dois agendamentos do mesmo profissional não podem se sobrepor" depende de mais de um agendamento. Onde protegê-la?
+
+| Alternativa | Vantagens | Desvantagens |
+| --- | --- | --- |
+| **A — Na entidade `Appointment`** | A regra fica junto do dado | A entidade dependeria de coleção externa; quebra o princípio de que um agregado protege apenas o próprio estado; toda criação carregaria a agenda inteira |
+| **B — No serviço `AppointmentService`** ✅ | O agregado protege só o próprio estado; a consulta ao conjunto fica no serviço; testável isoladamente | A regra não fica junto do dado |
+
+**Escolha:** alternativa B. `AppointmentService.HasOverlap` verifica a sobreposição; `ScheduleLock` garante a concorrência no banco.
+
+### Decisão 2 — Como representar a variação de disponibilidade entre profissionais
+
+**Pergunta:** profissionais diferentes têm regras de disponibilidade diferentes. Como representar sem espalhar condicionais?
+
+| Alternativa | Vantagens | Desvantagens |
+| --- | --- | --- |
+| **A — Booleano em `WorkSchedule`** | Simples, sem novas classes | Cada variação exige novo booleano; comportamento disperso em condicionais; sem contrato explícito |
+| **B — Contrato `IAvailabilityPolicy` com duas implementações** ✅ | Contrato explícito; variação visível no modelo; testável por implementação | Uma classe a mais |
+
+**Escolha:** alternativa B. `StandardAvailabilityPolicy` e `ExtendedAvailabilityPolicy` implementam o contrato.
+
+> **Nota de estado (2026-11-14):** as políticas existem e são testadas, mas **não são injetadas** em `AppointmentService`/`AvailabilityService`. A decisão de modelagem está implementada; o uso no fluxo, não.
+
+---
+
+## 9. Defeito corrigido: atendimento que ultrapassa a meia-noite
+
+> **Origem:** registro de depuração consolidado a partir da documentação de avaliação.
+
+### Defeito
+
+`TimeRange.From` calculava `EndMinutes = StartMinutes + durationMinutes` sem verificar se o resultado ultrapassava o fim do dia (1440 minutos). Um agendamento às 23:50 com 60 minutos produzia `EndMinutes = 1490`, representando 00:50 do dia seguinte, mas o agendamento continuava pertencendo ao dia anterior.
+
+**Evidência de reprodução:** `src/Servia.Tests/Repro/DefectReproTests.cs`.
+
+### Causa raiz
+
+`TimeRange` foi desenhado para representar um intervalo **dentro de um dia**, mas `From` não impunha essa invariante. A causa não é a localização do código, mas a ausência da validação que dá sentido ao tipo.
+
+### Correção
+
+A regra não é global — depende do segmento. Foi introduzida a política `IOvernightPolicy` (ADR-018):
+
+- `NoOvernightPolicy` — padrão. Proíbe atendimento que termina após a meia-noite.
+- `AllowOvernightPolicy` — permite, com limite de 4 horas após a meia-noite.
+
+`Appointment.Create` recebe a política como parâmetro opcional. Sem política explícita, aplica `NoOvernightPolicy` — o padrão é restritivo, nunca permissivo por omissão.
+
+### Alternativas descartadas
+
+| Alternativa | Motivo |
+| --- | --- |
+| Proibir globalmente em `TimeRange.From` | Quebraria segmentos com sessões longas |
+| Booleano `AllowsOvernight` no agendamento | A variação é de comportamento, não de dado; exigiria condicionais no núcleo |
+| Validar apenas em `Appointment.Create` | Remédio local, sem contrato explícito nem testabilidade isolada |
+
+---
+
+## 10. Revisão de código: endpoint de criação de agendamento
+
+> **Origem:** revisão de código consolidada a partir da documentação de avaliação.
+
+**Alteração revisada:** commit `8a6843d` — *feat(api): implementa o endpoint de criação de agendamento (fluxo F1)*.
+**Ponto de comparação:** `6730f61`.
+
+**Como reproduzir:** `git diff 6730f61 8a6843d`.
+
+### Arquivos modificados
+
+| Arquivo | Natureza |
+| --- | --- |
+| `src/Servia.Api/Controllers/AppointmentsController.cs` | Novo |
+| `src/Servia.Api/Contracts/CreateAppointmentRequest.cs` | Novo |
+| `src/Servia.Api/Contracts/AppointmentResponse.cs` | Novo |
+| `src/Servia.Api/Program.cs` | Modificado |
+| `src/Servia.Api/Servia.Api.csproj` | Modificado |
+| `src/Servia.Tests/Api/AppointmentsEndpointTests.cs` | Novo |
+
+### Parecer
+
+**Decisão: ACEITAR com ressalvas.**
+
+**Fundamentos:** o requisito está implementado e verificado; as propriedades de POO foram preservadas (encapsulamento, coesão, acoplamento, responsabilidades); não há mudanças fora do escopo; a separação de camadas foi mantida.
+
+**Ressalvas registradas:**
+
+| # | Ressalva | Situação em 2026-11-14 |
+| --- | --- | --- |
+| R1 | `DurationMinutes` vem do cliente, mas o comentário diz que vem do serviço | **Continua** — `AgendaController` usa `request.DurationMinutes` |
+| R2 | `EnsureCreatedAsync` em desenvolvimento | **Resolvida** — `MigrateAsync` em todos os ambientes (ADR-022) |
+| R3 | Não há endpoint de leitura por id | **Continua** — não existe `GET /appointments/{id}` |
+
+---
+
+## 11. Referências
+
+| Assunto | Documento |
+| --- | --- |
+| Arquitetura de solução | [`ARCH.md`](ARCH.md) |
+| Decisões arquiteturais e comerciais | [`ADR.md`](ADR.md) |
+| Catálogo de funcionalidades | [`../produto/funcionalidades.md`](../produto/funcionalidades.md) |
+| Visão e princípios do produto | [`../produto/descricao_produto.md`](../produto/descricao_produto.md) |
+| Fases e estado de execução | [`../gerenciamento/Roadmap.md`](../gerenciamento/Roadmap.md) |

@@ -129,30 +129,28 @@ curl -s https://<host>/health
 
 ### 3.7. API não sobe: "pending model changes"
 
+> **Atualização (2026-11-14):** esta seção descrevia um defeito causado por SQLite no design-time. **SQLite foi removido** (ADR-022): PostgreSQL 17 é o único provider em todos os ambientes. O defeito **não pode mais ocorrer** dessa forma.
+
 **Sintoma:** o container sai com código 139 e o log mostra `PendingModelChangesWarning`.
 
-**Causa:** o snapshot da migration foi gerado com um provider diferente do runtime. O EF Core 10 compara o modelo em runtime com o snapshot e detecta diferenças de provider como se fossem mudanças de schema.
+**Causa possível:** o snapshot de migrations está dessincronizado do modelo — uma alteração de entidade foi feita sem gerar a migration correspondente.
 
 **Diagnóstico:**
 
 ```bash
-# O design-time usa o provider padrao (SQLite); o runtime usa Postgres.
-grep -n "Provider" src/Servia.Api/appsettings.json
-grep -n "Database__Provider" docker-compose.yml
+cd src
+dotnet ef migrations has-pending-model-changes --project Servia.Infrastructure\Servia.Infrastructure.csproj --startup-project Servia.Api\Servia.Api.csproj
 ```
 
-**Correção:** regenerar a migration com o **mesmo provider** do runtime:
+**Correção:** gerar a migration pendente com o provider único (PostgreSQL):
 
 ```bash
 cd src
-set Database__Provider=Postgres
 set ConnectionStrings__DefaultConnection=Host=localhost;Port=5432;Database=servia;Username=servia;Password=servia_dev_password
-..\build.cmd ef migrations add InitialCreate --project Servia.Infrastructure\Servia.Infrastructure.csproj --startup-project Servia.Api\Servia.Api.csproj --output-dir Persistence\Migrations
+..\build.cmd ef migrations add <NomeDaMigration> --project Servia.Infrastructure\Servia.Infrastructure.csproj --startup-project Servia.Api\Servia.Api.csproj --output-dir Persistence\Migrations
 ```
 
-**Verificação:** o snapshot deve conter `Npgsql`, não `Sqlite`.
-
-**Registrado em 2026-11-11.** O defeito estava latente desde F11: em `Production` o `MigrateAsync` não rodava, então a divergência nunca era detectada.
+**Verificação:** `MigrationTests.Nao_Ha_Migration_Pendente` passa; o snapshot contém `Npgsql`.
 
 ---
 
@@ -189,22 +187,40 @@ curl -f https://<host>/health
 
 ### 5.1. Backup
 
-O backup é **por tenant**. Restaurar um estabelecimento não afeta os demais.
+> **Atualização (2026-11-14):** o modelo é **banco único** (ADR-002). O backup é do **banco inteiro**, não por tenant. A versão anterior dizia "por tenant", mas o comando sempre foi `pg_dump` completo — a descrição estava incorreta.
+
+O script `scripts/backup.sh` executa `pg_dump`, calcula o checksum SHA-256 e remove backups mais antigos que a retenção (30 dias por padrão).
 
 ```bash
-# Backup completo (infraestrutura)
-docker compose exec database pg_dump -U servia servia > backup-$(date +%F).sql
+# Backup completo
+./scripts/backup.sh
+
+# Com URL explícita
+DATABASE_URL=postgres://servia:senha@host:5432/servia ./scripts/backup.sh
 ```
 
-**Verificação:** o backup tem checksum registrado em `TenantBackup`. Um backup sem checksum não é confiável.
+**Agendamento:** o script não é agendado pelo repositório. Configure no host (cron) ou no orquestrador:
+
+```bash
+# cron diário às 3h
+0 3 * * * /caminho/scripts/backup.sh >> /var/log/servia-backup.log 2>&1
+```
+
+**Estado atual:** o checksum é gerado em arquivo `.sha256`, mas **não é registrado em `TenantBackup`** — a entidade existe, sem fluxo. A restauração não é testada periodicamente.
 
 ### 5.2. Restauração
 
 ```bash
-docker compose exec -T database psql -U servia servia < backup-2026-11-10.sql
+# Verificar o checksum antes de restaurar
+sha256sum -c servia-20260101T030000.sql.sha256
+
+# Restaurar o banco inteiro
+docker compose exec -T database psql -U servia servia < servia-20260101T030000.sql
 ```
 
-**Regra:** restaurar apenas no próprio tenant de origem. Restaurar dados de um tenant em outro viola o isolamento.
+**Regra:** a restauração é do **banco inteiro**. Restaurar um backup em um ambiente diferente exige validação de isolamento — os dados de todos os tenants são restaurados juntos.
+
+**Verificação:** após restaurar, executar `MigrationTests` e verificar `/health/ready`.
 
 ---
 

@@ -1,8 +1,9 @@
-# Architecture Decision Records (ADR)
+# Architecture Decision Records (ADR) — Servia
 
-> **Status:** v4 — revisada em 2026-11-11. Todos os 22 ADRs estão aceitos.
+> **Status:** v5 — revisada em 2026-11-14. 27 ADRs registrados (ADR-001 a ADR-027).
 > **Formato:** [ADR-NNN] Título — Status — Data.
-> **Decisões:** confirmadas pelo responsável do produto; ver também `docs/funcionalidades.md` seção 0 e `docs/gerenciamento/ARCH.md` seção 13.
+> **Decisões:** confirmadas pelo responsável do produto; ver também [`../produto/funcionalidades.md`](../produto/funcionalidades.md) §0 e [`ARCH.md`](ARCH.md) §16.
+> **Nota:** ADR-019 e ADR-021 foram **superados** por decisões posteriores (ADR-023 e ADR-024). O registro original é preservado; o status indica a substituição.
 
 ---
 
@@ -13,24 +14,30 @@
 | ADR-001 | Construir o Servia como sistema novo, sem reaproveitar o código acadêmico | ✅ Aceito |
 | ADR-002 | Multi-tenancy por banco único com `TenantId` | ✅ Aceito |
 | ADR-003 | PostgreSQL como banco de produção | ✅ Aceito |
-| ADR-004 | Manter arquitetura em camadas com interfaces de repositório | Aceito |
+| ADR-004 | Manter arquitetura em camadas com interfaces de repositório | ✅ Aceito |
 | ADR-005 | Abstrair gateways de pagamento com `IPaymentGateway` | ✅ Aceito |
 | ADR-006 | WhatsApp via Cloud API oficial da Meta com abstração | ✅ Aceito |
 | ADR-007 | Site gerado por IA sobre biblioteca de componentes controlada | ✅ Aceito |
-| ADR-008 | Aprovação obrigatória de alterações geradas por IA | Aceito |
-| ADR-009 | Separação entre `User` (identidade) e `Customer` (relacionamento) | Aceito |
-| ADR-010 | Generalizar `Barber` em `Professional` | Aceito |
+| ADR-008 | Aprovação obrigatória de alterações geradas por IA | ✅ Aceito |
+| ADR-009 | Separação entre `User` (identidade) e `Customer` (relacionamento) | ✅ Aceito |
+| ADR-010 | Generalizar `Barber` em `Professional` | ✅ Aceito |
 | ADR-011 | Docker + GitHub Actions + PaaS na primeira fase | ✅ Aceito |
 | ADR-012 | LGPD: tenant como controlador, plataforma como operadora | ✅ Aceito |
-| ADR-013 | Auditoria imutável por inserção | Aceito |
-| ADR-014 | Objeto de valor `Money` no lugar de `decimal` puro | Aceito |
+| ADR-013 | Auditoria imutável por inserção | ✅ Aceito |
+| ADR-014 | Objeto de valor `Money` no lugar de `decimal` puro | ✅ Aceito |
 | ADR-015 | Identidade de usuário independente por tenant | ✅ Aceito |
 | ADR-016 | Isolamento multi-tenant em todas as camadas | ✅ Aceito |
 | ADR-017 | Controle de concorrência na reserva de horário | ✅ Aceito |
 | ADR-018 | Núcleo universal com especialização por políticas | ✅ Aceito |
-| ADR-019 | Operação e cobrança do WhatsApp como Solution Partner | ✅ Aceito |
+| ADR-019 | Operação e cobrança do WhatsApp como Solution Partner | ⛔ **Superado por ADR-023** |
 | ADR-020 | Separação entre financeiro do tenant e billing da plataforma | ✅ Aceito |
-| ADR-021 | Franquia mensal de IA e cobrança separada por recurso | ✅ Aceito |
+| ADR-021 | Franquia mensal de IA e cobrança separada por recurso | ⛔ **Superado por ADR-024** |
+| ADR-022 | Remover o SQLite e usar PostgreSQL 17 em todos os ambientes | ✅ Aceito |
+| ADR-023 | WhatsApp: estabelecimento titular da conta e pagamento direto à Meta | ✅ Aceito (2026-11-14) |
+| ADR-024 | Consumo de IA por tokens: 1 crédito = 10.000 tokens | ✅ Aceito (2026-11-14) |
+| ADR-025 | Distinção entre Owner e Administrator, papéis personalizados e claim `perm` | ✅ Aceito (2026-11-13) |
+| ADR-026 | Revogação de tokens ao alterar permissões e anti-escalonamento | ✅ Aceito (2026-11-13) |
+| ADR-027 | Cobrança de alterações de site após a publicação | ✅ Aceito (2026-11-14) |
 
 ---
 
@@ -585,3 +592,199 @@ Adotar a alternativa 1: **PostgreSQL 17 é o único provider**, em desenvolvimen
 - **Mitigação:** o container é reutilizado por classe de teste, não por teste; a lentidão é aceitável diante da confiabilidade ganha.
 
 > **Nota:** esta decisão substitui a parte do ADR-003 que previa SQLite para testes locais rápidos.
+
+---
+
+## ADR-023 — WhatsApp: estabelecimento titular da conta e pagamento direto à Meta
+
+**Status:** ✅ Aceito
+**Data:** 2026-11-14
+**Substitui:** ADR-019
+
+### Contexto
+
+O ADR-019 decidiu que o Servia operaria o WhatsApp como **Solution Partner**, centralizando o pagamento à Meta e repassando o consumo tarifado ao estabelecimento. Essa decisão exigia aprovação como Solution Partner, linha de crédito junto à Meta e uma estrutura de cobrança intermediada (franquia, créditos, carteira, repasse).
+
+A operação revelou custos e riscos que não se justificam: o Servia assumiria risco de crédito entre o consumo e o repasse, e a cobrança intermediada adicionaria complexidade comercial sem contrapartida clara.
+
+### Alternativas
+
+1. **Estabelecimento titular da própria conta, pagamento direto à Meta** — o Servia fornece integração e experiência; a relação comercial de cobrança é entre o estabelecimento e a Meta.
+2. **Manter o modelo Solution Partner (ADR-019)** — operação centralizada, mas com risco de crédito e complexidade de repasse.
+3. **Não integrar WhatsApp** — perde uma funcionalidade relevante do produto.
+
+### Decisão
+
+Adotar a alternativa 1:
+
+- Cada estabelecimento é **titular da própria conta** WhatsApp Business Platform.
+- O estabelecimento **configura o pagamento diretamente na Meta**.
+- O Servia fornece a **integração e a experiência de uso**, quando disponível.
+- O Servia **pode orientar** sobre configuração, categorias, políticas e custos.
+- O Servia **pode apresentar previsões estimadas** de custo, deixando explícito que a cobrança efetiva é determinada pela Meta.
+- O Servia **não apresenta estimativas próprias como faturas** ou valores efetivamente cobrados.
+- **Não há** franquia, créditos, carteira, consumo tarifado ou repasse intermediado pelo Servia.
+
+**Situação:** a integração está **pausada**, condicionada à viabilidade e aos requisitos de acesso da Meta. Não é atividade de implementação imediata.
+
+### Consequências
+
+- **Positivas:** o Servia não assume risco de crédito; sem complexidade de repasse; sem franquia ou carteira a manter; a relação comercial de cobrança é do estabelecimento com a Meta.
+- **Negativas:** a integração depende de cada estabelecimento configurar a própria conta; o Servia não controla o consumo; a experiência pode variar por estabelecimento.
+- **Mitigação:** orientação ao cliente, estimativa de custo e acompanhamento operacional, quando a integração for retomada.
+
+### Requisitos futuros (não são tarefas imediatas)
+
+Conexão opcional da conta, orientação ao cliente, estimativa de custo, acompanhamento operacional e administração da conexão. Cuidados arquiteturais: isolamento por tenant, proteção de credenciais e validação de webhooks.
+
+---
+
+## ADR-024 — Consumo de IA por tokens: 1 crédito = 10.000 tokens
+
+**Status:** ✅ Aceito
+**Data:** 2026-11-14
+**Revisa:** ADR-021
+
+### Contexto
+
+O ADR-021 definiu franquia mensal de IA por plano e cobrança de excedente. A implementação inicial tratava a franquia em "unidades" sem uma conversão explícita para o que o provedor informa (tokens). Isso tornava a contabilização imprecisa e a comparação com o custo real impossível.
+
+### Alternativas
+
+1. **Crédito com conversão explícita (1 crédito = 10.000 tokens), acumulação pelo total real, bloqueio ao esgotar** — previsível, preciso e sem cobrança ilimitada.
+2. **Cobrança por token excedente** — risco de custo ilimitado para o cliente.
+3. **Manter "unidades" sem conversão** — impreciso.
+
+### Decisão
+
+Adotar a alternativa 1:
+
+- **1 crédito = 10.000 tokens**, considerando a soma de tokens de entrada e saída informada pelo provedor.
+- O consumo é **acumulado com base no total real**, sem arredondamento por operação.
+- A franquia é **mensal** (`Plan.IncludedAiUnits`: 100/500/1500/5000).
+- Ao esgotar a franquia, o comportamento padrão é **bloquear** novas operações e **notificar** o cliente.
+- O cliente pode **comprar créditos adicionais manualmente** ou **autorizar previamente a aquisição automática** de pacotes definidos.
+- **Não existe** autorização para cobrança ilimitada ou cobrança automática por cada token excedente.
+
+### Consequências
+
+- **Positivas:** contabilização precisa; custo previsível; sem cobrança ilimitada; a franquia é comparável ao custo real do provedor.
+- **Negativas:** exige conversão e acumulação precisas; a compra adicional e a aquisição automática ainda não estão implementadas.
+- **Mitigação:** `UsageQuota.AiTokensPerCredit` e `AccumulateAiTokens` implementam a conversão sobre o total acumulado.
+
+### Estado de implementação
+
+| Item | Estado |
+| --- | --- |
+| Conversão 1 crédito = 10.000 tokens | ✅ Implementado |
+| Acumulação pelo total real | ✅ Implementado |
+| Franquia mensal por plano | ✅ Implementado |
+| Bloqueio ao esgotar | ✅ Implementado |
+| Notificação ao esgotar | ❌ Não implementado |
+| Compra manual de créditos | ❌ Não implementado |
+| Autorização de aquisição automática | ❌ Não implementado |
+
+---
+
+## ADR-025 — Distinção entre Owner e Administrator, papéis personalizados e claim `perm`
+
+**Status:** ✅ Aceito
+**Data:** 2026-11-13
+
+### Contexto
+
+O modelo inicial tratava `Administrator` como o papel de maior privilégio do tenant, com todas as permissões, incluindo a contratação de plano. Isso confundia a **titularidade da conta** (relação comercial com o Servia) com a **administração do estabelecimento** (operação local). Além disso, não havia forma de criar papéis com permissões específicas por estabelecimento.
+
+### Alternativas
+
+1. **Separar Owner (titularidade) de Administrator (operação), com `ManageBilling` exclusiva do Owner, e permitir papéis personalizados com claim `perm`** — separação clara de responsabilidades e flexibilidade.
+2. **Manter um único papel administrativo** — simples, mas mistura titularidade e operação.
+3. **Papéis personalizados sem claim dedicada** — exigiria consulta ao banco em cada requisição.
+
+### Decisão
+
+Adotar a alternativa 1:
+
+- **Owner** é criado automaticamente no provisionamento e é o **único papel obrigatório**. Possui todas as permissões de tenant, incluindo `ManageBilling`.
+- **Administrator** administra a operação, mas **não** a relação comercial com o Servia — não tem `ManageBilling`.
+- **Receptionist** pode administrar compromissos de qualquer profissional, mas não gerenciar a equipe.
+- **`CustomRole`** permite papéis personalizados com permissões atribuíveis, sem acesso a permissões exclusivas do Owner ou da plataforma.
+- O token carrega a claim **`perm`** com as permissões efetivas; o handler lê `perm` e cai no `role` para tokens antigos.
+- **Papel de acesso e atuação como prestador de serviços são dimensões independentes** (`Professional.IsServiceProvider`).
+
+### Consequências
+
+- **Positivas:** separação clara de responsabilidades; flexibilidade por estabelecimento; autorização sem consulta ao banco por requisição.
+- **Negativas:** o token precisa ser reemitido quando as permissões mudam; a claim `perm` aumenta o tamanho do token.
+- **Mitigação:** revogação de refresh tokens ao alterar permissões (ADR-026); o access token vale 15 min.
+
+---
+
+## ADR-026 — Revogação de tokens ao alterar permissões e anti-escalonamento
+
+**Status:** ✅ Aceito
+**Data:** 2026-11-13
+
+### Contexto
+
+Com a claim `perm` no token (ADR-025), uma alteração de permissões não afetava tokens já emitidos: um access token continuava concedendo permissões removidas até expirar (15 min), e o refresh reemitia com as permissões atuais. Além disso, quem tinha `ManageTeam` podia criar ou atribuir um papel com permissões que **não possuía**, inclusive a si mesmo.
+
+### Alternativas
+
+1. **Revogar refresh tokens ao alterar permissões + bloquear escalonamento e auto-atribuição** — simples, sem estado por token.
+2. **Lista de revogação de access token** — revogação imediata, mas exige estado por token e consulta em cada requisição.
+3. **Não tratar** — risco de permissões removidas continuarem válidas.
+
+### Decisão
+
+Adotar a alternativa 1:
+
+- `IRefreshTokenRepository.RevokeAllForUserAsync` revoga os refresh tokens dos usuários afetados ao alterar permissões, atribuir, remover ou excluir um papel.
+- `RolePermissions.EnsureCanGrant` impede conceder permissão que o ator não possui; o Owner pode conceder qualquer permissão atribuível.
+- **Auto-atribuição bloqueada** em `CustomRolesController.AssignAsync`.
+- `ManageBilling` e permissões de plataforma continuam bloqueadas para papéis personalizados.
+
+### Consequências
+
+- **Positivas:** o próximo refresh emite o token com as permissões atuais; sem estado por token; sem consulta extra por requisição.
+- **Negativas:** o access token já emitido vale até 15 min — **risco residual aceito**.
+- **Mitigação:** o risco é documentado; a janela é curta e o refresh é revogado.
+
+---
+
+## ADR-027 — Cobrança de alterações de site após a publicação
+
+**Status:** ✅ Aceito
+**Data:** 2026-11-14
+
+### Contexto
+
+A geração inicial e a publicação do site estão incluídas no plano. Alterações posteriores ao lançamento representam trabalho adicional e precisam de uma política comercial clara, com preço conhecido antes da execução.
+
+### Alternativas
+
+1. **Tabela de preços por tipo de alteração, com aprovação prévia e rodada de correção** — previsível para o cliente e sustentável para o Servia.
+2. **Cobrança por hora em todos os casos** — simples, mas pouco previsível para o cliente.
+3. **Alterações ilimitadas incluídas no plano** — custo imprevisível para o Servia.
+
+### Decisão
+
+Adotar a alternativa 1, com a tabela aprovada:
+
+| Tipo de alteração | Preço |
+| --- | --- |
+| Ajuste rápido | R$ 39 |
+| Seção simples | R$ 79 |
+| Nova seção | R$ 149 |
+| Página simples | R$ 249 |
+| Reformulação de página | R$ 349 |
+| Reformulação ampla | A partir de R$ 499 |
+| Fora da tabela | R$ 120/hora, em blocos de 30 min, com orçamento e aprovação prévios |
+
+**Regras complementares:** o cliente conhece escopo, preço e prazo antes da execução; nenhuma alteração paga começa sem aprovação; cada solicitação inclui uma rodada de correção; mudança de ideia ou pedido adicional é nova solicitação; pequenas alterações podem ser agrupadas; defeitos do Servia e alterações feitas pelo próprio cliente não são cobrados; a tabela é configurável; a classificação considera complexidade e escopo real.
+
+### Consequências
+
+- **Positivas:** preço previsível; escopo explícito; sem cobrança por defeito do Servia.
+- **Negativas:** exige classificação da alteração; a tabela precisa ser configurável.
+- **Estado:** **não implementado.** `SiteChangeCharge` existe como entidade, sem fluxo. A tabela de preços não existe no código.
