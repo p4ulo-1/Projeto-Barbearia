@@ -6,6 +6,7 @@ using Microsoft.IdentityModel.Tokens;
 using Servia.Api.Authorization;
 using Servia.Api.Jobs;
 using Servia.Api.Middleware;
+using Servia.Application.Ai;
 using Servia.Application.Billing;
 using Servia.Application.Identity;
 using Servia.Application.Jobs;
@@ -105,6 +106,8 @@ builder.Services.AddScoped<SubscriptionService>();
 
 // Consumo de créditos de IA (política provisória: bloqueio, sem cobrança).
 builder.Services.AddScoped<IAiUsageRepository, AiUsageRepository>();
+builder.Services.AddScoped<IAiTenantIdentifierRepository, AiTenantIdentifierRepository>();
+builder.Services.AddScoped<IAiTenantIdentifierResolver, AiTenantIdentifierService>();
 builder.Services.AddScoped<AiUsageService>();
 
 // Webhooks (F17).
@@ -213,7 +216,7 @@ builder.Services.AddSingleton<IIdempotencyStore, InMemoryIdempotencyStore>();
 // em vez de falhar na inicializacao inteira.
 var mercadoPagoOptions = builder.Configuration.GetSection("MercadoPago").Get<MercadoPagoOptions>();
 var metaOptions = builder.Configuration.GetSection("MetaWhatsApp").Get<MetaWhatsAppOptions>();
-var openAiOptions = builder.Configuration.GetSection("OpenAi").Get<OpenAiOptions>();
+var aiOptions = builder.Configuration.GetSection("Ai").Get<AiOptions>();
 
 if (!string.IsNullOrWhiteSpace(mercadoPagoOptions?.AccessToken))
 {
@@ -234,18 +237,37 @@ else
     builder.Services.AddSingleton<IMessagingProvider, UnconfiguredMessagingProvider>();
 }
 
-if (!string.IsNullOrWhiteSpace(openAiOptions?.ApiKey))
+// A chave e resolvida por servico (gestao de IA, §3.3). Cada servico pode ter
+// credencial propria; sem ela, apenas aquele servico fica indisponivel.
+if (aiOptions is not null)
 {
-    builder.Services.AddSingleton(openAiOptions);
-    builder.Services.AddHttpClient<IAiSiteGenerator, OpenAiSiteGenerator>();
-    builder.Services.AddHttpClient<IAiConversationProvider, OpenAiConversationProvider>();
+    builder.Services.AddSingleton(aiOptions);
+
+    // Precos centralizados consumidos pela contabilizacao (gestao de IA, §2.3).
+    builder.Services.AddSingleton<IAiPricing>(aiOptions);
+
+    // Identificador opaco HMAC do tenant (gestao de IA, §4.2).
+    builder.Services.AddSingleton<IAiIdentifierOptions>(aiOptions);
+}
+
+if (aiOptions?.IsConfiguredFor(AiServices.SiteGeneration) == true)
+{
+    builder.Services.AddHttpClient<IAiSiteGenerator, DeepSeekSiteGenerator>();
+}
+else
+{
+    builder.Services.AddSingleton<IAiSiteGenerator, UnconfiguredSiteGenerator>();
+}
+
+if (aiOptions?.IsConfiguredFor(AiServices.OnboardingConversation) == true)
+{
+    builder.Services.AddHttpClient<IAiConversationProvider, DeepSeekConversationProvider>();
 }
 else
 {
     // Sem credencial, a IA fica indisponivel — estado valido. Os provedores
     // nulos mantem a aplicacao no ar e falham com motivo explicito, em vez
     // de impedir a inicializacao ou simular uma integracao inexistente.
-    builder.Services.AddSingleton<IAiSiteGenerator, UnconfiguredSiteGenerator>();
     builder.Services.AddSingleton<IAiConversationProvider, UnconfiguredConversationProvider>();
 }
 

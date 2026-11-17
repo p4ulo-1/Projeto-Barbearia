@@ -137,7 +137,7 @@ public class AiGenerationPolicyTests
     public void Geracao_Bem_Sucedida_Nao_Usa_Fallback()
     {
         var changeSet = AiChangeSet.Create(Guid.NewGuid(), "Proposta", SiteTheme.Default);
-        var result = AiGenerationResult.Generated(changeSet, 10);
+        var result = AiGenerationResult.Generated(changeSet, 10, 0);
 
         Assert.False(AiGenerationPolicy.ShouldUseFallback(result));
     }
@@ -148,7 +148,8 @@ public class AiGenerationPolicyTests
     public void Registrar_Operacao_Bem_Sucedida()
     {
         var log = AiOperationLog.Record(
-            TenantId, AiOperationType.SiteGeneration, "provedor-x", 10, true, Now);
+            TenantId, AiOperationType.SiteGeneration, "provedor-x",
+            "deepseek-flash", "test", 6, 4, 0.0000066m, "v1", true, Now);
 
         Assert.Equal(10, log.UnitsConsumed);
         Assert.True(log.Success);
@@ -159,14 +160,17 @@ public class AiGenerationPolicyTests
     public void Registrar_Falha_Exige_Motivo()
     {
         Assert.Throws<DomainRuleException>(() =>
-            AiOperationLog.Record(TenantId, AiOperationType.SiteGeneration, "provedor-x", 0, false, Now));
+            AiOperationLog.Record(
+                TenantId, AiOperationType.SiteGeneration, "provedor-x",
+                "deepseek-flash", "test", 0, 0, 0m, "v1", false, Now));
     }
 
     [Fact]
     public void Registrar_Falha_Com_Motivo()
     {
         var log = AiOperationLog.Record(
-            TenantId, AiOperationType.SiteGeneration, "provedor-x", 0, false, Now, "Timeout");
+            TenantId, AiOperationType.SiteGeneration, "provedor-x",
+            "deepseek-flash", "test", 0, 0, 0m, "v1", false, Now, "Timeout");
 
         Assert.False(log.Success);
         Assert.Equal("Timeout", log.FailureReason);
@@ -176,7 +180,9 @@ public class AiGenerationPolicyTests
     public void Consumo_Negativo_Lanca_Excecao()
     {
         Assert.Throws<DomainRuleException>(() =>
-            AiOperationLog.Record(TenantId, AiOperationType.SiteGeneration, "provedor-x", -1, true, Now));
+            AiOperationLog.Record(
+                TenantId, AiOperationType.SiteGeneration, "provedor-x",
+                "deepseek-flash", "test", -1, 0, 0m, "v1", true, Now));
     }
 
     [Fact]

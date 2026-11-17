@@ -20,7 +20,7 @@
 | **Agendamento** | Reservas, estados do atendimento, concorrência, acesso | `Appointment`, `ScheduleLock`, `WaitlistEntry`, `AppointmentAccessPolicy` |
 | **Clientes** | Cadastro, preferências | `Customer`, `CustomerPreference` |
 | **Financeiro** | Pagamentos, transações, comissões, conciliação — **domínio independente do billing** | `Payment`, `Transaction`, `CommissionRule`, `CommissionEntry`, `CommissionStatement`, `Reconciliation` |
-| **Billing** | Faturas, cotas de consumo, compras de crédito, cobrança de alteração, régua | `PlatformInvoice`, `UsageQuota`, `CreditPurchase`, `SiteChangeCharge`, `DelinquencyPolicy`, `BillingRules` |
+| **Billing** | Faturas, cotas de consumo, compras de crédito, cobrança de alteração, régua | `PlatformInvoice`, `UsageQuota`, `AiCreditLot`, `CreditPurchase`, `SiteChangeCharge`, `DelinquencyPolicy`, `BillingRules` |
 | **Assinaturas do negócio** | Clubes, pacotes, benefícios | `MembershipPlan`, `Membership`, `ServicePackage`, `PackageUsage` |
 | **Site e Conteúdo** | Site por tenant, páginas, seções, publicação, assets, onboarding | `Site`, `SitePage`, `SiteSection`, `SitePublication`, `SiteAsset`, `OnboardingSession`, `PublicSite` |
 | **IA** | Geração e personalização de site, guardrails, alteração cirúrgica | `AiGenerationRequest`, `AiChangeSet`, `AiSiteChange`, `AiOperationLog` |
@@ -143,11 +143,35 @@ Invariantes:
 - `TryConsume` retorna falso quando `Consumed + quantity > Included + PurchasedExtra` **ou** quando ultrapassa `TenantLimit`.
 - O consumo nunca ultrapassa o limite sem autorização (diretrizes §7.1).
 - Para WhatsApp, `Included` é **resíduo do modelo anterior** (Solution Partner, ADR-019, superado por ADR-023). Nenhuma cota de WhatsApp é criada em produção.
-- Para IA, `Included` é a **franquia mensal do plano**; o excedente é cobrado adicionalmente.
+- Para IA, `Included` é a **franquia mensal do plano**. O consumo é acumulado em tokens (`ConsumedTokens`) e projetado em créditos; a franquia é consumida **antes** dos lotes adicionais (ADR-028).
 - Os dois recursos são contabilizados e cobrados **separadamente**.
 
 #### `ConsumptionBillingMode` (enum)
 `Automatic`, `PrepaidCredits` — modalidade escolhida pelo estabelecimento para o WhatsApp.
+
+#### `AiCreditLot`
+Lote de créditos adicionais de IA, com validade própria (ADR-028).
+
+| Membro | Tipo | Descrição |
+| --- | --- | --- |
+| `Id` | `Guid` | |
+| `TenantId` | `Guid` | |
+| `Quantity` | `int` | Quantidade adquirida |
+| `Consumed` | `int` | Quantidade já consumida |
+| `Amount` | `Money` | Valor pago |
+| `DiscountPercent` | `decimal` | Desconto sobre o preço-base |
+| `AcquiredAt` | `DateTimeOffset` | Data da aquisição |
+| `ExpiresAt` | `DateTimeOffset` | Data de expiração |
+| `Remaining` | `int` | Saldo disponível (derivado) |
+
+Métodos: `Create(...)`, `Consume(quantity, now)`, `IsExpired(now)`, `IsConsumable(now)`.
+
+Invariantes:
+
+- Cada aquisição é um lote **independente**: comprar um pacote novo **não** renova a validade dos anteriores.
+- Créditos expirados **não** podem ser consumidos (`Consume` lança `DomainRuleException`).
+- `Consume` devolve quantos créditos foram efetivamente consumidos, limitado ao saldo.
+- O consumo entre lotes segue a ordem de expiração: o que expira antes é consumido primeiro.
 
 #### `CreditPurchase`
 Compra antecipada de créditos de consumo.
@@ -164,7 +188,7 @@ Compra antecipada de créditos de consumo.
 
 Métodos: `MarkPaid(invoiceId)`, `ApplyTo(quota)`.
 
-Invariantes: créditos só são aplicados à cota após o pagamento confirmado.
+Invariantes: créditos só são aplicados à cota após o pagamento confirmado. `CreditPurchase` é o **registro comercial** da compra; o controle de saldo com validade vive em `AiCreditLot`.
 
 #### `QuotaResource` (enum)
 `WhatsAppMessages`, `AiUnits`. Os dois recursos têm franquias e cobranças independentes.

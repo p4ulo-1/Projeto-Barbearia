@@ -424,12 +424,47 @@ internal sealed class AiOperationLogConfiguration : IEntityTypeConfiguration<AiO
         builder.Property(log => log.TenantId).IsRequired();
         builder.Property(log => log.OperationType).HasConversion<string>().HasMaxLength(30).IsRequired();
         builder.Property(log => log.ProviderName).HasMaxLength(100).IsRequired();
-        builder.Property(log => log.UnitsConsumed).IsRequired();
+        builder.Property(log => log.Model).HasMaxLength(100).IsRequired();
+        builder.Property(log => log.KeyLabel).HasMaxLength(100).IsRequired();
+        builder.Property(log => log.InputTokens).IsRequired();
+        builder.Property(log => log.OutputTokens).IsRequired();
+
+        // Custo conservador com precos de pico (gestao de IA, §2.3).
+        builder.Property(log => log.CostUsd).HasPrecision(18, 8).IsRequired();
+        builder.Property(log => log.PriceTableVersion).HasMaxLength(60).IsRequired();
+
         builder.Property(log => log.Success).IsRequired();
         builder.Property(log => log.FailureReason).HasMaxLength(300);
         builder.Property(log => log.OccurredAt).IsRequired();
 
+        builder.Ignore(log => log.UnitsConsumed);
+
         builder.HasIndex(log => new { log.TenantId, log.OccurredAt });
+    }
+}
+
+/// <summary>Mapeamento de <see cref="AiTenantIdentifier"/>.</summary>
+internal sealed class AiTenantIdentifierConfiguration : IEntityTypeConfiguration<AiTenantIdentifier>
+{
+    public void Configure(EntityTypeBuilder<AiTenantIdentifier> builder)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+
+        builder.ToTable("AiTenantIdentifiers");
+        builder.HasKey(identifier => identifier.Id);
+        builder.Property(identifier => identifier.Id).ValueGeneratedNever();
+        builder.Property(identifier => identifier.TenantId).IsRequired();
+        builder.Property(identifier => identifier.Value).HasMaxLength(120).IsRequired();
+        builder.Property(identifier => identifier.KeyVersion).HasMaxLength(40).IsRequired();
+        builder.Property(identifier => identifier.CreatedAt).IsRequired();
+        builder.Property(identifier => identifier.PreviousValue).HasMaxLength(120);
+        builder.Property(identifier => identifier.PreviousKeyVersion).HasMaxLength(40);
+        builder.Property(identifier => identifier.RotatedAt);
+
+        builder.Ignore(identifier => identifier.WasRotated);
+
+        // Um identificador por tenant: gerado uma vez e reutilizado (§4.2).
+        builder.HasIndex(identifier => identifier.TenantId).IsUnique();
     }
 }
 

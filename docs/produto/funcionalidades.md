@@ -28,15 +28,23 @@
 
 ### 0.2. Consumo de IA
 
+**Provedor:** DeepSeek (`deepseek-flash`), conta única centralizada do Servia. Os estabelecimentos não criam conta nem fornecem chave. Modelo, endereço e preços são configuráveis (`Ai:*`).
+
 | Regra | Situação |
 | --- | --- |
 | 1 crédito = 10.000 tokens (entrada + saída) | **Implementado** (`UsageQuota.AiTokensPerCredit`) |
 | Consumo acumulado pelo total real, sem arredondar por operação | **Implementado** (`AccumulateAiTokens`) |
 | Franquia mensal por plano | **Implementado** (`Plan.IncludedAiUnits`) |
 | Ao esgotar, bloquear novas operações | **Implementado** (`AiUsageService.EnsureAvailableAsync`) |
+| Franquia consumida antes dos créditos adicionais | **Implementado** (`AiUsageService.RecordConsumptionAsync`) |
+| Lotes de créditos adicionais com validade própria | **Implementado** (`AiCreditLot`) |
+| Bloqueio de créditos expirados | **Implementado** (`AiCreditLot.IsConsumable`) |
+| Registro de cada operação para auditoria | **Implementado** (`AiOperationLog`) |
+| Identificação técnica opaca do tenant no provedor | **Implementado** (`AiUserIdentifier`) |
 | Notificar o cliente ao esgotar | **Não implementado** |
-| Compra manual de créditos adicionais | **Não implementado** (`CreditPurchase` existe, sem fluxo) |
+| Compra manual de créditos adicionais | **Não implementado** (`CreditPurchase` existe, sem fluxo de contratação) |
 | Autorização prévia de aquisição automática | **Não implementado** (não existe entidade) |
+| Limites diários (global, por chave, por tenant) e alertas | **Não implementado** (parâmetros definidos) |
 | Cobrança ilimitada por token excedente | **Descartado** por decisão de produto |
 
 ### 0.3. Alterações de site após a publicação

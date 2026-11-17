@@ -18,6 +18,8 @@ public sealed class UnconfiguredConversationProvider : IAiConversationProvider
 {
     public string ProviderName => "unconfigured";
 
+    public string KeyLabel => "unconfigured";
+
     public Task<AiConversationTurn> ContinueAsync(
         AiConversationContext context,
         CancellationToken cancellationToken = default) =>

@@ -1,6 +1,6 @@
 # Architecture Decision Records (ADR) — Servia
 
-> **Status:** v5 — revisada em 2026-11-14. 27 ADRs registrados (ADR-001 a ADR-027).
+> **Status:** v5 — revisada em 2026-11-14. 28 ADRs registrados (ADR-001 a ADR-028).
 > **Formato:** [ADR-NNN] Título — Status — Data.
 > **Decisões:** confirmadas pelo responsável do produto; ver também [`../produto/funcionalidades.md`](../produto/funcionalidades.md) §0 e [`ARCH.md`](ARCH.md) §16.
 > **Nota:** ADR-019 e ADR-021 foram **superados** por decisões posteriores (ADR-023 e ADR-024). O registro original é preservado; o status indica a substituição.
@@ -38,6 +38,7 @@
 | ADR-025 | Distinção entre Owner e Administrator, papéis personalizados e claim `perm` | ✅ Aceito (2026-11-13) |
 | ADR-026 | Revogação de tokens ao alterar permissões e anti-escalonamento | ✅ Aceito (2026-11-13) |
 | ADR-027 | Cobrança de alterações de site após a publicação | ✅ Aceito (2026-11-14) |
+| ADR-028 | DeepSeek como provedor único de IA, com conta centralizada | ✅ Aceito (2026-11-15) |
 
 ---
 
@@ -788,3 +789,38 @@ Adotar a alternativa 1, com a tabela aprovada:
 - **Positivas:** preço previsível; escopo explícito; sem cobrança por defeito do Servia.
 - **Negativas:** exige classificação da alteração; a tabela precisa ser configurável.
 - **Estado:** **não implementado.** `SiteChangeCharge` existe como entidade, sem fluxo. A tabela de preços não existe no código.
+
+---
+
+## ADR-028 — DeepSeek como provedor único de IA, com conta centralizada
+
+**Status:** ✅ Aceito
+**Data:** 2026-11-15
+
+### Contexto
+
+O Servia usa IA em duas frentes: a conversa de onboarding e a geração de sites. O provedor anterior estava fixo no código (OpenAI, `gpt-4o-mini`), sem preços configuráveis, sem identificação técnica do tenant e sem registro de operação. A conta de IA é única e compartilhada por todos os estabelecimentos, o que exige contabilização individual e proteção do saldo central.
+
+### Alternativas
+
+1. **Conta centralizada do Servia, com contabilização interna por tenant** — os estabelecimentos não criam conta nem fornecem chave; o Servia mantém o controle individual.
+2. **Uma conta por estabelecimento** — isolamento financeiro nativo, mas exige que cada cliente contrate e configure a própria credencial.
+3. **Uma API key por estabelecimento na conta central** — não produz saldos independentes e multiplica a complexidade operacional.
+
+### Decisão
+
+Adotar a alternativa 1:
+
+- **Provedor:** DeepSeek, modelo `deepseek-flash`, endereço e preços em configuração (`Ai:*`).
+- **Credencial:** `Ai:ApiKey` exclusivamente no backend, vinda de variável de ambiente ou cofre. Nunca no frontend, em resposta de API, em log ou no Git. `Ai:KeyLabel` identifica o ambiente/serviço sem expor o segredo.
+- **Identificação:** o tenant vem da claim `tenant_id`. O parâmetro `user` do provedor é um hash opaco (`AiUserIdentifier`), sem dados pessoais, e não substitui a autorização do Servia.
+- **Contabilização:** tokens reais de entrada e saída; 1 crédito = 10.000 tokens, sem arredondar por operação.
+- **Ordem de consumo:** franquia do plano primeiro; depois os lotes adicionais, do que expira antes para o que expira depois.
+- **Lotes:** cada aquisição é um `AiCreditLot` independente, com validade própria. Comprar um pacote novo não renova a validade dos anteriores; créditos expirados não são consumidos.
+- **Auditoria:** cada operação gera um `AiOperationLog` com tenant, tipo, provedor, tokens e resultado — sem conteúdo de prompt ou resposta.
+
+### Consequências
+
+- **Positivas:** trocar de modelo ou provedor é configuração, não código; consumo auditável por tenant; saldo central protegido; nenhuma credencial exposta ao cliente.
+- **Negativas:** o saldo da DeepSeek é único — um vazamento de chave afeta todos os tenants, o que exige procedimento de revogação e rotação.
+- **Estado:** **implementado** (provedor, identificação, contabilização, lotes e auditoria). **Não implementado:** limites operacionais diários, rate limiting, alertas e detecção de anomalia.

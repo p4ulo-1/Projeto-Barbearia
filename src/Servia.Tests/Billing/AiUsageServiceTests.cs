@@ -1,4 +1,5 @@
 using Servia.Application.Billing;
+using Servia.Domain.Ai;
 using Servia.Domain.Billing;
 using Servia.Domain.Common;
 using Servia.Domain.Tenancy;
@@ -19,9 +20,10 @@ public class AiUsageServiceTests
 
     private readonly FakeAiUsageRepository _repository = new();
     private readonly FakePlanRepository _plans = new();
+    private readonly FakeAiPricing _pricing = new();
 
     private AiUsageService NewService() =>
-        new(_repository, _plans, TimeProvider.System);
+        new(_repository, _plans, _pricing, TimeProvider.System);
 
     private void SeedSubscriptionWithPlan(int includedAiUnits)
     {
@@ -186,13 +188,160 @@ public class AiUsageServiceTests
     {
         await NewService().EnsureAvailableAsync(TenantId);
     }
+
+    // ---------- Lotes de créditos adicionais (§5.4, §7.1) ----------
+
+    private AiCreditLot SeedLot(int quantity, int daysToExpire)
+    {
+        var now = DateTimeOffset.UtcNow;
+
+        var lot = AiCreditLot.Create(
+            TenantId,
+            quantity,
+            Money.From(quantity * 0.03m),
+            discountPercent: 0m,
+            acquiredAt: now,
+            expiresAt: now.AddDays(daysToExpire));
+
+        _repository.AddLotAsync(lot).GetAwaiter().GetResult();
+
+        return lot;
+    }
+
+    [Fact]
+    public async Task Franquia_Eh_Consumida_Antes_Dos_Lotes()
+    {
+        SeedSubscriptionWithPlan(includedAiUnits: 1);
+        var lot = SeedLot(quantity: 5, daysToExpire: 30);
+
+        // 10.000 tokens = 1 crédito: consome exatamente a franquia.
+        await NewService().RecordConsumptionAsync(TenantId, 10_000);
+
+        Assert.Equal(0, lot.Consumed);
+    }
+
+    [Fact]
+    public async Task Excedente_Debita_O_Lote()
+    {
+        SeedSubscriptionWithPlan(includedAiUnits: 1);
+        var lot = SeedLot(quantity: 5, daysToExpire: 30);
+
+        // 30.000 tokens = 3 créditos: 1 da franquia, 2 do lote.
+        await NewService().RecordConsumptionAsync(TenantId, 30_000);
+
+        Assert.Equal(2, lot.Consumed);
+        Assert.Equal(3, lot.Remaining);
+    }
+
+    [Fact]
+    public async Task Lote_Que_Expira_Antes_Eh_Consumido_Primeiro()
+    {
+        SeedSubscriptionWithPlan(includedAiUnits: 1);
+
+        var later = SeedLot(quantity: 5, daysToExpire: 90);
+        var sooner = SeedLot(quantity: 5, daysToExpire: 10);
+
+        // 30.000 tokens = 3 créditos: 1 da franquia, 2 do lote que expira antes.
+        await NewService().RecordConsumptionAsync(TenantId, 30_000);
+
+        Assert.Equal(2, sooner.Consumed);
+        Assert.Equal(0, later.Consumed);
+    }
+
+    [Fact]
+    public async Task Lote_Expirado_Nao_Eh_Consumido()
+    {
+        SeedSubscriptionWithPlan(includedAiUnits: 1);
+
+        var expired = AiCreditLot.Create(
+            TenantId,
+            5,
+            Money.From(0.15m),
+            0m,
+            DateTimeOffset.UtcNow.AddDays(-60),
+            DateTimeOffset.UtcNow.AddDays(-1));
+
+        await _repository.AddLotAsync(expired);
+
+        // Franquia esgotada e o único lote está expirado: bloqueia.
+        await NewService().RecordConsumptionAsync(TenantId, 10_000);
+
+        await Assert.ThrowsAsync<DomainRuleException>(
+            () => NewService().EnsureAvailableAsync(TenantId));
+
+        Assert.Equal(0, expired.Consumed);
+    }
+
+    [Fact]
+    public async Task Lote_Valido_Libera_Operacao_Apos_Franquia()
+    {
+        SeedSubscriptionWithPlan(includedAiUnits: 1);
+        SeedLot(quantity: 5, daysToExpire: 30);
+
+        await NewService().RecordConsumptionAsync(TenantId, 10_000);
+
+        // Franquia esgotada, mas há lote válido: não bloqueia.
+        await NewService().EnsureAvailableAsync(TenantId);
+    }
+
+    // ---------- Registro de operação (§5.3) ----------
+
+    [Fact]
+    public async Task Registra_Operacao_Com_Tokens_E_Resultado()
+    {
+        SeedSubscriptionWithPlan(includedAiUnits: 100);
+
+        await NewService().RecordOperationAsync(
+            TenantId,
+            AiOperationType.SiteGeneration,
+            "deepseek",
+            "test-key",
+            inputTokens: 1_200,
+            outputTokens: 800,
+            success: true);
+
+        var log = Assert.Single(_repository.Logs);
+
+        Assert.Equal(TenantId, log.TenantId);
+        Assert.Equal(AiOperationType.SiteGeneration, log.OperationType);
+        Assert.Equal("deepseek", log.ProviderName);
+        Assert.Equal(2_000, log.UnitsConsumed);
+        Assert.True(log.Success);
+    }
+
+    [Fact]
+    public async Task Registra_Falha_Com_Motivo()
+    {
+        SeedSubscriptionWithPlan(includedAiUnits: 100);
+
+        await NewService().RecordOperationAsync(
+            TenantId,
+            AiOperationType.SiteRefinement,
+            "deepseek",
+            "test-key",
+            inputTokens: 0,
+            outputTokens: 0,
+            success: false,
+            failureReason: "O provedor não retornou conteúdo.");
+
+        var log = Assert.Single(_repository.Logs);
+
+        Assert.False(log.Success);
+        Assert.Equal("O provedor não retornou conteúdo.", log.FailureReason);
+    }
 }
 
 /// <summary>Repositório de cotas em memória.</summary>
 internal sealed class FakeAiUsageRepository : IAiUsageRepository
 {
     private readonly List<UsageQuota> _quotas = [];
+    private readonly List<AiCreditLot> _lots = [];
+    private readonly List<AiOperationLog> _logs = [];
     private Subscription? _subscription;
+
+    public IReadOnlyList<AiCreditLot> Lots => _lots;
+
+    public IReadOnlyList<AiOperationLog> Logs => _logs;
 
     public void SetSubscription(Subscription subscription) => _subscription = subscription;
 
@@ -211,6 +360,55 @@ internal sealed class FakeAiUsageRepository : IAiUsageRepository
         return Task.CompletedTask;
     }
 
+    public Task<IReadOnlyList<AiCreditLot>> FindConsumableLotsAsync(
+        Guid tenantId, DateTimeOffset now, CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlyList<AiCreditLot>>(
+            _lots
+                .Where(lot => lot.TenantId == tenantId && lot.IsConsumable(now))
+                .OrderBy(lot => lot.ExpiresAt)
+                .ToList());
+
+    public Task AddLotAsync(AiCreditLot lot, CancellationToken cancellationToken = default)
+    {
+        _lots.Add(lot);
+        return Task.CompletedTask;
+    }
+
+    public Task AddOperationLogAsync(
+        AiOperationLog log, CancellationToken cancellationToken = default)
+    {
+        _logs.Add(log);
+        return Task.CompletedTask;
+    }
+
     public Task SaveChangesAsync(CancellationToken cancellationToken = default) =>
         Task.CompletedTask;
+}
+
+/// <summary>
+/// Precos de pico para teste (gestao de IA, §2.1): entrada US$ 0,30 e saida
+/// US$ 1,20 por milhao de tokens.
+/// </summary>
+internal sealed class FakeAiPricing : IAiPricing
+{
+    public string Model => "deepseek-flash";
+
+    public decimal InputPricePerMillionTokens => 0.30m;
+
+    public decimal OutputPricePerMillionTokens => 1.20m;
+
+    public string PriceTableVersion => "test-peak";
+
+    public int MaxOutputTokens => 4_000;
+
+    public decimal CalculateCost(long inputTokens, long outputTokens)
+    {
+        const decimal million = 1_000_000m;
+
+        return (inputTokens / million * InputPricePerMillionTokens)
+               + (outputTokens / million * OutputPricePerMillionTokens);
+    }
+
+    public decimal EstimateMaxCost(int estimatedInputTokens) =>
+        CalculateCost(Math.Max(0, estimatedInputTokens), MaxOutputTokens);
 }

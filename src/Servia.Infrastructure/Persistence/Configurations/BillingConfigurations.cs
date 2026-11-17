@@ -116,6 +116,40 @@ internal sealed class CreditPurchaseConfiguration : IEntityTypeConfiguration<Cre
     }
 }
 
+/// <summary>Mapeamento de <see cref="AiCreditLot"/>.</summary>
+internal sealed class AiCreditLotConfiguration : IEntityTypeConfiguration<AiCreditLot>
+{
+    public void Configure(EntityTypeBuilder<AiCreditLot> builder)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+
+        builder.ToTable("AiCreditLots");
+        builder.HasKey(lot => lot.Id);
+        builder.Property(lot => lot.Id).ValueGeneratedNever();
+        builder.Property(lot => lot.TenantId).IsRequired();
+        builder.Property(lot => lot.Quantity).IsRequired();
+        builder.Property(lot => lot.Consumed).IsRequired();
+        builder.Property(lot => lot.DiscountPercent).HasPrecision(5, 2).IsRequired();
+        builder.Property(lot => lot.AcquiredAt).IsRequired();
+        builder.Property(lot => lot.ExpiresAt).IsRequired();
+
+        builder.ComplexProperty(lot => lot.Amount, amount =>
+        {
+            amount.Property(money => money.Amount)
+                .HasColumnName("Amount_Amount").HasPrecision(18, 2).IsRequired();
+            amount.Property(money => money.Currency)
+                .HasColumnName("Amount_Currency").HasMaxLength(3).IsRequired();
+        });
+
+        builder.Ignore(lot => lot.Remaining);
+        builder.Ignore(lot => lot.HasBalance);
+
+        // Consumo por tenant, ordenado pela expiração: o lote que expira
+        // antes é consumido primeiro (§5.4).
+        builder.HasIndex(lot => new { lot.TenantId, lot.ExpiresAt });
+    }
+}
+
 /// <summary>Mapeamento de <see cref="SiteChangeCharge"/>.</summary>
 internal sealed class SiteChangeChargeConfiguration : IEntityTypeConfiguration<SiteChangeCharge>
 {

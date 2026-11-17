@@ -251,7 +251,59 @@ docker compose exec -T database psql -U servia servia < servia-20260101T030000.s
 
 ---
 
-## 7. O que NUNCA fazer
+## 7. IA — credenciais, rotação e monitoramento
+
+> Decisão em `ADR-028`. O Servia usa **uma conta única** na DeepSeek para todos os estabelecimentos. A credencial fica exclusivamente no backend.
+
+### 7.1. Onde a credencial vive
+
+| Item | Onde |
+| --- | --- |
+| Chave | `Ai:ApiKey` — variável de ambiente `Ai__ApiKey` ou cofre |
+| Ambiente/serviço | `Ai:KeyLabel` — rótulo descritivo, **sem** o segredo |
+| Modelo | `Ai:Model` |
+| Endereço | `Ai:BaseUrl` |
+| Preços | `Ai:InputPricePerMillionTokens`, `Ai:OutputPricePerMillionTokens` |
+
+A chave **nunca** aparece no frontend, em resposta de API, em log ou no Git. Sem chave, a aplicação sobe e a IA responde indisponível.
+
+### 7.2. Suspeita de vazamento — contenção
+
+1. Identificar a chave afetada pelo `Ai:KeyLabel`.
+2. **Revogar a chave no painel da DeepSeek imediatamente** — não esperar a investigação.
+3. Substituir `Ai__ApiKey` no ambiente correspondente.
+4. Reiniciar a aplicação para carregar a nova credencial.
+5. Verificar que a IA voltou a responder e que a chave antiga não é mais usada.
+
+Não é necessário alterar código: a rotação é só configuração.
+
+### 7.3. Investigação e registro
+
+Registrar, **sem o conteúdo da chave**:
+
+- Data e hora da identificação.
+- Ambiente e `KeyLabel` afetados.
+- Origem provável do vazamento.
+- Período estimado de exposição.
+- Consumo observado no período.
+- Medidas de contenção e recuperação.
+
+Verificar repositório, histórico Git, logs, variáveis de ambiente e arquivos de configuração.
+
+### 7.4. Monitoramento
+
+| Perspectiva | O que observar |
+| --- | --- |
+| Interno (Servia) | `AiOperationLogs` — consumo por tenant, tipo de operação, tokens e falhas |
+| Provedor (DeepSeek) | Painel de consumo por API key: requisições, tokens, gasto diário |
+
+Comparar as duas perspectivas para identificar divergências. **Consultar o painel diariamente** e após demonstrações com uso relevante de IA.
+
+> **Não implementado:** limites diários automáticos (global, por chave, por tenant), rate limiting e alertas. Enquanto não existirem, o monitoramento é manual.
+
+---
+
+## 8. O que NUNCA fazer
 
 | Ação | Por quê |
 | --- | --- |
@@ -261,10 +313,11 @@ docker compose exec -T database psql -U servia servia < servia-20260101T030000.s
 | Reiniciar em loop sem investigar | Mascara a causa e agrava o incidente |
 | Prometer prazo a cliente sem confirmação técnica | Cria expectativa que pode não ser cumprida |
 | Commitar com `--no-verify` | Ignora os hooks de validação |
+| Registrar a chave de IA em log, documento ou resposta | Compromete o saldo central de todos os tenants |
 
 ---
 
-## 8. Verificação pós-incidente
+## 9. Verificação pós-incidente
 
 Após resolver, registre:
 

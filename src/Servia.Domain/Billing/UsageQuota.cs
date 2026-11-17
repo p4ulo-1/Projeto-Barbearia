@@ -100,27 +100,67 @@ public sealed class UsageQuota : ITenantScoped
     public bool HasAiCapacity => ConsumedTokens < AiTokenLimit;
 
     /// <summary>
+    /// Indica se ainda há saldo considerando também os créditos adicionais
+    /// mantidos em lotes (§5.4). A franquia sozinha pode estar esgotada e
+    /// ainda haver lote válido.
+    /// </summary>
+    public bool HasCapacityWith(int extraCredits) =>
+        ConsumedTokens < (long)(Available + Math.Max(0, extraCredits)) * AiTokensPerCredit;
+
+    /// <summary>
     /// Acumula o consumo real em tokens, convertendo para créditos de forma
     /// <b>precisa</b>: o total de tokens é somado e só então dividido por
     /// <see cref="AiTokensPerCredit"/>, sem arredondar cada operação.
     ///
     /// O consumo nunca ultrapassa o limite disponível (sem cobrança de
     /// excedente nesta política).
+    ///
+    /// <b>Ordem de consumo (§5.4):</b> a franquia do plano é consumida antes
+    /// dos créditos adicionais. Quando uma nova franquia mensal é
+    /// disponibilizada, ela volta a ter prioridade sobre os lotes ainda
+    /// válidos — por isso o cálculo parte sempre de <see cref="Included"/>.
     /// </summary>
     public void AccumulateAiTokens(long tokens)
+    {
+        AccumulateAiTokens(tokens, extraCredits: 0);
+    }
+
+    /// <summary>
+    /// Acumula o consumo real em tokens considerando também os créditos
+    /// adicionais mantidos em lotes (§5.4).
+    ///
+    /// <paramref name="extraCredits"/> é o saldo dos lotes válidos. Sem ele,
+    /// o consumo ficaria limitado à franquia e os lotes nunca seriam
+    /// debitados. O total acumulado nunca ultrapassa franquia + lotes.
+    /// </summary>
+    public void AccumulateAiTokens(long tokens, int extraCredits)
     {
         if (tokens <= 0)
         {
             return;
         }
 
-        // Acumula o total real em tokens, limitado à franquia.
-        ConsumedTokens = Math.Min(ConsumedTokens + tokens, AiTokenLimit);
+        var limit = (long)(Available + Math.Max(0, extraCredits)) * AiTokensPerCredit;
+
+        // Acumula o total real em tokens, limitado ao disponível.
+        ConsumedTokens = Math.Min(ConsumedTokens + tokens, limit);
 
         // Projeção em créditos: divisão inteira do total acumulado, o que
         // preserva a precisão entre operações (frações não são perdidas).
         Consumed = (int)(ConsumedTokens / AiTokensPerCredit);
     }
+
+    /// <summary>
+    /// Créditos consumidos além da franquia do plano. É o que precisa ser
+    /// debitado dos lotes adicionais (§5.4).
+    /// </summary>
+    public int ConsumedBeyondIncluded => Math.Max(0, Consumed - Included);
+
+    /// <summary>
+    /// Indica se o consumo já alcançou a franquia do plano, ou seja, se a
+    /// próxima operação passa a usar créditos adicionais.
+    /// </summary>
+    public bool IsUsingExtraCredits => Consumed >= Included;
 
     public static UsageQuota Create(
         Guid tenantId,

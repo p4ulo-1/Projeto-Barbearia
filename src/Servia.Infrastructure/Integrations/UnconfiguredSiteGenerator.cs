@@ -13,11 +13,13 @@ public sealed class UnconfiguredSiteGenerator : IAiSiteGenerator
 {
     public string ProviderName => "unconfigured";
 
+    public string KeyLabel => "unconfigured";
+
     public Task<AiGenerationResult> GenerateAsync(
         AiGenerationRequest request,
         CancellationToken cancellationToken = default) =>
         Task.FromResult(AiGenerationResult.Failed(
-            "O gerador de IA não está configurado. Defina OpenAi:ApiKey."));
+            "O gerador de IA não está configurado. Defina Ai:ApiKey."));
 
     public Task<AiGenerationResult> RefineAsync(
         AiGenerationRequest request,
@@ -25,5 +27,5 @@ public sealed class UnconfiguredSiteGenerator : IAiSiteGenerator
         string instruction,
         CancellationToken cancellationToken = default) =>
         Task.FromResult(AiGenerationResult.Failed(
-            "O gerador de IA não está configurado. Defina OpenAi:ApiKey."));
+            "O gerador de IA não está configurado. Defina Ai:ApiKey."));
 }

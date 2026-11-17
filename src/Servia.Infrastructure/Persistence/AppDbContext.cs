@@ -103,6 +103,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, ITenant
 
     public DbSet<CreditPurchase> CreditPurchases => Set<CreditPurchase>();
 
+    public DbSet<AiCreditLot> AiCreditLots => Set<AiCreditLot>();
+
     public DbSet<SiteChangeCharge> SiteChangeCharges => Set<SiteChangeCharge>();
 
     // Financeiro
@@ -140,6 +142,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, ITenant
 
     // IA
     public DbSet<AiOperationLog> AiOperationLogs => Set<AiOperationLog>();
+
+    public DbSet<AiTenantIdentifier> AiTenantIdentifiers => Set<AiTenantIdentifier>();
 
     // Operacoes
     public DbSet<DataSubjectRequest> DataSubjectRequests => Set<DataSubjectRequest>();

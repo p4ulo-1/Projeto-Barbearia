@@ -311,8 +311,8 @@ start → mensagens → generate → adjustments → submit → approve → publ
 | --- | --- |
 | `OnboardingSession` | Sessão com histórico persistido e fatos coletados |
 | `OnboardingService` | Caso de uso: conversa, geração, ajustes, aprovação, publicação |
-| `IAiConversationProvider` | Contrato do provedor de conversa (`OpenAiConversationProvider` / `UnconfiguredConversationProvider`) |
-| `IAiSiteGenerator` | Contrato do gerador de site (`OpenAiSiteGenerator` / `UnconfiguredSiteGenerator`) |
+| `IAiConversationProvider` | Contrato do provedor de conversa (`DeepSeekConversationProvider` / `UnconfiguredConversationProvider`) |
+| `IAiSiteGenerator` | Contrato do gerador de site (`DeepSeekSiteGenerator` / `UnconfiguredSiteGenerator`) |
 | `AiChangeSet` | Proposta validada contra `SiteComponentSchema` |
 | `AiSiteChange` + `SiteChangeApplier` | Alteração cirúrgica pós-publicação — **infraestrutura sem fluxo** |
 
@@ -354,39 +354,70 @@ start → mensagens → generate → adjustments → submit → approve → publ
 
 ---
 
-## 7. Política de consumo de IA por tokens
+## 7. Integração e política de consumo de IA
 
-### 7.1. Regras
+### 7.1. Provedor
+
+| Item | Valor |
+| --- | --- |
+| Provedor | **DeepSeek** — conta única centralizada para todos os estabelecimentos |
+| Modelo | `deepseek-flash` (configurável em `Ai:Model`) |
+| Endereço | `Ai:BaseUrl` (configurável) |
+| Credencial | `Ai:ApiKey` — variável de ambiente ou cofre; **nunca** no frontend, em resposta de API, em log ou no Git |
+| Identificação da chave | `Ai:KeyLabel` — rótulo do ambiente/serviço, sem o segredo |
+| Preços | `Ai:InputPricePerMillionTokens` e `Ai:OutputPricePerMillionTokens` |
+
+Os estabelecimentos **não** criam conta nem fornecem chave. A integração é exclusivamente de backend (`DeepSeekSiteGenerator`, `DeepSeekConversationProvider`). Sem credencial, a aplicação sobe e a IA responde indisponível (`UnconfiguredSiteGenerator`).
+
+### 7.2. Identificação
+
+- O tenant vem **exclusivamente** da claim `tenant_id` do contexto autenticado.
+- O parâmetro `user` enviado ao provedor é um identificador **opaco** (`AiUserIdentifier`): hash SHA-256 do identificador interno, estável e sem dados pessoais.
+- O `user` do provedor **não** substitui o `tenant_id` nem o controle de autorização.
+
+### 7.3. Regras de consumo
 
 | Regra | Implementação |
 | --- | --- |
 | 1 crédito = 10.000 tokens | `UsageQuota.AiTokensPerCredit` |
 | Acumulação pelo total real | `UsageQuota.AccumulateAiTokens` (soma tokens, converte sobre o total) |
 | Franquia mensal por plano | `Plan.IncludedAiUnits` (100/500/1500/5000) |
+| Ordem de consumo | Franquia primeiro, depois lotes adicionais (`AiUsageService`) |
+| Lotes independentes com validade | `AiCreditLot` (quantidade, consumido, expiração, preço, desconto) |
+| Consumo FIFO por expiração | `AiUsageRepository.FindConsumableLotsAsync` ordena por `ExpiresAt` |
+| Créditos expirados bloqueados | `AiCreditLot.IsConsumable` / `Consume` |
 | Bloqueio ao esgotar | `AiUsageService.EnsureAvailableAsync` |
-| Renovação no novo período | `UsageQuota.Reset` |
+| Renovação no novo período | `UsageQuota.Reset` (franquia volta a ter prioridade) |
+| Auditoria por operação | `AiOperationLog` (tenant, tipo, provedor, tokens, resultado) |
 
-### 7.2. Fluxo
+### 7.4. Fluxo
 
 ```text
 Operação de IA solicitada
         │
         ▼
-EnsureAvailableAsync → HasAiCapacity?
-        │ sim              │ não
-        ▼                  ▼
-   executa          DomainRuleException (bloqueia)
+EnsureAvailableAsync → franquia ou lote válido?
+        │ sim                        │ não
+        ▼                            ▼
+   executa                  DomainRuleException (bloqueia)
         │
         ▼
 RecordConsumptionAsync (tokens reais)
+        │
+        ├─ franquia consumida primeiro
+        └─ excedente debitado dos lotes (expira antes → depois)
+        │
+        ▼
+RecordOperationAsync (AiOperationLog)
 ```
 
-### 7.3. Não implementado
+### 7.5. Não implementado
 
 - Notificação ao cliente ao esgotar.
-- Compra manual de créditos (`CreditPurchase` existe, sem fluxo).
+- Compra manual de créditos (`CreditPurchase` existe, sem fluxo de contratação).
 - Autorização de aquisição automática (entidade não existe).
 - Cobrança de excedente (descartada por decisão de produto).
+- Limites operacionais diários (global, por chave, por tenant), rate limiting e alertas — parâmetros definidos, não implementados.
 
 ---
 
@@ -429,11 +460,11 @@ Application ──► IMessagingProvider ──► MetaWhatsAppProvider
 ### 9.3. IA
 
 ```text
-Application ──► IAiSiteGenerator ──► OpenAiSiteGenerator
-Application ──► IAiConversationProvider ──► OpenAiConversationProvider
+Application ──► IAiSiteGenerator ──► DeepSeekSiteGenerator
+Application ──► IAiConversationProvider ──► DeepSeekConversationProvider
 ```
 
-- Modelo configurável (`gpt-4o-mini` em `appsettings.Production.json`).
+- Modelo configurável (`Ai:Model`, padrão `deepseek-flash`).
 - Sem credencial, o provedor não é registrado e o endpoint responde `400` com motivo.
 
 ### 9.4. Notificações
@@ -491,7 +522,7 @@ Application ──► IMessagingProvider (WhatsApp)
 | Nível | Ferramenta | Estado |
 | --- | --- | --- |
 | Domínio | xUnit | ✅ 56 arquivos por contexto |
-| Aplicação | xUnit + dublês | ✅ `SubscriptionServiceTests` (17), `WebhookServiceTests` (13), `AiUsageServiceTests` (10), `AppointmentServiceTests`, `AuthenticationServiceTests` |
+| Aplicação | xUnit + dublês | ✅ `SubscriptionServiceTests` (17), `WebhookServiceTests` (13), `AiUsageServiceTests` (17), `AppointmentServiceTests`, `AuthenticationServiceTests` |
 | Integração | xUnit + Testcontainers (PostgreSQL 17) | ✅ 16 arquivos em `Persistence/`, 9 em `Integration/` |
 | Contrato | Dublês de HTTP | ✅ `ProviderTests` (16) |
 | Segurança | Isolamento cross-tenant | ✅ 5 suítes (33 testes) |
@@ -590,7 +621,7 @@ Application ──► IMessagingProvider (WhatsApp)
 
 ## 16. Decisões confirmadas
 
-Ver [`ADR.md`](ADR.md) para o registro completo (ADR-001 a ADR-027).
+Ver [`ADR.md`](ADR.md) para o registro completo (ADR-001 a ADR-028).
 
 | # | Decisão | ADR |
 | --- | --- | --- |
@@ -619,6 +650,7 @@ Ver [`ADR.md`](ADR.md) para o registro completo (ADR-001 a ADR-027).
 | D23 | Owner × Administrator, papéis personalizados, claim `perm` | ADR-025 |
 | D24 | Revogação de tokens e anti-escalonamento | ADR-026 |
 | D25 | Cobrança de alterações de site após a publicação | ADR-027 |
+| D26 | DeepSeek como provedor único, com conta centralizada e contabilização por tenant | ADR-028 |
 
 ---
 

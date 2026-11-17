@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Servia.Domain.Ai;
 using Servia.Domain.Billing;
 using Servia.Domain.Tenancy;
 using Servia.Infrastructure.Persistence;
@@ -34,6 +35,33 @@ public sealed class AiUsageRepository(AppDbContext context) : IAiUsageRepository
         ArgumentNullException.ThrowIfNull(quota);
 
         await context.UsageQuotas.AddAsync(quota, cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<AiCreditLot>> FindConsumableLotsAsync(
+        Guid tenantId,
+        DateTimeOffset now,
+        CancellationToken cancellationToken = default) =>
+        await context.AiCreditLots
+            .Where(lot => lot.TenantId == tenantId
+                          && lot.Consumed < lot.Quantity
+                          && lot.ExpiresAt > now)
+            .OrderBy(lot => lot.ExpiresAt)
+            .ToListAsync(cancellationToken);
+
+    public async Task AddLotAsync(AiCreditLot lot, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(lot);
+
+        await context.AiCreditLots.AddAsync(lot, cancellationToken);
+    }
+
+    public async Task AddOperationLogAsync(
+        AiOperationLog log,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(log);
+
+        await context.AiOperationLogs.AddAsync(log, cancellationToken);
     }
 
     public Task SaveChangesAsync(CancellationToken cancellationToken = default) =>

@@ -16,6 +16,12 @@ public interface IAiSiteGenerator
     string ProviderName { get; }
 
     /// <summary>
+    /// Rótulo da chave usada na operação, para auditoria (§3.4). Nunca contém
+    /// o segredo.
+    /// </summary>
+    string KeyLabel { get; }
+
+    /// <summary>
     /// Gera uma proposta de site a partir da requisição.
     /// A proposta é um rascunho: só entra no ar após aprovação (F3.6).
     /// </summary>
@@ -37,12 +43,27 @@ public interface IAiSiteGenerator
 public sealed record AiGenerationResult(
     bool Success,
     AiChangeSet? ChangeSet,
-    int UnitsConsumed,
+    int InputTokens,
+    int OutputTokens,
     string? FailureReason)
 {
-    public static AiGenerationResult Generated(AiChangeSet changeSet, int units) =>
-        new(true, changeSet, units, null);
+    /// <summary>
+    /// Total de tokens da operação (entrada + saída), exatamente como o
+    /// provedor informou. É a base da contabilização em créditos (§5.2).
+    /// </summary>
+    public int TotalTokens => InputTokens + OutputTokens;
+
+    /// <summary>
+    /// Compatibilidade: o consumo em unidades é o total de tokens reais.
+    /// </summary>
+    public int UnitsConsumed => TotalTokens;
+
+    public static AiGenerationResult Generated(
+        AiChangeSet changeSet,
+        int inputTokens,
+        int outputTokens) =>
+        new(true, changeSet, inputTokens, outputTokens, null);
 
     public static AiGenerationResult Failed(string reason) =>
-        new(false, null, 0, reason);
+        new(false, null, 0, 0, reason);
 }

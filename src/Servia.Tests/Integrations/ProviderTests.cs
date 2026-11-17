@@ -149,7 +149,7 @@ public class ProviderTests
     // ---------- F12.3: OpenAI ----------
 
     [Fact]
-    public async Task OpenAi_Gera_Proposta_Valida()
+    public async Task DeepSeek_Gera_Proposta_Valida()
     {
         var proposal = """
             {"summary":"Site clássico","theme":{"primaryColor":"#1F2937","secondaryColor":"#F3F4F6","fontFamily":"Inter","layoutStyle":"classic"},"sections":[{"type":"Hero","configuration":{"title":"Barbearia XYZ"}}]}
@@ -157,7 +157,7 @@ public class ProviderTests
 
         var handler = new StubHandler(HttpStatusCode.OK, ChatResponse(proposal, 150));
 
-        var generator = NewOpenAi(handler);
+        var generator = NewDeepSeek(handler);
 
         var result = await generator.GenerateAsync(NewRequest());
 
@@ -168,7 +168,7 @@ public class ProviderTests
     }
 
     [Fact]
-    public async Task OpenAi_Rejeita_Componente_Fora_Da_Biblioteca()
+    public async Task DeepSeek_Rejeita_Componente_Fora_Da_Biblioteca()
     {
         var proposal = """
             {"summary":"Site","sections":[{"type":"ComponenteInventado","configuration":{"title":"X"}}]}
@@ -176,7 +176,7 @@ public class ProviderTests
 
         var handler = new StubHandler(HttpStatusCode.OK, ChatResponse(proposal, 100));
 
-        var result = await NewOpenAi(handler).GenerateAsync(NewRequest());
+        var result = await NewDeepSeek(handler).GenerateAsync(NewRequest());
 
         // Guardrail: proposta invalida e rejeitada inteira.
         Assert.False(result.Success);
@@ -184,7 +184,7 @@ public class ProviderTests
     }
 
     [Fact]
-    public async Task OpenAi_Rejeita_Propriedade_Fora_Do_Schema()
+    public async Task DeepSeek_Rejeita_Propriedade_Fora_Do_Schema()
     {
         var proposal = """
             {"summary":"Site","sections":[{"type":"Hero","configuration":{"codigoArbitrario":"<script>"}}]}
@@ -192,39 +192,39 @@ public class ProviderTests
 
         var handler = new StubHandler(HttpStatusCode.OK, ChatResponse(proposal, 100));
 
-        var result = await NewOpenAi(handler).GenerateAsync(NewRequest());
+        var result = await NewDeepSeek(handler).GenerateAsync(NewRequest());
 
         Assert.False(result.Success);
     }
 
     [Fact]
-    public async Task OpenAi_Rejeita_Resposta_Nao_Json()
+    public async Task DeepSeek_Rejeita_Resposta_Nao_Json()
     {
         var handler = new StubHandler(HttpStatusCode.OK, ChatResponse("isto não é json", 50));
 
-        var result = await NewOpenAi(handler).GenerateAsync(NewRequest());
+        var result = await NewDeepSeek(handler).GenerateAsync(NewRequest());
 
         Assert.False(result.Success);
         Assert.Contains("JSON", result.FailureReason);
     }
 
     [Fact]
-    public async Task OpenAi_Propaga_Erro_Do_Provedor()
+    public async Task DeepSeek_Propaga_Erro_Do_Provedor()
     {
         var handler = new StubHandler(HttpStatusCode.Unauthorized, """{"error":"chave inválida"}""");
 
-        var result = await NewOpenAi(handler).GenerateAsync(NewRequest());
+        var result = await NewDeepSeek(handler).GenerateAsync(NewRequest());
 
         Assert.False(result.Success);
         Assert.Contains("401", result.FailureReason);
     }
 
     [Fact]
-    public void OpenAi_Sem_Chave_Lanca_Excecao()
+    public void DeepSeek_Sem_Chave_Lanca_Excecao()
     {
         Assert.Throws<InvalidOperationException>(() =>
-            new OpenAiSiteGenerator(new HttpClient(new StubHandler(HttpStatusCode.OK, "{}")),
-                new OpenAiOptions()));
+            new DeepSeekSiteGenerator(new HttpClient(new StubHandler(HttpStatusCode.OK, "{}")),
+                new AiOptions(), new FakeIdentifierResolver("s", "v1")));
     }
 
     // ---------- Auxiliares ----------
@@ -238,8 +238,9 @@ public class ProviderTests
             new MetaWhatsAppOptions { AccessToken = "token-teste", PhoneNumberId = "123" },
             new RetryPolicy(maxAttempts: 1));
 
-    private static OpenAiSiteGenerator NewOpenAi(HttpMessageHandler handler) =>
-        new(new HttpClient(handler), new OpenAiOptions { ApiKey = "chave-teste" },
+    private static DeepSeekSiteGenerator NewDeepSeek(HttpMessageHandler handler) =>
+        new(new HttpClient(handler), new AiOptions { ApiKey = "chave-teste" },
+            new FakeIdentifierResolver("s", "v1"),
             new RetryPolicy(maxAttempts: 1));
 
     private static AiGenerationRequest NewRequest() =>
@@ -250,7 +251,12 @@ public class ProviderTests
         System.Text.Json.JsonSerializer.Serialize(new
         {
             choices = new[] { new { message = new { content } } },
-            usage = new { total_tokens = tokens }
+            usage = new
+            {
+                prompt_tokens = tokens,
+                completion_tokens = 0,
+                total_tokens = tokens
+            }
         });
 }
 
@@ -258,6 +264,9 @@ public class ProviderTests
 internal sealed class StubHandler(HttpStatusCode statusCode, string body) : HttpMessageHandler
 {
     public string LastRequestHeaders { get; private set; } = string.Empty;
+
+    /// <summary>Corpo JSON da ultima requisicao, para testes de contrato.</summary>
+    public string LastRequestBody { get; private set; } = string.Empty;
 
     protected override async Task<HttpResponseMessage> SendAsync(
         HttpRequestMessage request,
@@ -267,7 +276,8 @@ internal sealed class StubHandler(HttpStatusCode statusCode, string body) : Http
 
         if (request.Content is not null)
         {
-            LastRequestHeaders += await request.Content.ReadAsStringAsync(cancellationToken);
+            LastRequestBody = await request.Content.ReadAsStringAsync(cancellationToken);
+            LastRequestHeaders += LastRequestBody;
         }
 
         return new HttpResponseMessage(statusCode)

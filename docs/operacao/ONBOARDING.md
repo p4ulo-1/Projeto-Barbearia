@@ -166,7 +166,7 @@ POST /api/v1/onboarding/sessions/{id}/publish
 
 **Estados:** `Collecting → Reviewing → AwaitingApproval → Approved → Published`. Publicar sem aprovar retorna `400`.
 
-**Sem `OpenAi__ApiKey`:** o onboarding responde `400` com motivo explícito — nunca simula.
+**Sem `Ai__ApiKey`:** o onboarding responde `400` com motivo explícito — nunca simula.
 
 ### 6.2. Expediente do estabelecimento
 
@@ -221,7 +221,7 @@ Sem credencial, a integração fica desabilitada — a aplicação sobe normalme
 | Integração | Variável | Sem ela |
 | --- | --- | --- |
 | Mercado Pago | `MercadoPago__AccessToken` | Cobrança não funciona |
-| OpenAI | `OpenAi__ApiKey` | Geração de site e onboarding indisponíveis |
+| OpenAI | `Ai__ApiKey` | Geração de site e onboarding indisponíveis |
 | Webhooks | `MercadoPago__WebhookSecret`, `MetaWhatsApp__WebhookSecret` | Eventos rejeitados com 401 |
 
 > **WhatsApp (2026-11-14):** o estabelecimento é titular da própria conta WhatsApp Business Platform e **paga diretamente à Meta**. O Servia fornece integração, orientação e estimativas, mas **não intermedia a cobrança**. A integração está **pausada** — não configure `MetaWhatsApp__AccessToken` esperando envio de mensagens pelo tenant: não há endpoint de envio.
@@ -256,7 +256,7 @@ Sem credencial, a integração fica desabilitada — a aplicação sobe normalme
 | Login retorna 401 | Verifique se o tenant existe e o e-mail está correto |
 | Cadastro retorna 409 | Slug ou e-mail já usado |
 | Cadastro retorna 429 | Limite de tentativas por IP; aguarde 10 minutos |
-| Onboarding retorna 400 | Verifique `OpenAi__ApiKey`; o provedor não configurado falha com motivo |
+| Onboarding retorna 400 | Verifique `Ai__ApiKey`; o provedor não configurado falha com motivo |
 | IA bloqueada | Franquia do período esgotada; verifique `GET /billing/usage` |
 
 O [RUNBOOK](RUNBOOK.md) tem o procedimento completo para cada incidente.

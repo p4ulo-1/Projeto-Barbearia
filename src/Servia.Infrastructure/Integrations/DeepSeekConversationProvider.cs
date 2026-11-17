@@ -6,7 +6,8 @@ using Servia.Domain.Ai;
 namespace Servia.Infrastructure.Integrations;
 
 /// <summary>
-/// Conduz o diálogo do onboarding sobre a API da OpenAI (item 1.1, 1.2).
+/// Conduz o diálogo do onboarding sobre a API compatível com OpenAI
+/// (gestão de IA, §2).
 ///
 /// <b>Independência de fornecedor:</b> a regra de negócio depende apenas de
 /// <see cref="IAiConversationProvider"/>. Trocar de provedor é implementar o
@@ -22,10 +23,8 @@ namespace Servia.Infrastructure.Integrations;
 /// <b>Guardrail:</b> a resposta é validada como JSON. Conteúdo inválido
 /// falha a operação em vez de aplicar algo que não se entende.
 /// </summary>
-public sealed class OpenAiConversationProvider : IAiConversationProvider
+public sealed class DeepSeekConversationProvider : IAiConversationProvider
 {
-    private const string ApiBaseUrl = "https://api.openai.com/v1";
-
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
@@ -33,32 +32,44 @@ public sealed class OpenAiConversationProvider : IAiConversationProvider
     };
 
     private readonly HttpClient _httpClient;
-    private readonly OpenAiOptions _options;
+    private readonly AiOptions _options;
     private readonly RetryPolicy _retryPolicy;
+    private readonly AiServiceKey _key;
+    private readonly IAiTenantIdentifierResolver _identifiers;
 
-    public OpenAiConversationProvider(
+    public DeepSeekConversationProvider(
         HttpClient httpClient,
-        OpenAiOptions options,
+        AiOptions options,
+        IAiTenantIdentifierResolver identifiers,
         RetryPolicy? retryPolicy = null)
     {
         ArgumentNullException.ThrowIfNull(httpClient);
         ArgumentNullException.ThrowIfNull(options);
 
-        if (string.IsNullOrWhiteSpace(options.ApiKey))
+        // A chave e escolhida pelo backend conforme o servico (gestao de IA, §3.3).
+        _key = options.ResolveKey(AiServices.OnboardingConversation);
+
+        if (string.IsNullOrWhiteSpace(_key.ApiKey))
         {
-            throw new InvalidOperationException("A chave da OpenAI é obrigatória.");
+            throw new InvalidOperationException("A chave do provedor de IA é obrigatória.");
         }
 
         _httpClient = httpClient;
         _options = options;
+        _identifiers = identifiers;
         _retryPolicy = retryPolicy ?? new RetryPolicy();
 
-        _httpClient.BaseAddress ??= new Uri(ApiBaseUrl);
+        _httpClient.BaseAddress ??= new Uri(options.BaseUrl);
         _httpClient.DefaultRequestHeaders.Authorization =
-            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", options.ApiKey);
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _key.ApiKey);
     }
 
-    public string ProviderName => "openai";
+    public string ProviderName => _options.ProviderName;
+
+    /// <summary>
+    /// Rotulo da chave usada, para auditoria. Nunca contem o segredo (§3.4).
+    /// </summary>
+    public string KeyLabel => _key.KeyLabel;
 
     public async Task<AiConversationTurn> ContinueAsync(
         AiConversationContext context,
@@ -73,7 +84,11 @@ public sealed class OpenAiConversationProvider : IAiConversationProvider
             model = _options.Model,
             messages,
             response_format = new { type = "json_object" },
-            temperature = 0.6
+            temperature = 0.6,
+
+            // Identificador tecnico opaco do tenant (gestao de IA, §4.2).
+            // Contrato oficial da DeepSeek: o campo e `user_id`. Sem dados pessoais.
+            user_id = await _identifiers.ResolveAsync(context.TenantId, cancellationToken)
         };
 
         try
@@ -98,9 +113,12 @@ public sealed class OpenAiConversationProvider : IAiConversationProvider
                 return AiConversationTurn.Failed("O provedor não retornou conteúdo.");
             }
 
-            var units = body?.Usage?.TotalTokens ?? 0;
+            var usage = body?.Usage;
 
-            return ParseTurn(content, units);
+            return ParseTurn(
+                content,
+                usage?.PromptTokens ?? 0,
+                usage?.CompletionTokens ?? 0);
         }
         catch (HttpRequestException exception)
         {
@@ -115,7 +133,7 @@ public sealed class OpenAiConversationProvider : IAiConversationProvider
     /// <summary>
     /// Converte a resposta do modelo em turno validado.
     /// </summary>
-    private static AiConversationTurn ParseTurn(string content, int units)
+    private static AiConversationTurn ParseTurn(string content, int inputTokens, int outputTokens)
     {
         TurnResponse? turn;
 
@@ -137,7 +155,7 @@ public sealed class OpenAiConversationProvider : IAiConversationProvider
 
         if (turn.IsComplete)
         {
-            return AiConversationTurn.Completed(facts, units);
+            return AiConversationTurn.Completed(facts, inputTokens, outputTokens);
         }
 
         if (string.IsNullOrWhiteSpace(turn.Question))
@@ -146,7 +164,7 @@ public sealed class OpenAiConversationProvider : IAiConversationProvider
                 "A resposta não trouxe a próxima pergunta nem indicou conclusão.");
         }
 
-        return AiConversationTurn.Asked(turn.Question.Trim(), facts, units);
+        return AiConversationTurn.Asked(turn.Question.Trim(), facts, inputTokens, outputTokens);
     }
 
     private static List<object> BuildMessages(AiConversationContext context)
@@ -223,6 +241,8 @@ public sealed class OpenAiConversationProvider : IAiConversationProvider
     private sealed record ChatMessage(string? Content);
 
     private sealed record ChatUsage(
+        [property: JsonPropertyName("prompt_tokens")] int? PromptTokens,
+        [property: JsonPropertyName("completion_tokens")] int? CompletionTokens,
         [property: JsonPropertyName("total_tokens")] int? TotalTokens);
 
     private sealed record TurnResponse(

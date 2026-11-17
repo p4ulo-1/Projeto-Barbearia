@@ -113,6 +113,7 @@ public sealed class OnboardingService(
         }
 
         var context = new AiConversationContext(
+            tenantId,
             session.BusinessName,
             session.Segment.ToString(),
             session.Messages
@@ -131,6 +132,19 @@ public sealed class OnboardingService(
             await repository.SaveChangesAsync(cancellationToken);
             return OnboardingResult.Invalid(turn.FailureReason ?? "A IA não respondeu.");
         }
+
+        // Contabiliza o consumo real do turno (tokens de entrada + saída).
+        await aiUsage.RecordConsumptionAsync(tenantId, turn.TotalTokens, cancellationToken);
+
+        await aiUsage.RecordOperationAsync(
+            tenantId,
+            AiOperationType.OnboardingConversation,
+            conversation.ProviderName,
+            conversation.KeyLabel,
+            turn.InputTokens,
+            turn.OutputTokens,
+            success: true,
+            cancellationToken: cancellationToken);
 
         if (turn.ExtractedFacts.Count > 0)
         {
@@ -175,11 +189,32 @@ public sealed class OnboardingService(
 
         if (!result.Success || result.ChangeSet is null)
         {
+            await aiUsage.RecordOperationAsync(
+                tenantId,
+                AiOperationType.SiteGeneration,
+                generator.ProviderName,
+                generator.KeyLabel,
+                result.InputTokens,
+                result.OutputTokens,
+                success: false,
+                result.FailureReason ?? "A geração falhou.",
+                cancellationToken);
+
             return OnboardingResult.Invalid(result.FailureReason ?? "A geração falhou.");
         }
 
         // Registra o consumo real (tokens). Sem cobrança de excedente.
-        await aiUsage.RecordConsumptionAsync(tenantId, result.UnitsConsumed, cancellationToken);
+        await aiUsage.RecordConsumptionAsync(tenantId, result.TotalTokens, cancellationToken);
+
+        await aiUsage.RecordOperationAsync(
+            tenantId,
+            AiOperationType.SiteGeneration,
+            generator.ProviderName,
+            generator.KeyLabel,
+            result.InputTokens,
+            result.OutputTokens,
+            success: true,
+            cancellationToken: cancellationToken);
 
         // Guardrail: a proposta precisa estar completa antes de ser aceita.
         // O AiChangeSet já rejeitou componente/propriedade fora do schema;
@@ -243,11 +278,32 @@ public sealed class OnboardingService(
 
         if (!result.Success || result.ChangeSet is null)
         {
+            await aiUsage.RecordOperationAsync(
+                tenantId,
+                AiOperationType.SiteRefinement,
+                generator.ProviderName,
+                generator.KeyLabel,
+                result.InputTokens,
+                result.OutputTokens,
+                success: false,
+                result.FailureReason ?? "O ajuste falhou.",
+                cancellationToken);
+
             return OnboardingResult.Invalid(result.FailureReason ?? "O ajuste falhou.");
         }
 
         // Registra o consumo real (tokens). Sem cobrança de excedente.
-        await aiUsage.RecordConsumptionAsync(tenantId, result.UnitsConsumed, cancellationToken);
+        await aiUsage.RecordConsumptionAsync(tenantId, result.TotalTokens, cancellationToken);
+
+        await aiUsage.RecordOperationAsync(
+            tenantId,
+            AiOperationType.SiteRefinement,
+            generator.ProviderName,
+            generator.KeyLabel,
+            result.InputTokens,
+            result.OutputTokens,
+            success: true,
+            cancellationToken: cancellationToken);
 
         if (!result.ChangeSet.IsComplete())
         {

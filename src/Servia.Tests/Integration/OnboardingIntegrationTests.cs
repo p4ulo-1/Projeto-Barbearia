@@ -282,6 +282,8 @@ internal sealed class FakeConversationProvider : IAiConversationProvider
 
     public string ProviderName => "fake";
 
+    public string KeyLabel => "fake";
+
     public Task<AiConversationTurn> ContinueAsync(
         AiConversationContext context,
         CancellationToken cancellationToken = default)
@@ -291,9 +293,9 @@ internal sealed class FakeConversationProvider : IAiConversationProvider
         var facts = new Dictionary<string, string> { ["description"] = "Estabelecimento de serviços" };
 
         return _turn >= 2
-            ? Task.FromResult(AiConversationTurn.Completed(facts, 1))
+            ? Task.FromResult(AiConversationTurn.Completed(facts, 1, 0))
             : Task.FromResult(AiConversationTurn.Asked(
-                "Qual o endereço do estabelecimento?", facts, 1));
+                "Qual o endereço do estabelecimento?", facts, 1, 0));
     }
 }
 
@@ -302,17 +304,19 @@ internal sealed class FakeSiteGenerator : IAiSiteGenerator
 {
     public string ProviderName => "fake";
 
+    public string KeyLabel => "fake";
+
     public Task<AiGenerationResult> GenerateAsync(
         AiGenerationRequest request,
         CancellationToken cancellationToken = default) =>
-        Task.FromResult(AiGenerationResult.Generated(Build(request), 2));
+        Task.FromResult(AiGenerationResult.Generated(Build(request), 2, 0));
 
     public Task<AiGenerationResult> RefineAsync(
         AiGenerationRequest request,
         AiChangeSet current,
         string instruction,
         CancellationToken cancellationToken = default) =>
-        Task.FromResult(AiGenerationResult.Generated(Build(request), 2));
+        Task.FromResult(AiGenerationResult.Generated(Build(request), 2, 0));
 
     private static AiChangeSet Build(AiGenerationRequest request)
     {
