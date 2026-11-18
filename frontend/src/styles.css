@@ -1,0 +1,288 @@
+/*
+ * Tailwind v4 entry: config lives here, with no tailwind.config.js or PostCSS plugin.
+ * - Keep every @import in this top block, above @theme and the rest of the file. Install an
+ *   npm package before @importing its CSS. Never @import a remote URL (web fonts, CDN CSS): the
+ *   build resolves @import from the filesystem. Load those with a <link> in the head() of
+ *   src/routes/__root.tsx and name the family in a --font-* token in @theme inline below.
+ */
+@import "tailwindcss" source(none);
+@source "../src";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * Design system definition.
+ *
+ * The design lives in this file: oklch color tokens on the shadcn variables
+ * (--background, --foreground, --primary, --secondary, --muted, --accent, ...) plus
+ * new tokens as needed, font tokens, and custom styles and animations.
+ *
+ * The @theme inline block maps CSS custom properties to Tailwind utility
+ * classes (e.g. --color-primary -> bg-primary, text-primary).
+ *
+ * The :root and .dark blocks define the actual color values using oklch.
+ * All colors MUST use oklch format.
+ *
+ * To add a new semantic color:
+ * 1. Add the variable to :root (light value) and .dark (dark value)
+ * 2. Register it in @theme inline as --color-<name>: var(--<name>)
+ */
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --radius-3xl: calc(var(--radius) + 12px);
+  --radius-4xl: calc(var(--radius) + 16px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-ring-offset-background: var(--background);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+:root {
+  --radius: 0.625rem;
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.129 0.042 264.695);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.129 0.042 264.695);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.129 0.042 264.695);
+  --primary: oklch(0.208 0.042 265.755);
+  --primary-foreground: oklch(0.984 0.003 247.858);
+  --secondary: oklch(0.968 0.007 247.896);
+  --secondary-foreground: oklch(0.208 0.042 265.755);
+  --muted: oklch(0.968 0.007 247.896);
+  --muted-foreground: oklch(0.554 0.046 257.417);
+  --accent: oklch(0.968 0.007 247.896);
+  --accent-foreground: oklch(0.208 0.042 265.755);
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: oklch(0.984 0.003 247.858);
+  --border: oklch(0.929 0.013 255.508);
+  --input: oklch(0.929 0.013 255.508);
+  --ring: oklch(0.704 0.04 256.788);
+  --chart-1: oklch(0.646 0.222 41.116);
+  --chart-2: oklch(0.6 0.118 184.704);
+  --chart-3: oklch(0.398 0.07 227.392);
+  --chart-4: oklch(0.828 0.189 84.429);
+  --chart-5: oklch(0.769 0.188 70.08);
+  --sidebar: oklch(0.984 0.003 247.858);
+  --sidebar-foreground: oklch(0.129 0.042 264.695);
+  --sidebar-primary: oklch(0.208 0.042 265.755);
+  --sidebar-primary-foreground: oklch(0.984 0.003 247.858);
+  --sidebar-accent: oklch(0.968 0.007 247.896);
+  --sidebar-accent-foreground: oklch(0.208 0.042 265.755);
+  --sidebar-border: oklch(0.929 0.013 255.508);
+  --sidebar-ring: oklch(0.704 0.04 256.788);
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+  }
+}
+
+/* ===== Servia brand tokens (pure CSS; consumed by *.module.css) ===== */
+:root {
+  --sv-primary: oklch(0.546 0.215 262.9); /* #2563EB */
+  --sv-primary-hover: oklch(0.488 0.217 264.4); /* #1D4ED8 */
+  --sv-primary-soft: oklch(0.97 0.014 254.6); /* #EFF6FF */
+  --sv-navy: oklch(0.208 0.042 265.8); /* #0F172A */
+  --sv-ink: #0f172a;
+  --sv-phone-frame: var(--sv-ink);
+  --sv-feature-dots: color-mix(in srgb, var(--sv-ink) 11%, transparent);
+  --sv-marble-base: #0a1230;
+  --sv-marble-navy: #0b1d5c;
+  --sv-marble-black: #03050d;
+  --sv-marble-light: #dbe8ff;
+  --sv-marble-blue: #112a73;
+  --sv-link: var(--sv-primary);
+  --sv-focus: var(--sv-primary);
+  --sv-control-border: #8593a8;
+  --sv-sidebar: var(--sv-surface);
+  --sv-header: var(--sv-surface);
+  --sv-scrim: rgb(8 13 24 / 56%);
+  --sv-lavender-text: #51448f;
+  --sv-lavender-soft: #ede9fb;
+  --sv-mint-glow: #e3f3ef;
+  --sv-lavender-glow: #e7eafd;
+  --sv-peach-glow: #f8ebe6;
+  --sv-blue-glow: #e1ebff;
+  --sv-panel-bg:
+    radial-gradient(ellipse at 22% 4%, var(--sv-blue-glow), transparent 65%),
+    radial-gradient(ellipse at 88% 22%, var(--sv-lavender-glow), transparent 64%), var(--sv-bg);
+  --sv-skeleton-base: var(--sv-surface-2);
+  --sv-skeleton-highlight: var(--sv-border);
+  --sv-ease-out: cubic-bezier(0.2, 0.65, 0.3, 1);
+  --sv-motion-fast: 180ms;
+  color-scheme: light;
+  --sv-text: oklch(0.372 0.044 257.3); /* #334155 */
+  --sv-text-2: oklch(0.554 0.041 257.4); /* #64748B */
+  --sv-bg: oklch(0.984 0.003 247.9); /* #F8FAFC */
+  --sv-surface: oklch(1 0 0);
+  --sv-surface-2: oklch(0.968 0.007 247.9); /* #F1F5F9 */
+  --sv-border: oklch(0.929 0.013 255.5); /* #E2E8F0 */
+  --sv-success: oklch(0.627 0.17 149.2);
+  --sv-warning: oklch(0.666 0.157 58.3);
+  --sv-error: oklch(0.577 0.215 27.3);
+  --sv-on-dark: oklch(0.984 0.003 247.9);
+  --sv-on-dark-2: oklch(0.75 0.03 257);
+
+  --sv-font-display: "Space Grotesk", system-ui, sans-serif;
+  --sv-font-body: "Manrope", system-ui, sans-serif;
+
+  --sv-radius-card: 12px;
+  --sv-radius-btn: 8px;
+  --sv-shadow-sm: 0 1px 2px color-mix(in oklab, var(--sv-navy) 6%, transparent);
+  --sv-shadow-lg: 0 24px 60px -24px color-mix(in oklab, var(--sv-navy) 28%, transparent);
+  --sv-shadow-primary: 0 10px 30px -12px color-mix(in oklab, var(--sv-primary) 55%, transparent);
+  --sv-success-text: oklch(0.42 0.11 149);
+  --sv-warning-text: oklch(0.43 0.1 58);
+  --sv-hero-wash:
+    radial-gradient(ellipse at 84% 9%, var(--sv-lavender-glow), transparent 48%),
+    radial-gradient(ellipse at 14% 25%, var(--sv-mint-glow), transparent 55%),
+    radial-gradient(ellipse at 72% 85%, var(--sv-peach-glow), transparent 52%), var(--sv-bg);
+  --sv-container: 1200px;
+  --sv-gutter: 32px;
+}
+@media (max-width: 720px) {
+  :root {
+    --sv-gutter: 20px;
+  }
+}
+
+html.dark {
+  color-scheme: dark;
+  --sv-bg: #080d18;
+  --sv-sidebar: #0b1220;
+  --sv-header: #0d1728;
+  --sv-auth-surface: #0b1220;
+  --sv-phone-frame: #314361;
+  --sv-marble-light: #91b3ee;
+  --sv-marble-veil: rgb(3 8 22 / 22%);
+  --sv-mint-glow: #132b30;
+  --sv-lavender-glow: #242543;
+  --sv-peach-glow: #2d2236;
+  --sv-feature-dots: color-mix(in srgb, var(--sv-link) 16%, transparent);
+  --sv-hero-wash:
+    radial-gradient(ellipse at 76% 24%, rgb(37 99 235 / 24%), transparent 58%),
+    radial-gradient(ellipse at 12% 83%, rgb(28 53 123 / 19%), transparent 56%), var(--sv-bg);
+  --sv-surface: #111c2e;
+  --sv-surface-2: #17243a;
+  --sv-link: #86b3ff;
+  --sv-focus: #8cbbff;
+  --sv-primary-soft: #172d51;
+  --sv-navy: #f1f5f9;
+  --sv-text: #dae4f1;
+  --sv-text-2: #9eaec4;
+  --sv-border: #26354c;
+  --sv-control-border: #6e829e;
+  --sv-success: #5ad69b;
+  --sv-success-text: #91e9bb;
+  --sv-warning: #f2bb69;
+  --sv-warning-text: #ffd493;
+  --sv-error: #ff9b9b;
+  --sv-lavender-text: #ccbdff;
+  --sv-lavender-soft: #292548;
+  --sv-scrim: rgb(3 5 13 / 72%);
+  --sv-shadow-sm: 0 1px 3px rgb(0 0 0 / 24%);
+  --sv-shadow-lg: 0 16px 38px rgb(0 0 0 / 30%);
+  --sv-shadow-primary: var(--sv-shadow-sm);
+  --sv-panel-bg:
+    radial-gradient(ellipse at 24% 10%, rgb(37 99 235 / 27%), transparent 56%),
+    radial-gradient(ellipse at 86% 82%, rgb(30 64 175 / 23%), transparent 61%), var(--sv-bg);
+  --sv-skeleton-base: #20304a;
+  --sv-skeleton-highlight: #2e4362;
+
+  --background: var(--sv-bg);
+  --foreground: var(--sv-navy);
+  --card: var(--sv-surface);
+  --card-foreground: var(--sv-navy);
+  --popover: var(--sv-surface-2);
+  --popover-foreground: var(--sv-navy);
+  --primary: var(--sv-primary);
+  --primary-foreground: var(--sv-on-dark);
+  --secondary: var(--sv-surface-2);
+  --secondary-foreground: var(--sv-text);
+  --muted: var(--sv-surface-2);
+  --muted-foreground: var(--sv-text-2);
+  --accent: var(--sv-primary-soft);
+  --accent-foreground: var(--sv-link);
+  --destructive: var(--sv-error);
+  --destructive-foreground: var(--sv-ink);
+  --border: var(--sv-border);
+  --input: var(--sv-control-border);
+  --ring: var(--sv-focus);
+  --chart-1: #74a6ff;
+  --chart-2: var(--sv-success);
+  --chart-3: var(--sv-warning);
+  --chart-4: var(--sv-lavender-text);
+  --chart-5: var(--sv-error);
+  --sidebar: var(--sv-sidebar);
+  --sidebar-foreground: var(--sv-text);
+  --sidebar-primary: var(--sv-primary);
+  --sidebar-primary-foreground: var(--sv-on-dark);
+  --sidebar-accent: var(--sv-primary-soft);
+  --sidebar-accent-foreground: var(--sv-link);
+  --sidebar-border: var(--sv-border);
+  --sidebar-ring: var(--sv-focus);
+}
+
+html {
+  scroll-behavior: smooth;
+  scroll-padding-top: 80px;
+}
+body {
+  font-family: var(--sv-font-body);
+  background: var(--sv-bg);
+  color: var(--sv-text);
+  -webkit-font-smoothing: antialiased;
+}
+
+:where(button, a, input, select, textarea, summary):focus-visible {
+  outline: 2px solid var(--sv-focus);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}

@@ -1,0 +1,274 @@
+.shell {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  min-height: 100svh;
+  display: grid;
+  grid-template-columns: minmax(24rem, 32.5rem) minmax(0, 1fr);
+  background: var(--sv-surface);
+}
+.main {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  min-width: 0;
+  padding: clamp(1.25rem, 4vw, 3rem);
+  background: var(--sv-auth-surface, var(--sv-surface));
+}
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.8rem;
+}
+.formWrap {
+  width: 100%;
+  max-width: 28rem;
+  margin-block: auto;
+  padding: 1.5rem 0;
+}
+.title {
+  font: 700 clamp(2rem, 4vw, 2.8rem) / 1.05 var(--sv-font-display);
+  color: var(--sv-navy);
+  letter-spacing: -0.04em;
+  margin: 0 0 0.75rem;
+  text-wrap: balance;
+}
+.subtitle {
+  margin: 0 0 1.65rem;
+  line-height: 1.55;
+  color: var(--sv-text-2);
+}
+.form {
+  display: grid;
+  gap: 1rem;
+}
+.groupLabel {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--sv-navy);
+  margin: 0.25rem 0 0;
+  padding-top: 1rem;
+  border-top: 1px solid var(--sv-border);
+}
+.groupLabel:first-child {
+  padding: 0;
+  margin: 0;
+  border: 0;
+}
+.rules {
+  list-style: none;
+  padding: 0;
+  margin: 0.25rem 0 0;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.35rem 0.5rem;
+  font-size: 0.8125rem;
+}
+.rules li {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  color: var(--sv-text-2);
+}
+.ruleOk {
+  color: var(--sv-success-text) !important;
+}
+.between {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  font-size: 0.875rem;
+}
+.check {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  cursor: pointer;
+  min-height: 44px;
+}
+.check input {
+  width: 1rem;
+  height: 1rem;
+  accent-color: var(--sv-link);
+}
+.link,
+.back {
+  color: var(--sv-link);
+  font-weight: 650;
+}
+.link:hover,
+.back:hover {
+  text-decoration: underline;
+}
+.alt {
+  text-align: center;
+  font-size: 0.9375rem;
+  margin: 0.5rem 0 0;
+}
+.back {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 44px;
+  font-size: 0.875rem;
+}
+.aside {
+  display: grid;
+  align-items: center;
+  justify-items: end;
+  min-width: 0;
+  padding: clamp(1.5rem, 6vw, 6rem);
+  border-left: 1px solid var(--sv-border);
+  background: transparent;
+}
+.asideList {
+  list-style: none;
+  width: min(100%, 23rem);
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 0.75rem;
+}
+.asideList li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 0.9rem;
+  padding: 1rem;
+  border-radius: var(--sv-radius-card);
+  border: 1px solid var(--sv-border);
+  background: var(--sv-surface);
+  box-shadow: var(--sv-shadow-sm);
+}
+.asideList strong {
+  color: var(--sv-navy);
+  font: 700 1rem var(--sv-font-display);
+}
+.asideList p {
+  margin: 0.25rem 0 0;
+  color: var(--sv-text-2);
+  font-size: 0.875rem;
+}
+.featureIcon {
+  display: grid;
+  place-items: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: var(--sv-radius-btn);
+  color: var(--sv-link);
+  background: var(--sv-primary-soft);
+}
+@media (max-width: 780px) {
+  .shell {
+    grid-template-columns: 1fr;
+  }
+  .aside {
+    display: none;
+  }
+  .main {
+    min-height: 100svh;
+  }
+  .formWrap {
+    margin-inline: auto;
+  }
+}
+
+.marble {
+  position: absolute;
+  inset: 0;
+  grid-area: 1 / 2;
+  z-index: -1;
+  pointer-events: none;
+  overflow: hidden;
+  background: var(--sv-marble-base);
+}
+.marbleCanvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 50%;
+  height: 50%;
+  transform: scale(2);
+  transform-origin: 0 0;
+  filter: url("#marmore");
+}
+.marbleColors {
+  position: absolute;
+  inset: -35%;
+  background:
+    repeating-linear-gradient(
+      118deg,
+      var(--sv-marble-navy) 0,
+      var(--sv-marble-black) 52px,
+      var(--sv-primary) 110px,
+      var(--sv-marble-light) 168px,
+      var(--sv-marble-blue) 222px,
+      var(--sv-marble-navy) 280px
+    ),
+    conic-gradient(
+      var(--sv-marble-navy),
+      var(--sv-marble-black),
+      var(--sv-primary),
+      var(--sv-marble-light),
+      var(--sv-marble-blue),
+      var(--sv-marble-navy)
+    );
+  animation: marble-spin 90s linear infinite;
+  will-change: transform;
+}
+.marble::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(60% 50% at 30% 20%, rgb(255 255 255 / 12%), transparent 70%),
+    radial-gradient(55% 45% at 80% 85%, rgb(255 255 255 / 8%), transparent 70%),
+    var(--sv-marble-veil, transparent);
+}
+@keyframes marble-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 780px) {
+  .shell {
+    align-items: center;
+  }
+  .marble {
+    grid-area: 1 / 1;
+  }
+  .marbleCanvas {
+    top: -3rem;
+    left: -3rem;
+    width: calc(50% + 3rem);
+    height: calc(50% + 3rem);
+  }
+  .marbleColors {
+    inset: min(-35%, -150px);
+  }
+  .main {
+    min-height: auto;
+    margin: clamp(0.75rem, 4vw, 1.5rem);
+    padding: clamp(0.875rem, 4vw, 2rem);
+    border-radius: 16px;
+    border: 1px solid var(--sv-border);
+    box-shadow: var(--sv-shadow-lg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .marbleCanvas {
+    filter: none;
+  }
+  .marbleColors {
+    background:
+      radial-gradient(ellipse at 72% 28%, var(--sv-marble-blue), transparent 46%),
+      radial-gradient(ellipse at 25% 76%, var(--sv-primary), transparent 52%), var(--sv-marble-base);
+    animation: none;
+    will-change: auto;
+  }
+}
