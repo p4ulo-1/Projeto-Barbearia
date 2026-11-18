@@ -25,19 +25,6 @@ public sealed class TeamController(
     ITenantContext tenantContext,
     PlanSlotService planSlots) : ControllerBase
 {
-    /// <summary>
-    /// Garante que o estabelecimento comporta mais um profissional ocupando
-    /// vaga, segundo o plano contratado.
-    ///
-    /// A verificação pertence a <see cref="PlanSlotService"/>: a contagem e a
-    /// gravação precisam ser atômicas, senão duas requisições concorrentes
-    /// contam a mesma vaga livre e ambas gravam.
-    /// </summary>
-    private Task EnsurePlanAllowsAnotherProviderAsync(
-        CancellationToken cancellationToken,
-        int additionalSlots = 1) =>
-        planSlots.EnsureSlotsAvailableAsync(RequireTenant(), additionalSlots, cancellationToken);
-
     /// <summary>Lista os profissionais, com paginação.</summary>
     [HttpGet("professionals")]
     [RequirePermission(Permission.ViewTeamAgenda)]
@@ -172,108 +159,24 @@ public sealed class TeamController(
     {
         var tenantId = RequireTenant();
 
-        try
+        await planSlots.ExecuteWithSlotCheckAsync(tenantId, async token =>
         {
-            await planSlots.ExecuteWithSlotCheckAsync(
-                tenantId,
-                // Quantas vagas este vínculo consome, decidido dentro da
-                // transação: repetir o vínculo ou associar um segundo serviço
-                // a quem já ocupava vaga não consome nada.
-                slotsConsumed: async token =>
-                {
-                    var professional = await context.Professionals
-                        .FirstOrDefaultAsync(item => item.Id == id, token)
-                        ?? throw NotFoundException.For("Profissional", id);
+            // Todas as leituras e a persistência pertencem à mesma transação.
+            _ = await context.Professionals.FirstOrDefaultAsync(item => item.Id == id, token)
+                ?? throw NotFoundException.For("Profissional", id);
+            _ = await context.Services.FirstOrDefaultAsync(item => item.Id == serviceId, token)
+                ?? throw NotFoundException.For("Serviço", serviceId);
 
-                    var service = await context.Services
-                        .FirstOrDefaultAsync(item => item.Id == serviceId, token)
-                        ?? throw NotFoundException.For("Serviço", serviceId);
-
-                    var alreadyLinked = await context.ProfessionalServices
-                        .AnyAsync(
-                            link => link.ProfessionalId == id && link.ServiceId == serviceId,
-                            token);
-
-                    if (alreadyLinked)
-                    {
-                        return 0;
-                    }
-
-                    var occupiedBefore = await OccupiesPlanSlotAsync(professional, token);
-
-                    var becomesEligible = !occupiedBefore
-                        && BookingEligibility.OccupiesPlanSlot(professional, service.IsActive);
-
-                    return becomesEligible ? 1 : 0;
-                },
-                operation: async token =>
-                {
-                    // Idempotente: repetir o vínculo não cria duplicata.
-                    var alreadyLinked = await context.ProfessionalServices
-                        .AnyAsync(
-                            link => link.ProfessionalId == id && link.ServiceId == serviceId,
-                            token);
-
-                    if (alreadyLinked)
-                    {
-                        return true;
-                    }
-
-                    context.ProfessionalServices.Add(
-                        ProfessionalService.Create(tenantId, id, serviceId));
-
-                    await context.SaveChangesAsync(token);
-
-                    return true;
-                },
-                cancellationToken);
-
-            return NoContent();
-        }
-        catch (Exception exception) when (IsSerializationConflict(exception))
-        {
-            // Outra transação concorrente venceu a disputa pela vaga.
-            return Conflict(new ErrorResponse(
-                "Outra alteração de equipe ocorreu ao mesmo tempo. Tente novamente."));
-        }
-    }
-
-    /// <summary>
-    /// Indica se a exceção representa conflito de serialização.
-    ///
-    /// A camada de API não referencia o provider: a detecção é por mensagem,
-    /// que é o contrato estável do PostgreSQL.
-    /// </summary>
-    private static bool IsSerializationConflict(Exception exception)
-    {
-        for (var current = exception; current is not null; current = current.InnerException)
-        {
-            var message = current.Message;
-
-            if (message.Contains("40001", StringComparison.Ordinal)
-                || message.Contains("could not serialize", StringComparison.OrdinalIgnoreCase)
-                || message.Contains("duplicate key", StringComparison.OrdinalIgnoreCase))
+            if (!await context.ProfessionalServices.AnyAsync(
+                link => link.ProfessionalId == id && link.ServiceId == serviceId, token))
             {
-                return true;
+                context.ProfessionalServices.Add(ProfessionalService.Create(tenantId, id, serviceId));
+                await context.SaveChangesAsync(token);
             }
-        }
-
-        return false;
+            return true;
+        }, cancellationToken);
+        return NoContent();
     }
-
-    /// <summary>
-    /// Indica se o profissional já ocupa vaga no plano, considerando os
-    /// vínculos persistidos com serviços ativos.
-    /// </summary>
-    private Task<bool> OccupiesPlanSlotAsync(
-        Professional professional,
-        CancellationToken cancellationToken) =>
-        context.ProfessionalServices
-            .AnyAsync(
-                link => link.ProfessionalId == professional.Id
-                    && context.Services.Any(service =>
-                        service.Id == link.ServiceId && service.IsActive),
-                cancellationToken);
 
     /// <summary>Lista os serviços que um profissional executa.</summary>
     [HttpGet("professionals/{id:guid}/services")]
@@ -334,7 +237,7 @@ public sealed class TeamController(
 
 /// <summary>Corpo de criação de profissional.</summary>
 /// <param name="IsServiceProvider">
-/// Indica se a pessoa presta serviços e ocupa vaga no plano. Padrão: sim.
+/// Descreve a atuação da pessoa; não controla vagas nem habilita reservas. Padrão: sim.
 /// </param>
 public sealed record CreateProfessionalRequest(
     [Required, MaxLength(150)] string Name,

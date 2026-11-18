@@ -103,84 +103,24 @@ public class PlanSlotConcurrencyTests : IAsyncLifetime
     /// </summary>
     private async Task<bool> TryLinkAsync(Guid professionalId, Guid serviceId)
     {
-        var context = _database.CreateContext(ContextFor(TenantId));
-
-        var planSlots = new PlanSlotService(
-            new SubscriptionRepository(context),
-            new PlanRepository(context),
-            new ProfessionalCountReader(context));
-
-        try
+        // Cada repetição usa contexto novo, como uma nova requisição do cliente.
+        for (var attempt = 0; attempt < 3; attempt++)
         {
-            await planSlots.ExecuteWithSlotCheckAsync(
-                TenantId,
-                slotsConsumed: async token =>
-                {
-                    var professional = await context.Professionals
-                        .FirstAsync(item => item.Id == professionalId, token);
-
-                    var service = await context.Services
-                        .FirstAsync(item => item.Id == serviceId, token);
-
-                    var alreadyLinked = await context.ProfessionalServices
-                        .AnyAsync(
-                            link => link.ProfessionalId == professionalId
-                                && link.ServiceId == serviceId,
-                            token);
-
-                    if (alreadyLinked)
-                    {
-                        return 0;
-                    }
-
-                    var occupiedBefore = await context.ProfessionalServices
-                        .AnyAsync(
-                            link => link.ProfessionalId == professionalId
-                                && context.Services.Any(s =>
-                                    s.Id == link.ServiceId && s.IsActive),
-                            token);
-
-                    var becomesEligible = !occupiedBefore
-                        && BookingEligibility.OccupiesPlanSlot(professional, service.IsActive);
-
-                    return becomesEligible ? 1 : 0;
-                },
-                operation: async token =>
-                {
-                    context.ProfessionalServices.Add(
-                        ProfessionalService.Create(TenantId, professionalId, serviceId));
-
-                    await context.SaveChangesAsync(token);
-
-                    return true;
-                });
-
-            return true;
-        }
-        catch (Exception exception) when (IsSerializationConflict(exception))
-        {
-            return false;
-        }
-        catch (DomainRuleException)
-        {
-            return false;
-        }
-    }
-
-    private static bool IsSerializationConflict(Exception exception)
-    {
-        for (var current = exception; current is not null; current = current.InnerException)
-        {
-            var message = current.Message;
-
-            if (message.Contains("40001", StringComparison.Ordinal)
-                || message.Contains("could not serialize", StringComparison.OrdinalIgnoreCase)
-                || message.Contains("duplicate key", StringComparison.OrdinalIgnoreCase))
+            var tenant = ContextFor(TenantId);
+            await using var context = _database.CreateContext(tenant);
+            var planSlots = new PlanSlotService(
+                new SubscriptionRepository(context), new PlanRepository(context),
+                new ProfessionalCountReader(context));
+            var controller = new Servia.Api.Controllers.TeamController(context, tenant, planSlots);
+            try
             {
-                return true;
+                var response = await controller.LinkServiceAsync(professionalId, serviceId, default);
+                return response is Microsoft.AspNetCore.Mvc.NoContentResult;
             }
+            catch (ConcurrencyConflictException) when (attempt < 2) { }
+            catch (ConcurrencyConflictException) { return false; }
+            catch (DomainRuleException) { return false; }
         }
-
         return false;
     }
 
@@ -188,6 +128,53 @@ public class PlanSlotConcurrencyTests : IAsyncLifetime
     {
         await using var context = _database.CreateContext(ContextFor(TenantId));
         return await new ProfessionalCountReader(context).CountEligibleAsync(TenantId);
+    }
+
+    [Theory]
+    [InlineData("professional")]
+    [InlineData("service")]
+    [InlineData("schedule")]
+    public async Task Transicao_Que_Excede_Limite_Faz_Rollback_E_Limpa_Contexto(string transition)
+    {
+        var occupying = await SeedIneligibleAsync("Ocupante");
+        Assert.True(await TryLinkAsync(occupying.ProfessionalId, occupying.ServiceId));
+        var candidate = await SeedIneligibleAsync("Candidato");
+        await using var context = _database.CreateContext(ContextFor(TenantId));
+        var professional = await context.Professionals.SingleAsync(p => p.Id == candidate.ProfessionalId);
+        var service = await context.Services.SingleAsync(s => s.Id == candidate.ServiceId);
+        if (transition == "professional") professional.Deactivate();
+        if (transition == "service") service.Deactivate();
+        context.ProfessionalServices.Add(ProfessionalService.Create(TenantId, professional.Id, service.Id));
+        await context.SaveChangesAsync();
+        if (transition == "schedule")
+        {
+            // Dado materializado sem jornada: deve ser rejeitado pelo predicado.
+            await context.Database.ExecuteSqlInterpolatedAsync(
+                $"UPDATE \"Professionals\" SET \"Schedule_WorkDays\" = '' WHERE \"Id\" = {professional.Id}");
+        }
+        context.ChangeTracker.Clear();
+        Assert.Equal(1, await new ProfessionalCountReader(context).CountEligibleAsync(TenantId));
+        var slots = new PlanSlotService(new SubscriptionRepository(context),
+            new PlanRepository(context), new ProfessionalCountReader(context));
+        await Assert.ThrowsAsync<DomainRuleException>(() => slots.ExecuteWithSlotCheckAsync(TenantId, async token =>
+        {
+            var person = await context.Professionals.SingleAsync(p => p.Id == candidate.ProfessionalId, token);
+            var item = await context.Services.SingleAsync(s => s.Id == candidate.ServiceId, token);
+            if (transition == "professional") person.Activate();
+            if (transition == "service") item.Activate();
+            if (transition == "schedule") person.UpdateSchedule(WorkSchedule.Create(
+                [DayOfWeek.Monday], new TimeOnly(9, 0), new TimeOnly(18, 0)));
+            await context.SaveChangesAsync(token);
+            return true;
+        }));
+        Assert.Empty(context.ChangeTracker.Entries());
+        Assert.Equal(1, await CountEligibleAsync());
+        await using var verification = _database.CreateContext(ContextFor(TenantId));
+        var savedPerson = await verification.Professionals.SingleAsync(p => p.Id == candidate.ProfessionalId);
+        var savedService = await verification.Services.SingleAsync(s => s.Id == candidate.ServiceId);
+        if (transition == "professional") Assert.False(savedPerson.IsActive);
+        if (transition == "service") Assert.False(savedService.IsActive);
+        if (transition == "schedule") Assert.Empty(savedPerson.Schedule.WorkDays);
     }
 
     // ---------- Concorrência real ----------
@@ -265,7 +252,9 @@ public class PlanSlotConcurrencyTests : IAsyncLifetime
             Enumerable.Range(0, 4)
                 .Select(_ => TryLinkAsync(professional.ProfessionalId, professional.ServiceId)));
 
-        // Todas podem retornar sucesso (idempotência), mas o efeito é único.
+        Assert.All(results, Assert.True);
+
+        // Repetições controladas preservam o efeito único.
         await using var context = _database.CreateContext(ContextFor(TenantId));
 
         Assert.Equal(1, await context.ProfessionalServices.CountAsync());

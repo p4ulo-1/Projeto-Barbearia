@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.EntityFrameworkCore;
 using Servia.Api.Contracts;
 using Servia.Api.Controllers;
 using Servia.Domain.Common;
@@ -209,6 +210,22 @@ public class PlanLimitOnLinkTests : IClassFixture<IsolatedApiFactory>
         Assert.Equal(HttpStatusCode.NoContent, (await LinkAsync(professional, service)).StatusCode);
     }
 
+    [Fact]
+    public async Task Associacoes_Concorrentes_Pela_API_Respeitam_Limite_E_Nao_Retornam_500()
+    {
+        var service = await CreateServiceAsync("Serviço concorrente");
+        var first = await CreateProfessionalAsync("Pessoa A");
+        var second = await CreateProfessionalAsync("Pessoa B");
+        var results = await Task.WhenAll(LinkAsync(first, service), LinkAsync(second, service));
+        Assert.Single(results, response => response.StatusCode == HttpStatusCode.NoContent);
+        Assert.All(results, response => Assert.Contains(response.StatusCode,
+            new[] { HttpStatusCode.NoContent, HttpStatusCode.BadRequest, HttpStatusCode.Conflict }));
+        using var scope = _factory.Services.CreateScope();
+        scope.ServiceProvider.GetRequiredService<ITenantContext>().SetTenant(TenantId);
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        Assert.Equal(1, await db.ProfessionalServices.CountAsync());
+    }
+
     // ---------- IsServiceProvider não consome vaga ----------
 
     [Fact]
@@ -222,6 +239,10 @@ public class PlanLimitOnLinkTests : IClassFixture<IsolatedApiFactory>
 
         // Um segundo profissional sem serviço não ocupa vaga.
         var other = await CreateProfessionalAsync("Sem serviço");
+
+        await SendAsync(HttpMethod.Patch,
+            $"/api/v1/team/professionals/{other}/service-provider",
+            new { isServiceProvider = false });
 
         // Alternar a atuação não torna ninguém elegível: não há limite a
         // verificar, e a operação deve ser aceita mesmo com o plano cheio.

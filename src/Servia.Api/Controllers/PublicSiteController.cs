@@ -11,6 +11,7 @@ using Servia.Domain.Common;
 using Servia.Domain.Customers;
 using Servia.Domain.Sites;
 using Servia.Domain.Tenancy;
+using Servia.Domain.Team;
 using Servia.Infrastructure.Integrations;
 using Servia.Infrastructure.Persistence;
 
@@ -153,6 +154,7 @@ public sealed class PublicSiteController(
             .ToListAsync(cancellationToken);
 
         var result = professionals
+            .Where(BookingEligibility.IsOperationallyEligible)
             .Select(professional => new PublicProfessionalResponse(
                 professional.Id,
                 professional.Name,

@@ -28,6 +28,10 @@ public sealed class ExceptionHandlingMiddleware(
         {
             await next(context);
         }
+        catch (ConcurrencyConflictException exception)
+        {
+            await WriteAsync(context, StatusCodes.Status409Conflict, new ErrorResponse(exception.Message));
+        }
         catch (DomainRuleException exception)
         {
             await WriteAsync(context, StatusCodes.Status400BadRequest,

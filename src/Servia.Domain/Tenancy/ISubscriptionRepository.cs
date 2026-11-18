@@ -39,8 +39,10 @@ public interface ISubscriptionRepository
     /// concorrentes contam a mesma vaga livre e ambas gravam.
     ///
     /// O nível serializável faz o PostgreSQL abortar uma das transações
-    /// concorrentes com erro de serialização, que o chamador traduz em
-    /// conflito de negócio.
+    /// concorrentes. A infraestrutura traduz o SQLSTATE em
+    /// ConcurrencyConflictException e limpa o rastreamento após rollback.
+    /// O delegate não é repetido automaticamente: uma tentativa posterior
+    /// deve usar uma nova unidade de trabalho.
     /// </summary>
     Task<T> ExecuteSerializableAsync<T>(
         Func<CancellationToken, Task<T>> operation,

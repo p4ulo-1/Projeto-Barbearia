@@ -1,10 +1,10 @@
 namespace Servia.Domain.Common;
 
 /// <summary>
-/// Conflito de concorrência otimista (C10).
+/// Conflito de concorrência otimista ou de serialização transacional.
 ///
-/// Lançada quando outra transação alterou o mesmo agregado entre a leitura e
-/// a gravação. É uma falha esperada sob concorrência — não um defeito — e a
+/// Lançada quando outra transação impede a confirmação segura de uma alteração.
+/// É uma falha esperada sob concorrência e a
 /// camada de API a traduz em <c>409 Conflict</c>.
 ///
 /// Vive no domínio para que a aplicação não dependa do EF Core: a

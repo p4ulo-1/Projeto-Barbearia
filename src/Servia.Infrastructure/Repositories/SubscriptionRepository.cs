@@ -1,4 +1,7 @@
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
+using Servia.Domain.Common;
+using Servia.Domain.Team;
 using Servia.Domain.Tenancy;
 using Servia.Infrastructure.Persistence;
 
@@ -61,11 +64,37 @@ public sealed class SubscriptionRepository(AppDbContext context) : ISubscription
         await using var transaction = await context.Database.BeginTransactionAsync(
             System.Data.IsolationLevel.Serializable, cancellationToken);
 
-        var result = await operation(cancellationToken);
-
-        await transaction.CommitAsync(cancellationToken);
-
-        return result;
+        try
+        {
+            var result = await operation(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return result;
+        }
+        catch (Exception exception)
+        {
+            // await using reverte alterações não confirmadas ao descartar a transação.
+            // Isso funciona também quando o PostgreSQL já encerrou a transação
+            // ao rejeitar COMMIT; outro Rollback mascararia o SQLSTATE original.
+            context.ChangeTracker.Clear();
+            // Não repetimos delegates arbitrários: eles podem ter efeitos externos.
+            // O cliente recebe 409 e pode repetir a operação em uma nova requisição.
+            PostgresException? postgres = null;
+            for (Exception? current = exception; current is not null; current = current.InnerException)
+            {
+                if (current is PostgresException providerException)
+                {
+                    postgres = providerException;
+                    break;
+                }
+            }
+            if (postgres?.SqlState == PostgresErrorCodes.SerializationFailure
+                || postgres?.SqlState == PostgresErrorCodes.DeadlockDetected
+                || (postgres?.SqlState == PostgresErrorCodes.UniqueViolation
+                    && postgres.ConstraintName == "PK_ProfessionalServices"))
+                throw new ConcurrencyConflictException(
+                    "Outra alteração de equipe ocorreu ao mesmo tempo. Tente novamente.", exception);
+            throw;
+        }
     }
 }
 
@@ -134,18 +163,20 @@ public sealed class PlanRepository(AppDbContext context) : IPlanRepository
 /// </summary>
 public sealed class ProfessionalCountReader(AppDbContext context) : IProfessionalCountReader
 {
-    public Task<int> CountEligibleAsync(
+    public async Task<int> CountEligibleAsync(
         Guid tenantId,
-        CancellationToken cancellationToken = default) =>
-        context.Professionals
+        CancellationToken cancellationToken = default)
+    {
+        // O banco seleciona os vínculos ativos; a regra de domínio decide
+        // atividade e jornada sem manter outro predicado de elegibilidade.
+        var candidates = await context.Professionals.AsNoTracking()
             .Where(professional => professional.TenantId == tenantId
-                && professional.IsActive
                 && context.ProfessionalServices.Any(link =>
-                    link.TenantId == tenantId
-                    && link.ProfessionalId == professional.Id
-                    && context.Services.Any(service =>
-                        service.TenantId == tenantId
-                        && service.Id == link.ServiceId
-                        && service.IsActive)))
-            .CountAsync(cancellationToken);
+                    link.TenantId == tenantId && link.ProfessionalId == professional.Id
+                    && context.Services.Any(service => service.TenantId == tenantId
+                        && service.Id == link.ServiceId && service.IsActive)))
+            .ToListAsync(cancellationToken);
+        return candidates.Count(professional =>
+            BookingEligibility.OccupiesPlanSlot(professional, hasActiveLinkedService: true));
+    }
 }

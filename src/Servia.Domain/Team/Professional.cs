@@ -119,10 +119,8 @@ public sealed class Professional : ITenantScoped
     }
 
     /// <summary>
-    /// Define se a pessoa presta serviços. Ao passar a prestar, passa a
-    /// ocupar vaga no plano; ao deixar de prestar, a vaga é liberada.
-    /// A validação do limite do plano é responsabilidade da camada de
-    /// aplicação, que conhece a assinatura vigente.
+    /// Define a atuação declarada da pessoa na equipe.
+    /// Não altera elegibilidade de reserva nem ocupação de vaga do plano.
     /// </summary>
     public void SetServiceProvider(bool isServiceProvider) =>
         IsServiceProvider = isServiceProvider;

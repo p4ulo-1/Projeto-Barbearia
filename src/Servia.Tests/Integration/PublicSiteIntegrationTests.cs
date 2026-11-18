@@ -423,6 +423,60 @@ public sealed class PublicSiteIntegrationTests : IClassFixture<PublicSiteApiFact
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
+    [Fact]
+    public async Task Fluxo_Anonimo_Pelo_Host_Persiste_E_Aparece_Na_Agenda_Interna()
+    {
+        var register = await _factory.RegisterPublicBookingDataAsync();
+        using var visitor = _factory.CreateClient();
+        visitor.DefaultRequestHeaders.Host = $"{PublicSiteApiFactory.PublishedHost}.servia.app";
+        var site = await visitor.GetAsync("/api/v1/public/site");
+        Assert.Equal(HttpStatusCode.OK, site.StatusCode);
+        var services = await visitor.GetFromJsonAsync<List<PublicServiceDto>>("/api/v1/public/site/services");
+        Assert.Contains(services!, service => service.Id == register.ServiceId);
+        var professionals = await visitor.GetFromJsonAsync<List<PublicProfessionalDto>>(
+            $"/api/v1/public/site/professionals?serviceId={register.ServiceId}");
+        Assert.Contains(professionals!, person => person.Id == register.ProfessionalId);
+        var date = register.Date.AddDays(30);
+        var availability = await visitor.GetFromJsonAsync<PublicAvailabilityDto>(
+            $"/api/v1/public/site/availability?serviceId={register.ServiceId}&professionalId={register.ProfessionalId}&date={date:yyyy-MM-dd}");
+        var time = availability!.Slots.First();
+        var request = new { name = "Cliente Fluxo", phone = "11933334444", email = (string?)null,
+            serviceId = register.ServiceId, professionalId = register.ProfessionalId, date, time };
+        var created = await visitor.PostAsJsonAsync("/api/v1/public/site/appointments", request);
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        var appointment = await created.Content.ReadFromJsonAsync<Servia.Api.Controllers.PublicAppointmentResponse>();
+        var conflict = await visitor.PostAsJsonAsync("/api/v1/public/site/appointments", request);
+        Assert.Equal(HttpStatusCode.Conflict, conflict.StatusCode);
+
+        Guid tenantId;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            tenantId = (await db.Tenants.IgnoreQueryFilters().SingleAsync(t => t.Slug == PublicSiteApiFactory.PublishedHost)).Id;
+            scope.ServiceProvider.GetRequiredService<ITenantContext>().SetTenant(tenantId);
+            var saved = await db.Appointments.SingleAsync(a => a.Id == appointment!.Id);
+            Assert.Equal(register.ServiceId, saved.ServiceId);
+            Assert.Equal(register.ProfessionalId, saved.ProfessionalId);
+            Assert.Equal(date, saved.Date);
+            Assert.Equal(time, saved.Time);
+            Assert.Equal(30, saved.DurationMinutes);
+            var hasher = scope.ServiceProvider.GetRequiredService<Servia.Domain.Identity.IPasswordHasher>();
+            db.Users.Add(Servia.Domain.Identity.User.CreateForTenant(tenantId, "Owner fluxo", "fluxo@teste.local",
+                hasher.Hash("SenhaSegura123"), Servia.Domain.Identity.Role.Owner, DateTimeOffset.UtcNow));
+            await db.SaveChangesAsync();
+        }
+        var login = await _client.PostAsJsonAsync("/api/auth/sign-in",
+            new Servia.Api.Contracts.SignInRequest(tenantId, "fluxo@teste.local", "SenhaSegura123"));
+        Assert.Equal(HttpStatusCode.OK, login.StatusCode);
+        var auth = await login.Content.ReadFromJsonAsync<Servia.Api.Contracts.AuthResponse>();
+        using var agendaRequest = new HttpRequestMessage(HttpMethod.Get, $"/api/v1/agenda/appointments?date={date:yyyy-MM-dd}");
+        agendaRequest.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", auth!.AccessToken);
+        var agenda = await _client.SendAsync(agendaRequest);
+        Assert.Equal(HttpStatusCode.OK, agenda.StatusCode);
+        var entries = await agenda.Content.ReadFromJsonAsync<List<Servia.Api.Contracts.AppointmentResponse>>();
+        Assert.Contains(entries!, entry => entry.Id == appointment!.Id);
+    }
+
     private sealed record PublicSiteDto(string Subdomain, string BusinessName);
 
     private sealed record PublicServiceDto(Guid Id, string Name);
