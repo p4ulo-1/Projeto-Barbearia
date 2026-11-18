@@ -1,10 +1,12 @@
 using System.Net;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Servia.Api.Contracts;
+using Servia.Api.Controllers;
 using Servia.Api.Middleware;
 using Servia.Domain.Appointments;
 using Servia.Domain.Catalog;
@@ -250,6 +252,209 @@ public class AppointmentsEndpointTests : IClassFixture<IsolatedApiFactory>
 
         Assert.NotNull(created);
         Assert.Equal(TenantId, created!.TenantId);
+    }
+
+    private async Task<HttpResponseMessage> AgendaAsync(
+        HttpMethod method, string path, object? body = null, string? token = null)
+    {
+        using var message = new HttpRequestMessage(method, path);
+        message.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token ?? _accessToken);
+        if (body is not null) message.Content = JsonContent.Create(body);
+        return await _client.SendAsync(message);
+    }
+
+    [Fact]
+    public async Task Agenda_Interna_Cria_Remarca_E_Consulta_Sem_Conflito_Com_O_Proprio_Compromisso()
+    {
+        var date = new DateOnly(2026, 12, 7);
+        var query = $"?professionalId={_professionalId}&serviceId={_serviceId}&date={date:yyyy-MM-dd}";
+        var availability = await AgendaAsync(HttpMethod.Get, "/api/v1/agenda/availability" + query);
+        Assert.Equal(HttpStatusCode.OK, availability.StatusCode);
+        var available = await availability.Content.ReadFromJsonAsync<AvailabilityResponse>();
+        Assert.Contains(new TimeOnly(10, 0), available!.AvailableSlots);
+
+        var created = await AgendaAsync(HttpMethod.Post, "/api/v1/agenda/appointments",
+            new CreateAppointmentRequest(_customerId, _serviceId, _professionalId, date, new TimeOnly(10, 0)));
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        var appointment = await created.Content.ReadFromJsonAsync<AppointmentResponse>();
+        Assert.Equal(30, appointment!.DurationMinutes);
+
+        var ownSlots = await AgendaAsync(HttpMethod.Get,
+            $"/api/v1/agenda/appointments/{appointment.Id}/reschedule-availability?date={date:yyyy-MM-dd}");
+        Assert.Equal(HttpStatusCode.OK, ownSlots.StatusCode);
+        Assert.Contains(new TimeOnly(10, 0),
+            (await ownSlots.Content.ReadFromJsonAsync<AvailabilityResponse>())!.AvailableSlots);
+
+        var moved = await AgendaAsync(HttpMethod.Patch,
+            $"/api/v1/agenda/appointments/{appointment.Id}/reschedule",
+            new RescheduleRequest(date, new TimeOnly(10, 30)));
+        Assert.Equal(HttpStatusCode.OK, moved.StatusCode);
+        Assert.Equal(30, (await moved.Content.ReadFromJsonAsync<AppointmentResponse>())!.DurationMinutes);
+        var conflict = await AgendaAsync(HttpMethod.Post, "/api/v1/agenda/appointments",
+            new CreateAppointmentRequest(_customerId, _serviceId, _professionalId, date, new TimeOnly(10, 30)));
+        Assert.Equal(HttpStatusCode.Conflict, conflict.StatusCode);
+
+        var second = await AgendaAsync(HttpMethod.Post, "/api/v1/agenda/appointments",
+            new CreateAppointmentRequest(_customerId, _serviceId, _professionalId, date, new TimeOnly(11, 0)));
+        Assert.Equal(HttpStatusCode.Created, second.StatusCode);
+        var moveIntoConflict = await AgendaAsync(HttpMethod.Patch,
+            $"/api/v1/agenda/appointments/{appointment.Id}/reschedule",
+            new RescheduleRequest(date, new TimeOnly(11, 0)));
+        Assert.Equal(HttpStatusCode.Conflict, moveIntoConflict.StatusCode);
+        var moveOutsideJourney = await AgendaAsync(HttpMethod.Patch,
+            $"/api/v1/agenda/appointments/{appointment.Id}/reschedule",
+            new RescheduleRequest(date.AddDays(1), new TimeOnly(10, 0)));
+        Assert.Equal(HttpStatusCode.BadRequest, moveOutsideJourney.StatusCode);
+
+        await using var scope = _factory.Services.CreateAsyncScope();
+        scope.ServiceProvider.GetRequiredService<ITenantContext>().SetTenant(TenantId);
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var saved = await db.Appointments.SingleAsync(item => item.Id == appointment.Id);
+        Assert.Equal(new TimeOnly(10, 30), saved.Time);
+        Assert.Equal(30, saved.DurationMinutes);
+    }
+
+    [Fact]
+    public async Task Agenda_Interna_Rejeita_Servico_Sem_Vinculo_Jornada_E_Bloqueio()
+    {
+        var date = new DateOnly(2026, 12, 28);
+        Guid unlinkedServiceId;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            scope.ServiceProvider.GetRequiredService<ITenantContext>().SetTenant(TenantId);
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var unlinked = Service.Create(TenantId, "Sem vínculo", Money.From(80m), 45);
+            unlinkedServiceId = unlinked.Id;
+            db.Services.Add(unlinked);
+            db.ScheduleBlocks.Add(ScheduleBlock.Create(TenantId, _professionalId,
+                new DateTimeOffset(date.ToDateTime(new TimeOnly(11, 0)), TimeSpan.Zero),
+                new DateTimeOffset(date.ToDateTime(new TimeOnly(12, 0)), TimeSpan.Zero), "Teste"));
+            db.SaveChanges();
+        }
+        var unlinkedSlots = await AgendaAsync(HttpMethod.Get,
+            $"/api/v1/agenda/availability?professionalId={_professionalId}&serviceId={unlinkedServiceId}&date={date:yyyy-MM-dd}");
+        Assert.Empty((await unlinkedSlots.Content.ReadFromJsonAsync<AvailabilityResponse>())!.AvailableSlots);
+        var unlinkedCreate = await AgendaAsync(HttpMethod.Post, "/api/v1/agenda/appointments",
+            new CreateAppointmentRequest(_customerId, unlinkedServiceId, _professionalId, date, new TimeOnly(10, 0)));
+        Assert.Equal(HttpStatusCode.BadRequest, unlinkedCreate.StatusCode);
+        var blocked = await AgendaAsync(HttpMethod.Post, "/api/v1/agenda/appointments",
+            new CreateAppointmentRequest(_customerId, _serviceId, _professionalId, date, new TimeOnly(11, 0)));
+        Assert.Equal(HttpStatusCode.BadRequest, blocked.StatusCode);
+        var outside = await AgendaAsync(HttpMethod.Post, "/api/v1/agenda/appointments",
+            new CreateAppointmentRequest(_customerId, _serviceId, _professionalId, date.AddDays(1), new TimeOnly(11, 0)));
+        Assert.Equal(HttpStatusCode.BadRequest, outside.StatusCode);
+        using var scopeAfter = _factory.Services.CreateScope();
+        scopeAfter.ServiceProvider.GetRequiredService<ITenantContext>().SetTenant(TenantId);
+        Assert.False(scopeAfter.ServiceProvider.GetRequiredService<AppDbContext>().Appointments
+            .Any(item => item.Date == date && item.Time == new TimeOnly(11, 0)));
+    }
+
+    [Fact]
+    public async Task Profissional_So_Consulta_E_Cancela_Sua_Propria_Agenda()
+    {
+        const string email = "profissional-fase1@exemplo.com";
+        using (var scope = _factory.Services.CreateScope())
+        {
+            scope.ServiceProvider.GetRequiredService<ITenantContext>().SetTenant(TenantId);
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var hasher = scope.ServiceProvider.GetRequiredService<IPasswordHasher>();
+            var user = User.CreateForTenant(TenantId, "Profissional", email,
+                hasher.Hash(Password), Role.Professional, DateTimeOffset.UtcNow);
+            db.Users.Add(user);
+            var professional = db.Professionals.Single(item => item.Id == _professionalId);
+            professional.LinkUser(user.Id);
+            db.SaveChanges();
+        }
+        var login = await _client.PostAsJsonAsync("/api/auth/sign-in", new SignInRequest(TenantId, email, Password));
+        Assert.Equal(HttpStatusCode.OK, login.StatusCode);
+        var token = (await login.Content.ReadFromJsonAsync<AuthResponse>())!.AccessToken;
+
+        var me = await AgendaAsync(HttpMethod.Get, "/api/v1/agenda/me", token: token);
+        Assert.Equal(_professionalId, (await me.Content.ReadFromJsonAsync<OwnAgendaResponse>())!.ProfessionalId);
+        var date = new DateOnly(2026, 12, 14);
+        var ownSlots = await AgendaAsync(HttpMethod.Get,
+            $"/api/v1/agenda/mine/availability?serviceId={_serviceId}&date={date:yyyy-MM-dd}", token: token);
+        Assert.Equal(HttpStatusCode.OK, ownSlots.StatusCode);
+        Assert.NotEmpty((await ownSlots.Content.ReadFromJsonAsync<AvailabilityResponse>())!.AvailableSlots);
+        var teamList = await AgendaAsync(HttpMethod.Get,
+            $"/api/v1/agenda/appointments?date={date:yyyy-MM-dd}", token: token);
+        Assert.Equal(HttpStatusCode.Forbidden, teamList.StatusCode);
+        var teamSlots = await AgendaAsync(HttpMethod.Get,
+            "/api/v1/agenda/availability" + $"?professionalId={_professionalId}&serviceId={_serviceId}&date={date:yyyy-MM-dd}", token: token);
+        Assert.Equal(HttpStatusCode.Forbidden, teamSlots.StatusCode);
+
+        var own = await AgendaAsync(HttpMethod.Post, "/api/v1/agenda/appointments",
+            new CreateAppointmentRequest(_customerId, _serviceId, _professionalId, date, new TimeOnly(9, 0)), token);
+        Assert.Equal(HttpStatusCode.Created, own.StatusCode);
+        var appointment = (await own.Content.ReadFromJsonAsync<AppointmentResponse>())!;
+        var ownList = await AgendaAsync(HttpMethod.Get,
+            $"/api/v1/agenda/mine/appointments?date={date:yyyy-MM-dd}", token: token);
+        Assert.Contains((await ownList.Content.ReadFromJsonAsync<List<AppointmentResponse>>())!,
+            item => item.Id == appointment.Id);
+
+        var other = Professional.Create(TenantId, "Outro",
+            WorkSchedule.Create([DayOfWeek.Monday], new TimeOnly(9, 0), new TimeOnly(18, 0)));
+        using (var scope = _factory.Services.CreateScope())
+        {
+            scope.ServiceProvider.GetRequiredService<ITenantContext>().SetTenant(TenantId);
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            db.Professionals.Add(other);
+            db.ProfessionalServices.Add(ProfessionalService.Create(TenantId, other.Id, _serviceId));
+            db.SaveChanges();
+        }
+        var denied = await AgendaAsync(HttpMethod.Post, "/api/v1/agenda/appointments",
+            new CreateAppointmentRequest(_customerId, _serviceId, other.Id, date, new TimeOnly(9, 0)), token);
+        Assert.Equal(HttpStatusCode.BadRequest, denied.StatusCode);
+
+        var otherCreated = await AgendaAsync(HttpMethod.Post, "/api/v1/agenda/appointments",
+            new CreateAppointmentRequest(_customerId, _serviceId, other.Id, date, new TimeOnly(9, 0)));
+        var otherAppointment = (await otherCreated.Content.ReadFromJsonAsync<AppointmentResponse>())!;
+        var otherSlots = await AgendaAsync(HttpMethod.Get,
+            $"/api/v1/agenda/appointments/{otherAppointment.Id}/reschedule-availability?date={date:yyyy-MM-dd}", token: token);
+        Assert.Equal(HttpStatusCode.BadRequest, otherSlots.StatusCode);
+        var otherCancel = await AgendaAsync(HttpMethod.Post,
+            $"/api/v1/agenda/mine/appointments/{otherAppointment.Id}/cancel", new CancelRequest(), token);
+        Assert.Equal(HttpStatusCode.Forbidden, otherCancel.StatusCode);
+
+        var cancelled = await AgendaAsync(HttpMethod.Post,
+            $"/api/v1/agenda/mine/appointments/{appointment.Id}/cancel", new CancelRequest("teste"), token);
+        Assert.Equal(HttpStatusCode.OK, cancelled.StatusCode);
+        Assert.Equal("Cancelled", (await cancelled.Content.ReadFromJsonAsync<AppointmentResponse>())!.Status);
+    }
+
+    [Fact]
+    public async Task Agenda_Cancelamento_E_Conclusao_Persistem_E_Rejeitam_Estados_Invalidos()
+    {
+        var past = new DateOnly(2026, 11, 2);
+        var created = await AgendaAsync(HttpMethod.Post, "/api/v1/agenda/appointments",
+            new CreateAppointmentRequest(_customerId, _serviceId, _professionalId, past, new TimeOnly(10, 0)));
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        var appointment = (await created.Content.ReadFromJsonAsync<AppointmentResponse>())!;
+        var completed = await AgendaAsync(HttpMethod.Post,
+            $"/api/v1/agenda/appointments/{appointment.Id}/complete");
+        Assert.Equal(HttpStatusCode.OK, completed.StatusCode);
+        Assert.Equal("Completed", (await completed.Content.ReadFromJsonAsync<AppointmentResponse>())!.Status);
+        var cancelCompleted = await AgendaAsync(HttpMethod.Post,
+            $"/api/v1/agenda/appointments/{appointment.Id}/cancel", new CancelRequest());
+        Assert.Equal(HttpStatusCode.BadRequest, cancelCompleted.StatusCode);
+
+        var future = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(30));
+        future = future.AddDays((8 - (int)future.DayOfWeek) % 7);
+        var upcoming = await AgendaAsync(HttpMethod.Post, "/api/v1/agenda/appointments",
+            new CreateAppointmentRequest(_customerId, _serviceId, _professionalId, future, new TimeOnly(10, 0)));
+        var futureAppointment = (await upcoming.Content.ReadFromJsonAsync<AppointmentResponse>())!;
+        var tooEarly = await AgendaAsync(HttpMethod.Post,
+            $"/api/v1/agenda/appointments/{futureAppointment.Id}/complete");
+        Assert.Equal(HttpStatusCode.BadRequest, tooEarly.StatusCode);
+        var cancelled = await AgendaAsync(HttpMethod.Post,
+            $"/api/v1/agenda/appointments/{futureAppointment.Id}/cancel", new CancelRequest("ausência"));
+        Assert.Equal(HttpStatusCode.OK, cancelled.StatusCode);
+
+        await using var scope = _factory.Services.CreateAsyncScope();
+        scope.ServiceProvider.GetRequiredService<ITenantContext>().SetTenant(TenantId);
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        Assert.Equal(AppointmentStatus.Completed, (await db.Appointments.SingleAsync(item => item.Id == appointment.Id)).Status);
+        Assert.Equal(AppointmentStatus.Cancelled, (await db.Appointments.SingleAsync(item => item.Id == futureAppointment.Id)).Status);
     }
 
     // ---------- Fábrica com banco isolado ----------

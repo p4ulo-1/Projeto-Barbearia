@@ -475,6 +475,18 @@ public sealed class PublicSiteIntegrationTests : IClassFixture<PublicSiteApiFact
         Assert.Equal(HttpStatusCode.OK, agenda.StatusCode);
         var entries = await agenda.Content.ReadFromJsonAsync<List<Servia.Api.Contracts.AppointmentResponse>>();
         Assert.Contains(entries!, entry => entry.Id == appointment!.Id);
+
+        // Os dois canais consultam a mesma elegibilidade após a reserva.
+        var publicAfter = await visitor.GetFromJsonAsync<PublicAvailabilityDto>(
+            $"/api/v1/public/site/availability?serviceId={register.ServiceId}&professionalId={register.ProfessionalId}&date={date:yyyy-MM-dd}");
+        using var internalRequest = new HttpRequestMessage(HttpMethod.Get,
+            $"/api/v1/agenda/availability?serviceId={register.ServiceId}&professionalId={register.ProfessionalId}&date={date:yyyy-MM-dd}");
+        internalRequest.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", auth.AccessToken);
+        var internalAfter = await _client.SendAsync(internalRequest);
+        Assert.Equal(HttpStatusCode.OK, internalAfter.StatusCode);
+        var internalSlots = await internalAfter.Content.ReadFromJsonAsync<Servia.Api.Controllers.AvailabilityResponse>();
+        Assert.Equal(publicAfter!.Slots, internalSlots!.AvailableSlots);
+        Assert.DoesNotContain(time, internalSlots.AvailableSlots);
     }
 
     private sealed record PublicSiteDto(string Subdomain, string BusinessName);

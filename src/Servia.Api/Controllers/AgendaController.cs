@@ -127,6 +127,48 @@ public sealed class AgendaController(
         return Ok(new AvailabilityResponse(professionalId, serviceId, date, slots));
     }
 
+    /// <summary>Identifica o profissional vinculado ao usuário, sem aceitar um ID do cliente.</summary>
+    [HttpGet("me")]
+    [RequirePermission(Permission.ViewOwnAgenda)]
+    public async Task<IActionResult> MeAsync(CancellationToken cancellationToken)
+    {
+        var id = await ResolveUserProfessionalIdAsync(cancellationToken);
+        return id.HasValue ? Ok(new OwnAgendaResponse(id.Value)) : NotFound(new ErrorResponse("Usuário sem profissional vinculado."));
+    }
+
+    /// <summary>Disponibilidade apenas do profissional vinculado ao usuário.</summary>
+    [HttpGet("mine/availability")]
+    [RequirePermission(Permission.ViewOwnAgenda)]
+    public async Task<IActionResult> OwnAvailabilityAsync(
+        [FromQuery] Guid serviceId, [FromQuery] DateOnly date, CancellationToken cancellationToken)
+    {
+        if (serviceId == Guid.Empty || date == default)
+            return BadRequest(new ErrorResponse("Serviço e data são obrigatórios."));
+        var id = await ResolveUserProfessionalIdAsync(cancellationToken);
+        if (!id.HasValue) return NotFound(new ErrorResponse("Usuário sem profissional vinculado."));
+        var tenantId = tenantContext.TenantId ?? throw new DomainRuleException("Estabelecimento não identificado.");
+        var slots = await availabilityService.GetAvailableSlotsAsync(tenantId, id.Value, serviceId, date, cancellationToken);
+        return Ok(new AvailabilityResponse(id.Value, serviceId, date, slots));
+    }
+
+    /// <summary>Consulta de remarcação com o compromisso e sua duração persistidos.</summary>
+    [HttpGet("appointments/{id:guid}/reschedule-availability")]
+    [RequirePermission(Permission.ManageAppointments)]
+    public async Task<IActionResult> RescheduleAvailabilityAsync(
+        Guid id, [FromQuery] DateOnly date, CancellationToken cancellationToken)
+    {
+        if (date == default) return BadRequest(new ErrorResponse("A data é obrigatória."));
+        var appointment = await context.Appointments.FirstOrDefaultAsync(item => item.Id == id, cancellationToken);
+        if (appointment is null) return NotFound(new ErrorResponse("Agendamento não encontrado."));
+        await EnsureCanManageAsync(appointment.ProfessionalId, cancellationToken);
+        if (!appointment.IsConfirmed) return BadRequest(new ErrorResponse("Somente agendamentos confirmados podem ser remarcados."));
+        var tenantId = tenantContext.TenantId ?? throw new DomainRuleException("Estabelecimento não identificado.");
+        var evaluation = await availabilityService.EvaluateAsync(
+            tenantId, appointment.ProfessionalId, appointment.ServiceId, date, null, cancellationToken,
+            excludeAppointmentId: appointment.Id, durationMinutesOverride: appointment.DurationMinutes);
+        return Ok(new AvailabilityResponse(appointment.ProfessionalId, appointment.ServiceId, date, evaluation.Slots));
+    }
+
     /// <summary>Cria um agendamento.</summary>
     [HttpPost("appointments")]
     [RequirePermission(Permission.ManageAppointments)]
@@ -204,6 +246,22 @@ public sealed class AgendaController(
             .Select(appointment => AppointmentResponse.From(appointment))
             .ToListAsync(cancellationToken);
 
+        return Ok(items);
+    }
+
+    /// <summary>Lista somente os compromissos do profissional vinculado ao usuário.</summary>
+    [HttpGet("mine/appointments")]
+    [RequirePermission(Permission.ViewOwnAgenda)]
+    public async Task<IActionResult> OwnListAsync([FromQuery] DateOnly date, CancellationToken cancellationToken)
+    {
+        if (date == default) return BadRequest(new ErrorResponse("A data é obrigatória."));
+        var id = await ResolveUserProfessionalIdAsync(cancellationToken);
+        if (!id.HasValue) return NotFound(new ErrorResponse("Usuário sem profissional vinculado."));
+        var items = await context.Appointments
+            .Where(item => item.ProfessionalId == id.Value && item.Date == date)
+            .OrderBy(item => item.Time)
+            .Select(item => AppointmentResponse.From(item))
+            .ToListAsync(cancellationToken);
         return Ok(items);
     }
 
@@ -290,6 +348,23 @@ public sealed class AgendaController(
         return Ok(AppointmentResponse.From(appointment));
     }
 
+    /// <summary>Cancela apenas compromisso próprio, com permissão de agenda própria.</summary>
+    [HttpPost("mine/appointments/{id:guid}/cancel")]
+    [RequirePermission(Permission.ViewOwnAgenda)]
+    [RequirePermission(Permission.ManageAppointments)]
+    public async Task<IActionResult> CancelOwnAsync(
+        Guid id, [FromBody] CancelRequest? request, CancellationToken cancellationToken)
+    {
+        var appointment = await context.Appointments.FirstOrDefaultAsync(item => item.Id == id, cancellationToken);
+        if (appointment is null) return NotFound(new ErrorResponse("Agendamento não encontrado."));
+        var ownId = await ResolveUserProfessionalIdAsync(cancellationToken);
+        if (!ownId.HasValue || appointment.ProfessionalId != ownId.Value)
+            return Forbid();
+        appointment.Cancel(request?.Reason);
+        await context.SaveChangesAsync(cancellationToken);
+        return Ok(AppointmentResponse.From(appointment));
+    }
+
     /// <summary>Conclui um agendamento, registrando o atendimento realizado.</summary>
     [HttpPost("appointments/{id:guid}/complete")]
     [RequirePermission(Permission.ManageAppointments)]
@@ -321,6 +396,8 @@ public sealed record AvailabilityResponse(
     Guid ServiceId,
     DateOnly Date,
     IReadOnlyList<TimeOnly> AvailableSlots);
+
+public sealed record OwnAgendaResponse(Guid ProfessionalId);
 
 /// <summary>Corpo de remarcação.</summary>
 public sealed record RescheduleRequest(DateOnly Date, TimeOnly Time);
