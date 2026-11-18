@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Alert, Button, TextField } from "@/components/ui-sv";
 import { operations as api } from "@/lib/api/operations";
+import type { Payment } from "@/lib/api/operations";
 import { IS_DEMO } from "@/lib/api/http";
 import { tenantPattern } from "@/lib/api/contracts";
 import { useAuth } from "@/lib/auth/AuthProvider";
@@ -38,7 +39,7 @@ function FinanceDetails() {
   const [to, setTo] = useState(localDate);
   const [page, setPage] = useState(1);
   const [professional, setProfessional] = useState("");
-  const [paymentId, setPaymentId] = useState("");
+  const [payment, setPayment] = useState<Payment | null>(null);
   const validRange = !!from && !!to && from <= to;
   const report = useQuery({
     queryKey: ["panel", "finance-report", from, to],
@@ -67,6 +68,8 @@ function FinanceDetails() {
       {op.feedback}
       {read && (
         <ModuleCard title="Resumo do período">
+          <p>O resumo considera os lançamentos de receita e despesa do período. Pagamentos e estornos são registrados separadamente.</p>
+          <p>As datas dos lançamentos são filtradas em UTC.</p>
           <div className={s.formGrid}>
             <TextField
               label="Data inicial"
@@ -183,13 +186,14 @@ function FinanceDetails() {
                 step="0.01"
                 required
               />
-              <TextField name="description" label="Descrição" maxLength={300} required />
+              <TextField name="description" label="Descrição" maxLength={300} pattern=".*\S.*" title="Informe uma descrição válida." required />
               <Button type="submit" loading={op.busy}>
                 Registrar movimentação
               </Button>
             </form>
           </ModuleCard>
           <ModuleCard title="Registrar pagamento">
+            <p>O registro do pagamento não cria automaticamente uma receita nas movimentações.</p>
             <form
               className={s.formGrid}
               onSubmit={(event) =>
@@ -201,7 +205,7 @@ function FinanceDetails() {
                       numberField(data, "method"),
                       field(data, "appointmentId") || undefined,
                     );
-                    setPaymentId(payment.id);
+                    setPayment(payment);
                   },
                   "Pagamento registrado.",
                 )
@@ -220,12 +224,13 @@ function FinanceDetails() {
                 name="method"
                 label="Forma de pagamento"
                 records={[
-                  "Dinheiro",
-                  "Cartão de crédito",
-                  "Cartão de débito",
-                  "Pix",
-                  "Transferência",
-                ].map((name, i) => ({ id: String(i + 1), name }))}
+                  { id: "1", name: "Dinheiro" },
+                  { id: "2", name: "Cartão de crédito" },
+                  { id: "3", name: "Cartão de débito" },
+                  { id: "4", name: "Pix" },
+                  { id: "5", name: "Transferência" },
+                  { id: "99", name: "Outro" },
+                ]}
                 required
               />
               <TextField
@@ -237,9 +242,9 @@ function FinanceDetails() {
                 Registrar pagamento
               </Button>
             </form>
-            {paymentId && (
+            {payment && (
               <Alert>
-                Identificador para referência ou estorno <code>{paymentId}</code>
+                Pagamento: {fmtMoney(payment.amount)} · {({ Cash: "Dinheiro", CreditCard: "Cartão de crédito", DebitCard: "Cartão de débito", Pix: "Pix", BankTransfer: "Transferência", Other: "Outro" } as Record<string, string>)[payment.method] ?? payment.method} · {({ Paid: "Pago", PartiallyRefunded: "Parcialmente estornado", Refunded: "Estornado" } as Record<string, string>)[payment.status] ?? payment.status}. Identificador para referência ou estorno: <code>{payment.id}</code>. Guarde este identificador para estornar posteriormente.
               </Alert>
             )}
           </ModuleCard>
@@ -251,15 +256,18 @@ function FinanceDetails() {
                 const data = new FormData(event.currentTarget);
                 const amount = numberField(data, "amount");
                 if (window.confirm(`Confirmar estorno de ${fmtMoney(amount)} para este pagamento?`))
-                  op.run(() => api.refund(field(data, "id"), amount), "Estorno registrado.");
+                  op.run(async () => {
+                    const result = await api.refund(field(data, "id"), amount);
+                    setPayment(result);
+                  }, "Estorno registrado.");
               }}
             >
               <TextField
                 name="id"
                 label="ID do pagamento"
                 pattern={tenantPattern}
-                key={paymentId}
-                defaultValue={paymentId}
+                key={payment?.id ?? ""}
+                defaultValue={payment?.id ?? ""}
                 required
               />
               <TextField
