@@ -377,6 +377,24 @@ if (!app.Environment.IsDevelopment())
 app.UseHttpsRedirection();
 app.MapControllers();
 
+// Prova de destino da homologação. A rota só existe no processo de
+// desenvolvimento explicitamente configurado para o banco descartável.
+// O seed confere esta resposta antes de realizar qualquer escrita pela API.
+if (app.Environment.IsDevelopment()
+    && string.Equals(app.Configuration["ServiaHomolog:Enabled"], "true", StringComparison.OrdinalIgnoreCase))
+{
+    app.MapGet("/api/__homolog/guard", (AppDbContext db) =>
+    {
+        var database = db.Database.GetDbConnection().Database;
+        var marker = app.Configuration["ServiaHomolog:Marker"];
+        return db.Database.IsNpgsql()
+            && database == "servia_av2_homolog"
+            && !string.IsNullOrWhiteSpace(marker)
+                ? Results.Ok(new { database, marker })
+                : Results.NotFound();
+    });
+}
+
 // Endpoints de saúde (F15.4):
 //   /health       — estado completo, usado por monitoramento
 //   /health/live  — o processo está vivo (não verifica dependências)

@@ -1,0 +1,33 @@
+# Stack exclusiva da homologação AV2 Fase 1. Dados do PostgreSQL em tmpfs.
+services:
+  database:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: servia_av2_homolog
+      POSTGRES_USER: servia_homolog
+      POSTGRES_PASSWORD: ${SERVIA_HOMOLOG_DB_PASSWORD:?Execute npm run homolog:stack}
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U servia_homolog -d servia_av2_homolog"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    ports:
+      - "127.0.0.1:15433:5432"
+  api:
+    build:
+      context: ../../src
+      dockerfile: Servia.Api/Dockerfile
+    depends_on:
+      database:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      Database__Provider: Postgres
+      ConnectionStrings__DefaultConnection: Host=database;Port=5432;Database=servia_av2_homolog;Username=servia_homolog;Password=${SERVIA_HOMOLOG_DB_PASSWORD:?Execute npm run homolog:stack}
+      Jwt__SigningKey: ${SERVIA_HOMOLOG_JWT_KEY:?Execute npm run homolog:stack}
+      ServiaHomolog__Enabled: "true"
+      ServiaHomolog__Marker: av2-fase1-isolada-v1
+    ports:
+      - "127.0.0.1:18081:8080"

@@ -42,9 +42,55 @@ npm run smoke:api
 
 Use a porta indicada pelo Vite, pois ela pode variar se `8080` já estiver ocupado pela API Docker.
 
+## Homologação da Fase 1 da AV2
+
+O roteiro AV2-01 a AV2-04 usa Chromium, a API real e PostgreSQL **descartável**
+em `tmpfs`. A stack tem projeto Docker e portas próprios; não reutiliza o
+`docker-compose.yml` de desenvolvimento. Execute no PowerShell:
+
+```powershell
+cd frontend
+npm ci
+npx playwright install chromium
+npm run homolog:stack
+$env:SERVIA_API_PROXY_TARGET="http://127.0.0.1:18081"
+$env:VITE_PUBLIC_SITE_DOMAIN="localhost"
+$env:VITE_DEMO_MODE="false"
+npm run dev -- --host 0.0.0.0 --port 5174 --strictPort
+```
+
+Em **outro terminal**, na pasta `frontend/`:
+
+```powershell
+$env:SERVIA_SMOKE_BASE_URL="http://127.0.0.1:5174"
+npm run homolog:run
+```
+
+O comando `homolog:stack` gera credenciais aleatórias em
+`frontend/.homolog-artifacts/stack.env`, ignorado pelo Git, e sobe somente
+os contêineres desta homologação. O seed consulta `/api/__homolog/guard`
+antes de gravar e exige o banco
+`servia_av2_homolog` e o marcador da stack. Também verifica a conexão direta
+usada para preparar a conta `Professional` e o compromisso passado. Em caso de
+proxy incorreto, ele falha antes do seed. Cada execução cria um tenant aleatório,
+independente de execuções anteriores. O formulário público é acessado em
+`<slug>.localhost:5174` e requer o `BookingWidget` que o seed publica.
+
+O resumo identifica passos **UI**, **UI+API** e **API**. O relatório fica em
+`frontend/.homolog-artifacts/report.json`; em falhas, há trace do Playwright na
+mesma pasta. Esses arquivos e o seed com credenciais aleatórias são ignorados
+pelo Git. Para encerrar, na raiz do repositório:
+
+```powershell
+docker compose --env-file frontend/.homolog-artifacts/stack.env -p servia-av2-homolog -f frontend/scripts/homolog-compose.yml down
+```
+
+O banco está em `tmpfs` e desaparece ao parar o contêiner. Não execute o
+roteiro contra bancos compartilhados ou ambientes externos.
+
 ## Limites após o Marco A
 
-- AV2-04/16: a agenda própria do profissional depende de um contrato autorizado no backend; a lista atual exige `ViewTeamAgenda`, enquanto o papel possui `ViewOwnAgenda`. A interface ainda infere o profissional por um compromisso existente.
+- AV2-04/16: a agenda própria usa o vínculo autorizado retornado pelo backend; a homologação da Fase 1 verifica que `Professional` não recebe `ViewTeamAgenda`.
 - AV2-06/07/20: gestão completa da equipe, jornada e transições de limite seguem o escopo principal. Alterações locais do backend ainda não consolidadas afetam essas regras.
 - AV2-10–14: os quatro templates existem na interface, mas o editor ainda usa IndexedDB; o onboarding e a publicação determinísticos dependem dos contratos AV2.
 - AV2-09/19–21: a interface comercial e os endpoints locais de trial não comprovam contratação recorrente Mercado Pago; os estados de pagamento e a régua de inadimplência são trabalho do escopo principal.

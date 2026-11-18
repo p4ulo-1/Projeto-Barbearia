@@ -6,6 +6,8 @@
   "scripts": {
     "homolog:seed": "node scripts/homolog-seed.mjs",
     "homolog:e2e": "node scripts/homolog-e2e.mjs",
+    "homolog:run": "node scripts/homolog-run.mjs",
+    "homolog:stack": "node scripts/homolog-stack.mjs",
     "dev": "vite dev",
     "build": "vite build",
     "build:dev": "vite build --mode development",
@@ -90,6 +92,8 @@
     "globals": "^15.15.0",
     "jsdom": "^20.0.3",
     "nitro": "3.0.260603-beta",
+    "pg": "^8.23.1",
+    "playwright": "^1.65.1",
     "prettier": "^3.7.3",
     "typescript": "^5.8.3",
     "typescript-eslint": "^8.56.1",
