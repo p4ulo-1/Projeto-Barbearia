@@ -208,4 +208,52 @@ public class PlanLimitOnLinkTests : IClassFixture<IsolatedApiFactory>
         Assert.Equal(HttpStatusCode.NoContent, (await LinkAsync(professional, service)).StatusCode);
         Assert.Equal(HttpStatusCode.NoContent, (await LinkAsync(professional, service)).StatusCode);
     }
+
+    // ---------- IsServiceProvider não consome vaga ----------
+
+    [Fact]
+    public async Task Alterar_Atuacao_Com_Plano_Cheio_Nao_Eh_Bloqueado()
+    {
+        // Ocupa a única vaga.
+        var service = await CreateServiceAsync("Serviço");
+        var occupying = await CreateProfessionalAsync("Ocupante");
+
+        Assert.Equal(HttpStatusCode.NoContent, (await LinkAsync(occupying, service)).StatusCode);
+
+        // Um segundo profissional sem serviço não ocupa vaga.
+        var other = await CreateProfessionalAsync("Sem serviço");
+
+        // Alternar a atuação não torna ninguém elegível: não há limite a
+        // verificar, e a operação deve ser aceita mesmo com o plano cheio.
+        var response = await SendAsync(
+            HttpMethod.Patch,
+            $"/api/v1/team/professionals/{other}/service-provider",
+            new { isServiceProvider = true });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Atuacao_Nao_Substitui_O_Criterio_De_Vaga()
+    {
+        // Profissional com atuação desligada, mas com serviço ativo vinculado:
+        // ocupa vaga, porque o critério é ativo + serviço ativo + jornada.
+        var service = await CreateServiceAsync("Serviço");
+        var professional = await CreateProfessionalAsync("Profissional");
+
+        await SendAsync(
+            HttpMethod.Patch,
+            $"/api/v1/team/professionals/{professional}/service-provider",
+            new { isServiceProvider = false });
+
+        Assert.Equal(HttpStatusCode.NoContent, (await LinkAsync(professional, service)).StatusCode);
+
+        // A vaga está ocupada: um segundo profissional com serviço é bloqueado.
+        var secondService = await CreateServiceAsync("Serviço 2");
+        var second = await CreateProfessionalAsync("Profissional 2");
+
+        var blocked = await LinkAsync(second, secondService);
+
+        Assert.Equal(HttpStatusCode.BadRequest, blocked.StatusCode);
+    }
 }

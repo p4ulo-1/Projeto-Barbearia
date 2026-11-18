@@ -29,6 +29,22 @@ public interface ISubscriptionRepository
 
     /// <summary>Persiste as alterações pendentes.</summary>
     Task SaveChangesAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Executa a operação dentro de uma transação com nível de isolamento
+    /// serializável.
+    ///
+    /// Usado pelas transições que consomem ou liberam vaga no plano: a
+    /// contagem e a gravação precisam ser atômicas, senão duas requisições
+    /// concorrentes contam a mesma vaga livre e ambas gravam.
+    ///
+    /// O nível serializável faz o PostgreSQL abortar uma das transações
+    /// concorrentes com erro de serialização, que o chamador traduz em
+    /// conflito de negócio.
+    /// </summary>
+    Task<T> ExecuteSerializableAsync<T>(
+        Func<CancellationToken, Task<T>> operation,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>

@@ -112,34 +112,59 @@ public sealed class PublicSiteController(
     }
 
     /// <summary>
-    /// Profissionais ativos, com os serviços que cada um executa.
+    /// Profissionais ativos que podem executar ao menos um serviço público.
+    ///
+    /// <b>Serviços retornados são válidos e ativos.</b> Um vínculo com serviço
+    /// inativo não autoriza agendamento, então não é apresentado: mostrá-lo
+    /// faria o visitante escolher um profissional que o backend recusaria.
+    ///
+    /// <b>Profissional sem serviço público não aparece.</b> Não há nada que
+    /// ele possa executar, e a seleção do profissional depende do serviço.
+    ///
+    /// <b>Elegibilidade não é disponibilidade.</b> Este endpoint responde
+    /// "quem executa o serviço"; "quem tem horário livre" é respondido pela
+    /// consulta de disponibilidade.
+    ///
+    /// <paramref name="serviceId"/> é opcional e apenas filtra: o contrato
+    /// continua devolvendo <c>ServiceIds</c>, então o consumidor pode filtrar
+    /// localmente sem depender do parâmetro.
     /// </summary>
     [HttpGet("professionals")]
     [ProducesResponseType<IReadOnlyList<PublicProfessionalResponse>>(StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetProfessionalsAsync(
         [FromQuery] string? host,
+        [FromQuery] Guid? serviceId,
         CancellationToken cancellationToken)
     {
         var site = await ResolveAsync(host, cancellationToken);
         tenantContext.SetTenant(site.TenantId);
+
+        // Apenas vínculos com serviços ativos do tenant.
+        var activeLinks = await context.ProfessionalServices
+            .Where(link => context.Services.Any(service =>
+                service.Id == link.ServiceId && service.IsActive))
+            .Select(link => new { link.ProfessionalId, link.ServiceId })
+            .ToListAsync(cancellationToken);
 
         var professionals = await context.Professionals
             .Where(professional => professional.IsActive)
             .OrderBy(professional => professional.Name)
             .ToListAsync(cancellationToken);
 
-        var links = await context.ProfessionalServices
-            .ToListAsync(cancellationToken);
-
         var result = professionals
             .Select(professional => new PublicProfessionalResponse(
                 professional.Id,
                 professional.Name,
-                links
+                activeLinks
                     .Where(link => link.ProfessionalId == professional.Id)
                     .Select(link => link.ServiceId)
                     .ToList()))
+            // Sem serviço público, não há o que agendar.
+            .Where(professional => professional.ServiceIds.Count > 0)
+            // Filtro opcional pelo serviço escolhido.
+            .Where(professional => !serviceId.HasValue
+                || professional.ServiceIds.Contains(serviceId.Value))
             .ToList();
 
         return Ok(result);
@@ -148,9 +173,22 @@ public sealed class PublicSiteController(
     /// <summary>
     /// Horários disponíveis de um profissional numa data (item 3.1).
     /// Reaproveita a regra de disponibilidade da agenda.
+    ///
+    /// <b>Três respostas distintas, que o consumidor não pode confundir:</b>
+    /// <list type="bullet">
+    /// <item><b>400</b> — pedido incompleto ou inválido (sem serviço, sem
+    /// profissional, sem data).</item>
+    /// <item><b>404</b> — serviço ou profissional inexistente ou inativo no
+    /// estabelecimento.</item>
+    /// <item><b>200 com lista vazia</b> — pedido válido, agenda realmente sem
+    /// horário livre.</item>
+    /// </list>
+    /// Usar 200 vazio para esconder erro de validação faria o visitante
+    /// concluir que a agenda está cheia quando o pedido está errado.
     /// </summary>
     [HttpGet("availability")]
     [ProducesResponseType<PublicAvailabilityResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetAvailabilityAsync(
         [FromQuery] string? host,
@@ -159,6 +197,21 @@ public sealed class PublicSiteController(
         [FromQuery] DateOnly date,
         CancellationToken cancellationToken)
     {
+        if (serviceId == Guid.Empty)
+        {
+            return BadRequest(new ErrorResponse("O serviço é obrigatório."));
+        }
+
+        if (professionalId == Guid.Empty)
+        {
+            return BadRequest(new ErrorResponse("O profissional é obrigatório."));
+        }
+
+        if (date == default)
+        {
+            return BadRequest(new ErrorResponse("A data é obrigatória."));
+        }
+
         var site = await ResolveAsync(host, cancellationToken);
         tenantContext.SetTenant(site.TenantId);
 
@@ -166,10 +219,15 @@ public sealed class PublicSiteController(
             .FirstOrDefaultAsync(item => item.Id == serviceId && item.IsActive, cancellationToken)
             ?? throw NotFoundException.For("Serviço", serviceId);
 
+        var professional = await context.Professionals
+            .FirstOrDefaultAsync(
+                item => item.Id == professionalId && item.IsActive, cancellationToken)
+            ?? throw NotFoundException.For("Profissional", professionalId);
+
         // C9: mesma regra do painel, via AvailabilityService. O serviço entra
         // na avaliação: um profissional que não o executa não tem horário.
         var slots = await availabilityService.GetAvailableSlotsAsync(
-            site.TenantId, professionalId, service.Id, date, cancellationToken);
+            site.TenantId, professional.Id, service.Id, date, cancellationToken);
 
         return Ok(new PublicAvailabilityResponse(professionalId, date, slots));
     }

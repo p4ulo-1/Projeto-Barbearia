@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Servia.Api.Authorization;
 using Servia.Api.Contracts;
+using Servia.Application.Billing;
 using Servia.Domain.Appointments;
 using Servia.Domain.Common;
 using Servia.Domain.Identity;
@@ -22,52 +23,20 @@ namespace Servia.Api.Controllers;
 public sealed class TeamController(
     AppDbContext context,
     ITenantContext tenantContext,
-    IProfessionalCountReader professionalCounts) : ControllerBase
+    PlanSlotService planSlots) : ControllerBase
 {
     /// <summary>
     /// Garante que o estabelecimento comporta mais um profissional ocupando
-    /// vaga, segundo o plano contratado. A validação é feita no backend: o
-    /// cliente não decide o limite.
+    /// vaga, segundo o plano contratado.
     ///
-    /// <paramref name="additionalSlots"/> é quantas vagas a operação
-    /// pretende acrescentar. Criar um profissional é 1; associar um serviço
-    /// a alguém que ainda não ocupava vaga também é 1.
+    /// A verificação pertence a <see cref="PlanSlotService"/>: a contagem e a
+    /// gravação precisam ser atômicas, senão duas requisições concorrentes
+    /// contam a mesma vaga livre e ambas gravam.
     /// </summary>
-    private async Task EnsurePlanAllowsAnotherProviderAsync(
+    private Task EnsurePlanAllowsAnotherProviderAsync(
         CancellationToken cancellationToken,
-        int additionalSlots = 1)
-    {
-        var tenantId = RequireTenant();
-
-        var subscription = await context.Subscriptions
-            .Where(item => item.TenantId == tenantId)
-            .OrderByDescending(item => item.CurrentPeriodStart)
-            .FirstOrDefaultAsync(cancellationToken);
-
-        if (subscription is null)
-        {
-            // Sem assinatura, não há limite de plano a aplicar.
-            return;
-        }
-
-        var plan = await context.Plans
-            .FirstOrDefaultAsync(item => item.Id == subscription.PlanId, cancellationToken);
-
-        if (plan is null || plan.HasUnlimitedProfessionals)
-        {
-            return;
-        }
-
-        var current = await professionalCounts.CountEligibleAsync(tenantId, cancellationToken);
-
-        if (current + additionalSlots > plan.IncludedProfessionals)
-        {
-            throw new DomainRuleException(
-                $"O plano {plan.Name} comporta até {plan.IncludedProfessionals} profissionais "
-                + $"e o estabelecimento já tem {current}. "
-                + "Faça upgrade do plano para adicionar mais prestadores de serviço.");
-        }
-    }
+        int additionalSlots = 1) =>
+        planSlots.EnsureSlotsAvailableAsync(RequireTenant(), additionalSlots, cancellationToken);
 
     /// <summary>Lista os profissionais, com paginação.</summary>
     [HttpGet("professionals")]
@@ -139,16 +108,19 @@ public sealed class TeamController(
     }
 
     /// <summary>
-    /// Define se o profissional presta serviços (seção 2).
+    /// Define se o profissional presta serviços.
     ///
-    /// Ao passar a prestar, ocupa vaga no plano — o limite é validado no
-    /// backend. Ao deixar de prestar, a vaga é liberada. Nenhum usuário ou
-    /// compromisso é excluído.
+    /// <b>Não consome vaga.</b> A ocupação de vaga é determinada pelo
+    /// critério aprovado — ativo, com serviço ativo associado e jornada
+    /// configurada — e não por este atributo. Alterá-lo não torna ninguém
+    /// elegível nem inelegível, então não há limite a verificar aqui.
+    ///
+    /// A propriedade permanece porque descreve a atuação da pessoa na equipe,
+    /// informação usada na apresentação e na gestão.
     /// </summary>
     [HttpPatch("professionals/{id:guid}/service-provider")]
     [RequirePermission(Permission.ManageTeam)]
     [ProducesResponseType<ProfessionalResponse>(StatusCodes.Status200OK)]
-    [ProducesResponseType<ErrorResponse>(StatusCodes.Status400BadRequest)]
     [ProducesResponseType<ErrorResponse>(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> SetServiceProviderAsync(
         Guid id,
@@ -160,13 +132,6 @@ public sealed class TeamController(
         var professional = await context.Professionals
             .FirstOrDefaultAsync(item => item.Id == id, cancellationToken)
             ?? throw NotFoundException.For("Profissional", id);
-
-        var startsProviding = request.IsServiceProvider && !professional.IsServiceProvider;
-
-        if (startsProviding)
-        {
-            await EnsurePlanAllowsAnotherProviderAsync(cancellationToken);
-        }
 
         professional.SetServiceProvider(request.IsServiceProvider);
         await context.SaveChangesAsync(cancellationToken);
@@ -185,6 +150,12 @@ public sealed class TeamController(
     /// seria possível contornar o plano cadastrando profissionais sem serviço
     /// e associando-os depois.
     ///
+    /// <b>A verificação é atômica.</b> Leitura, contagem, validação e
+    /// gravação rodam na mesma transação serializável, via
+    /// <see cref="PlanSlotService"/>. Verificar fora da transação permitiria
+    /// que duas requisições concorrentes contassem a mesma vaga livre e ambas
+    /// gravassem.
+    ///
     /// A verificação só se aplica quando o vínculo <b>torna</b> a pessoa
     /// elegível: se ela já ocupava vaga, o vínculo não acrescenta consumo.
     /// </summary>
@@ -193,6 +164,7 @@ public sealed class TeamController(
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType<ErrorResponse>(StatusCodes.Status400BadRequest)]
     [ProducesResponseType<ErrorResponse>(StatusCodes.Status404NotFound)]
+    [ProducesResponseType<ErrorResponse>(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> LinkServiceAsync(
         Guid id,
         Guid serviceId,
@@ -200,44 +172,93 @@ public sealed class TeamController(
     {
         var tenantId = RequireTenant();
 
-        var professional = await context.Professionals
-            .FirstOrDefaultAsync(item => item.Id == id, cancellationToken)
-            ?? throw NotFoundException.For("Profissional", id);
+        try
+        {
+            await planSlots.ExecuteWithSlotCheckAsync(
+                tenantId,
+                // Quantas vagas este vínculo consome, decidido dentro da
+                // transação: repetir o vínculo ou associar um segundo serviço
+                // a quem já ocupava vaga não consome nada.
+                slotsConsumed: async token =>
+                {
+                    var professional = await context.Professionals
+                        .FirstOrDefaultAsync(item => item.Id == id, token)
+                        ?? throw NotFoundException.For("Profissional", id);
 
-        var service = await context.Services
-            .FirstOrDefaultAsync(item => item.Id == serviceId, cancellationToken)
-            ?? throw NotFoundException.For("Serviço", serviceId);
+                    var service = await context.Services
+                        .FirstOrDefaultAsync(item => item.Id == serviceId, token)
+                        ?? throw NotFoundException.For("Serviço", serviceId);
 
-        // Idempotente: repetir o vínculo não cria duplicata nem consome vaga.
-        var alreadyLinked = await context.ProfessionalServices
-            .AnyAsync(
-                link => link.ProfessionalId == id && link.ServiceId == serviceId,
+                    var alreadyLinked = await context.ProfessionalServices
+                        .AnyAsync(
+                            link => link.ProfessionalId == id && link.ServiceId == serviceId,
+                            token);
+
+                    if (alreadyLinked)
+                    {
+                        return 0;
+                    }
+
+                    var occupiedBefore = await OccupiesPlanSlotAsync(professional, token);
+
+                    var becomesEligible = !occupiedBefore
+                        && BookingEligibility.OccupiesPlanSlot(professional, service.IsActive);
+
+                    return becomesEligible ? 1 : 0;
+                },
+                operation: async token =>
+                {
+                    // Idempotente: repetir o vínculo não cria duplicata.
+                    var alreadyLinked = await context.ProfessionalServices
+                        .AnyAsync(
+                            link => link.ProfessionalId == id && link.ServiceId == serviceId,
+                            token);
+
+                    if (alreadyLinked)
+                    {
+                        return true;
+                    }
+
+                    context.ProfessionalServices.Add(
+                        ProfessionalService.Create(tenantId, id, serviceId));
+
+                    await context.SaveChangesAsync(token);
+
+                    return true;
+                },
                 cancellationToken);
 
-        if (alreadyLinked)
-        {
             return NoContent();
         }
-
-        // O profissional já ocupava vaga antes deste vínculo?
-        var occupiedBefore = await OccupiesPlanSlotAsync(professional, cancellationToken);
-
-        var link = ProfessionalService.Create(tenantId, id, serviceId);
-
-        context.ProfessionalServices.Add(link);
-
-        // O vínculo só acrescenta consumo se tornar a pessoa elegível.
-        var becomesEligible = !occupiedBefore
-            && BookingEligibility.OccupiesPlanSlot(professional, service.IsActive);
-
-        if (becomesEligible)
+        catch (Exception exception) when (IsSerializationConflict(exception))
         {
-            await EnsurePlanAllowsAnotherProviderAsync(cancellationToken);
+            // Outra transação concorrente venceu a disputa pela vaga.
+            return Conflict(new ErrorResponse(
+                "Outra alteração de equipe ocorreu ao mesmo tempo. Tente novamente."));
+        }
+    }
+
+    /// <summary>
+    /// Indica se a exceção representa conflito de serialização.
+    ///
+    /// A camada de API não referencia o provider: a detecção é por mensagem,
+    /// que é o contrato estável do PostgreSQL.
+    /// </summary>
+    private static bool IsSerializationConflict(Exception exception)
+    {
+        for (var current = exception; current is not null; current = current.InnerException)
+        {
+            var message = current.Message;
+
+            if (message.Contains("40001", StringComparison.Ordinal)
+                || message.Contains("could not serialize", StringComparison.OrdinalIgnoreCase)
+                || message.Contains("duplicate key", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
         }
 
-        await context.SaveChangesAsync(cancellationToken);
-
-        return NoContent();
+        return false;
     }
 
     /// <summary>

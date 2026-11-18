@@ -104,6 +104,9 @@ builder.Services.AddScoped<IPlanRepository, PlanRepository>();
 builder.Services.AddScoped<IProfessionalCountReader, ProfessionalCountReader>();
 builder.Services.AddScoped<SubscriptionService>();
 
+// Limite de vagas do plano, verificado atomicamente (transação serializável).
+builder.Services.AddScoped<PlanSlotService>();
+
 // Consumo de créditos de IA (política provisória: bloqueio, sem cobrança).
 builder.Services.AddScoped<IAiUsageRepository, AiUsageRepository>();
 builder.Services.AddScoped<IAiTenantIdentifierRepository, AiTenantIdentifierRepository>();

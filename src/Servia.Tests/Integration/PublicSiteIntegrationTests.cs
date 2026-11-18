@@ -109,6 +109,150 @@ public sealed class PublicSiteIntegrationTests : IClassFixture<PublicSiteApiFact
         Assert.DoesNotContain(services!, service => service.Name == "Corte do Outro Tenant");
     }
 
+    // ---------- Listagem publica de profissionais ----------
+
+    [Fact]
+    public async Task Profissionais_Publicos_Trazem_Apenas_Servicos_Ativos()
+    {
+        var register = await _factory.RegisterPublicBookingDataAsync();
+
+        var response = await _client.GetAsync(
+            $"/api/v1/public/site/professionals?host={PublicSiteApiFactory.PublishedHost}");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var professionals = await response.Content.ReadFromJsonAsync<List<PublicProfessionalDto>>();
+
+        Assert.NotNull(professionals);
+
+        var professional = Assert.Single(
+            professionals!, item => item.Id == register.ProfessionalId);
+
+        // O vinculo com o servico ativo aparece.
+        Assert.Contains(register.ServiceId, professional.ServiceIds);
+    }
+
+    [Fact]
+    public async Task Profissional_Sem_Servico_Publico_Nao_Eh_Apresentado()
+    {
+        // Servico ativo sem vinculo com nenhum profissional.
+        var unlinkedServiceId = await _factory.RegisterUnlinkedServiceAsync();
+
+        var response = await _client.GetAsync(
+            $"/api/v1/public/site/professionals?host={PublicSiteApiFactory.PublishedHost}");
+
+        var professionals = await response.Content.ReadFromJsonAsync<List<PublicProfessionalDto>>();
+
+        Assert.NotNull(professionals);
+
+        // Nenhum profissional executa o servico sem vinculo.
+        Assert.DoesNotContain(
+            professionals!, item => item.ServiceIds.Contains(unlinkedServiceId));
+
+        // E todo profissional apresentado executa ao menos um servico.
+        Assert.All(professionals!, item => Assert.NotEmpty(item.ServiceIds));
+    }
+
+    [Fact]
+    public async Task Filtro_Por_Servico_Retorna_Apenas_Quem_O_Executa()
+    {
+        var register = await _factory.RegisterPublicBookingDataAsync();
+
+        var response = await _client.GetAsync(
+            $"/api/v1/public/site/professionals?host={PublicSiteApiFactory.PublishedHost}"
+            + $"&serviceId={register.ServiceId}");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var professionals = await response.Content.ReadFromJsonAsync<List<PublicProfessionalDto>>();
+
+        Assert.NotNull(professionals);
+        Assert.NotEmpty(professionals!);
+        Assert.All(professionals!, item => Assert.Contains(register.ServiceId, item.ServiceIds));
+    }
+
+    [Fact]
+    public async Task Filtro_Por_Servico_Sem_Vinculo_Retorna_Lista_Vazia()
+    {
+        var unlinkedServiceId = await _factory.RegisterUnlinkedServiceAsync();
+
+        var response = await _client.GetAsync(
+            $"/api/v1/public/site/professionals?host={PublicSiteApiFactory.PublishedHost}"
+            + $"&serviceId={unlinkedServiceId}");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var professionals = await response.Content.ReadFromJsonAsync<List<PublicProfessionalDto>>();
+
+        Assert.NotNull(professionals);
+        Assert.Empty(professionals!);
+    }
+
+    // ---------- Validacao da disponibilidade publica ----------
+
+    [Fact]
+    public async Task Disponibilidade_Publica_Sem_Servico_Retorna_400()
+    {
+        var register = await _factory.RegisterPublicBookingDataAsync();
+
+        var response = await _client.GetAsync(
+            $"/api/v1/public/site/availability?host={PublicSiteApiFactory.PublishedHost}"
+            + $"&professionalId={register.ProfessionalId}&date={register.Date:yyyy-MM-dd}");
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Disponibilidade_Publica_Sem_Profissional_Retorna_400()
+    {
+        var register = await _factory.RegisterPublicBookingDataAsync();
+
+        var response = await _client.GetAsync(
+            $"/api/v1/public/site/availability?host={PublicSiteApiFactory.PublishedHost}"
+            + $"&serviceId={register.ServiceId}&date={register.Date:yyyy-MM-dd}");
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Disponibilidade_Publica_Com_Servico_Inexistente_Retorna_404()
+    {
+        var register = await _factory.RegisterPublicBookingDataAsync();
+
+        var response = await _client.GetAsync(
+            $"/api/v1/public/site/availability?host={PublicSiteApiFactory.PublishedHost}"
+            + $"&professionalId={register.ProfessionalId}&serviceId={Guid.NewGuid()}"
+            + $"&date={register.Date:yyyy-MM-dd}");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Disponibilidade_Publica_Valida_Sem_Horarios_Retorna_200_Vazio()
+    {
+        var register = await _factory.RegisterPublicBookingDataAsync();
+
+        // Data distante, exclusiva deste teste: o bloqueio não vaza para os
+        // demais cenários, que usam a data padrão do profissional.
+        var isolatedDate = register.Date.AddDays(30);
+
+        // Bloqueia o dia inteiro: pedido valido, agenda realmente sem horario.
+        await _factory.RegisterBlockAsync(
+            isolatedDate, new TimeOnly(0, 0), new TimeOnly(23, 59));
+
+        var response = await _client.GetAsync(
+            $"/api/v1/public/site/availability?host={PublicSiteApiFactory.PublishedHost}"
+            + $"&professionalId={register.ProfessionalId}&serviceId={register.ServiceId}"
+            + $"&date={isolatedDate:yyyy-MM-dd}");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var body = await response.Content.ReadFromJsonAsync<PublicAvailabilityDto>();
+
+        Assert.NotNull(body);
+        Assert.Empty(body!.Slots);
+    }
+
     [Fact]
     public async Task Agendamento_Publico_E_Criado_E_Respeita_Disponibilidade()
     {
@@ -282,6 +426,10 @@ public sealed class PublicSiteIntegrationTests : IClassFixture<PublicSiteApiFact
     private sealed record PublicSiteDto(string Subdomain, string BusinessName);
 
     private sealed record PublicServiceDto(Guid Id, string Name);
+
+    private sealed record PublicProfessionalDto(Guid Id, string Name, List<Guid> ServiceIds);
+
+    private sealed record PublicAvailabilityDto(Guid ProfessionalId, DateOnly Date, List<TimeOnly> Slots);
 }
 
 /// <summary>

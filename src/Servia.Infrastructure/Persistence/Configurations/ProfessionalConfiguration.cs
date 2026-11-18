@@ -41,14 +41,13 @@ internal sealed class ProfessionalConfiguration : IEntityTypeConfiguration<Profe
 
         builder.Property(professional => professional.IsActive).IsRequired();
 
-        // Atuação profissional: define se a pessoa ocupa vaga no plano,
-        // independentemente do perfil de acesso. Default true preserva os
-        // registros existentes (todos eram prestadores).
+        // Atuação profissional: descreve se a pessoa presta serviços,
+        // independentemente do perfil de acesso. Não determina ocupação de
+        // vaga — isso é decidido por BookingEligibility.OccupiesPlanSlot.
+        // Default true preserva os registros existentes.
         builder.Property(professional => professional.IsServiceProvider)
             .IsRequired()
             .HasDefaultValue(true);
-
-        builder.Ignore(professional => professional.OccupiesPlanSlot);
 
         // Composição: a jornada não tem tabela própria.
         builder.OwnsOne(professional => professional.Schedule, schedule =>

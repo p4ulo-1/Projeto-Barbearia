@@ -48,6 +48,25 @@ public sealed class SubscriptionRepository(AppDbContext context) : ISubscription
 
     public Task SaveChangesAsync(CancellationToken cancellationToken = default) =>
         context.SaveChangesAsync(cancellationToken);
+
+    public async Task<T> ExecuteSerializableAsync<T>(
+        Func<CancellationToken, Task<T>> operation,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+
+        // Nivel serializavel: o PostgreSQL aborta uma das transacoes
+        // concorrentes quando detecta que o resultado seria inconsistente.
+        // Sem isso, duas requisicoes contam a mesma vaga livre e ambas gravam.
+        await using var transaction = await context.Database.BeginTransactionAsync(
+            System.Data.IsolationLevel.Serializable, cancellationToken);
+
+        var result = await operation(cancellationToken);
+
+        await transaction.CommitAsync(cancellationToken);
+
+        return result;
+    }
 }
 
 /// <summary>

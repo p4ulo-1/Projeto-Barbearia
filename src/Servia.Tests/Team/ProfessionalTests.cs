@@ -66,45 +66,45 @@ public class ProfessionalTests
     }
 
     [Fact]
-    public void Profissional_Nasce_Prestador_E_Ocupa_Vaga()
+    public void Profissional_Nasce_Prestador()
     {
         var professional = NewProfessional();
 
         Assert.True(professional.IsServiceProvider);
-        Assert.True(professional.OccupiesPlanSlot);
     }
 
     [Fact]
-    public void Profissional_Sem_Atuacao_Nao_Ocupa_Vaga()
+    public void Profissional_Pode_Nascer_Sem_Atuacao()
     {
         var professional = Professional.Create(
             TenantId, "Recepção", Schedule(), isServiceProvider: false);
 
         Assert.False(professional.IsServiceProvider);
-        Assert.False(professional.OccupiesPlanSlot);
     }
 
     [Fact]
-    public void Alterar_Atuacao_Atualiza_Ocupacao_Da_Vaga()
+    public void Alterar_Atuacao_Atualiza_O_Atributo()
     {
+        // A atuação é um atributo da equipe. Não determina ocupação de vaga:
+        // essa regra vive em BookingEligibility.OccupiesPlanSlot.
         var professional = NewProfessional();
 
         professional.SetServiceProvider(false);
-        Assert.False(professional.OccupiesPlanSlot);
+        Assert.False(professional.IsServiceProvider);
 
         professional.SetServiceProvider(true);
-        Assert.True(professional.OccupiesPlanSlot);
+        Assert.True(professional.IsServiceProvider);
     }
 
     [Fact]
-    public void Profissional_Inativo_Nao_Ocupa_Vaga_Mesmo_Sendo_Prestador()
+    public void Desativar_Preserva_O_Atributo_De_Atuacao()
     {
         var professional = NewProfessional();
 
         professional.Deactivate();
 
         Assert.True(professional.IsServiceProvider);
-        Assert.False(professional.OccupiesPlanSlot);
+        Assert.False(professional.IsActive);
     }
 
     [Fact]

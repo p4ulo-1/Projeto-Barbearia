@@ -70,19 +70,18 @@ public sealed class Professional : ITenantScoped
     public bool IsActive { get; private set; }
 
     /// <summary>
-    /// Indica se a pessoa presta serviços e pode receber agendamentos.
+    /// Indica se a pessoa presta serviços.
     ///
     /// <b>Independe do perfil de acesso:</b> um administrador ou recepcionista
     /// que também atende é um prestador; um profissional cadastrado que não
-    /// atende não é. Apenas prestadores ativos ocupam vaga no plano.
+    /// atende não é.
+    ///
+    /// <b>Não determina ocupação de vaga.</b> A vaga é decidida pelo critério
+    /// aprovado — ativo, com serviço ativo associado e jornada configurada —
+    /// centralizado em <see cref="BookingEligibility.OccupiesPlanSlot"/>.
+    /// Este atributo descreve a atuação da pessoa na equipe.
     /// </summary>
     public bool IsServiceProvider { get; private set; }
-
-    /// <summary>
-    /// Indica se o profissional ocupa uma vaga no plano: precisa estar ativo
-    /// e prestar serviços.
-    /// </summary>
-    public bool OccupiesPlanSlot => IsActive && IsServiceProvider;
 
     public static Professional Create(
         Guid tenantId,

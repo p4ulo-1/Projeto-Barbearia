@@ -19,7 +19,8 @@ import { AppLayout, SignInPage } from './pages';
 import { ServicesPage, TeamPage } from './pages/catalog';
 import { AgendaPage, CustomersPage } from './pages/operations';
 import { FinancePage, SitePage, SubscriptionPage } from './pages/management';
-import { PublicSitePage, BookingWidgetPage } from './pages/public';
+import { PublicSitePage } from './pages/public';
+import { BookingWidgetPage } from './pages/booking';
 import { LandingPage } from './landing/LandingPage';
 import { SignupPage } from './landing/SignupPage';
 

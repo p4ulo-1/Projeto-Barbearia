@@ -56,11 +56,18 @@ public sealed class BookingEligibilityTests
     }
 
     [Fact]
-    public void Profissional_Sem_Dia_De_Trabalho_Nao_Eh_Elegivel()
+    public void Jornada_Sem_Dia_De_Trabalho_Nao_Eh_Construivel()
     {
-        // WorkSchedule.Create exige ao menos um dia, então a jornada vazia
-        // não é construível. O predicado protege dados materializados
-        // incompletos, e a verificação de dias permanece.
+        // O cenário "profissional sem dia de trabalho" não é representável:
+        // WorkSchedule.Create rejeita jornada vazia. A invariante é garantida
+        // na construção, e o predicado de elegibilidade só precisa verificar
+        // que a jornada existe com ao menos um dia.
+        var exception = Assert.Throws<DomainRuleException>(() =>
+            WorkSchedule.Create([], new TimeOnly(9, 0), new TimeOnly(18, 0)));
+
+        Assert.Contains("ao menos um dia", exception.Message);
+
+        // Um profissional construído tem sempre jornada válida e é elegível.
         var professional = ProfessionalOn();
 
         Assert.NotEmpty(professional.Schedule.WorkDays);

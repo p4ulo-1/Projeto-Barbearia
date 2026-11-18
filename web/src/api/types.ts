@@ -57,6 +57,51 @@ export interface Availability {
   readonly availableSlots: readonly string[];
 }
 
+/**
+ * Contratos públicos do site (`/api/v1/public/site`).
+ *
+ * O visitante não está autenticado: estes são os únicos endpoints que o
+ * fluxo de agendamento pode usar. O estabelecimento é resolvido pelo host.
+ */
+export interface PublicService {
+  readonly id: string;
+  readonly name: string;
+  readonly description: string | null;
+  readonly price: number;
+  readonly currency: string;
+  readonly durationMinutes: number;
+}
+
+export interface PublicProfessional {
+  readonly id: string;
+  readonly name: string;
+  readonly serviceIds: readonly string[];
+}
+
+/** Disponibilidade pública: o campo é `slots`, não `availableSlots`. */
+export interface PublicAvailability {
+  readonly professionalId: string;
+  readonly date: string;
+  readonly slots: readonly string[];
+}
+
+export interface PublicBookingRequest {
+  readonly name: string;
+  readonly phone: string;
+  readonly email: string | null;
+  readonly serviceId: string;
+  readonly professionalId: string;
+  readonly date: string;
+  readonly time: string;
+}
+
+export interface PublicAppointment {
+  readonly id: string;
+  readonly date: string;
+  readonly time: string;
+  readonly durationMinutes: number;
+}
+
 export interface Payment {
   readonly id: string;
   readonly amount: number;

@@ -306,6 +306,15 @@ internal sealed class FakeSubscriptionRepository : ISubscriptionRepository
 
     public Task SaveChangesAsync(CancellationToken cancellationToken = default) =>
         Task.CompletedTask;
+
+    /// <summary>
+    /// Em memória não há transação real: a operação roda diretamente.
+    /// A atomicidade é provada nos testes de integração com PostgreSQL.
+    /// </summary>
+    public Task<T> ExecuteSerializableAsync<T>(
+        Func<CancellationToken, Task<T>> operation,
+        CancellationToken cancellationToken = default) =>
+        operation(cancellationToken);
 }
 
 /// <summary>Repositório de planos em memória.</summary>
