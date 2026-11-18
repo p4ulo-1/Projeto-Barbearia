@@ -4,6 +4,8 @@
   "sideEffects": false,
   "type": "module",
   "scripts": {
+    "homolog:seed": "node scripts/homolog-seed.mjs",
+    "homolog:e2e": "node scripts/homolog-e2e.mjs",
     "dev": "vite dev",
     "build": "vite build",
     "build:dev": "vite build --mode development",
