@@ -40,3 +40,15 @@ it("envia os contratos reais de catálogo e equipe", async () => {
   expect(calls[5]?.body).toEqual({ name: "Ana", title: null, bio: null });
 });
 afterEach(() => { vi.unstubAllGlobals(); tokenStore.clear(); });
+
+it("envia os dias da jornada como valores numéricos de DayOfWeek", async () => {
+  tokenStore.setSession({ accessToken: "token", refreshToken: "refresh", expiresAt: new Date(Date.now() + 900_000).toISOString() });
+  const fetchMock = vi.fn(async (_path: string, _options: RequestInit) => Response.json({ id: "p" }));
+  vi.stubGlobal("fetch", fetchMock);
+  await realOperations.createPro({
+    name: "Ana", workDays: ["Sunday", "Monday", "Friday", "Saturday"],
+    startTime: "09:00:00", endTime: "18:00:00", slotIntervalMinutes: 30,
+    isServiceProvider: true,
+  });
+  expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1].body)).workDays).toEqual([0, 1, 5, 6]);
+});

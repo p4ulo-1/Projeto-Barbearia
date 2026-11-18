@@ -254,7 +254,11 @@ export const realOperations = {
     send<ProfessionalDetail>(`${pros}/${id}`, "PUT", input),
   activatePro: (id: string) => send<void>(`${pros}/${id}/activate`, "POST"),
   deactivatePro: (id: string) => send<void>(`${pros}/${id}/deactivate`, "POST"),
-  createPro: (input: ProfessionalInput) => send<Professional>(pros, "POST", input),
+  createPro: (input: ProfessionalInput) =>
+    send<Professional>(pros, "POST", {
+      ...input,
+      workDays: input.workDays.map((day) => daysOfWeek.indexOf(day)),
+    }),
   setProvider: (id: string, isServiceProvider: boolean) =>
     send<Professional>(`${pros}/${id}/service-provider`, "PATCH", { isServiceProvider }),
   professionalServices: (id: string) => get<string[]>(`${pros}/${id}/services`),
