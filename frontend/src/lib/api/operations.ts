@@ -15,6 +15,7 @@ export interface Service extends ServiceInput {
   id: string;
   isActive: boolean;
 }
+export type ServiceUpdate = Omit<ServiceInput, "price">;
 export interface Category {
   id: string;
   name: string;
@@ -42,6 +43,14 @@ export interface Professional {
   title?: string;
   isActive: boolean;
   isServiceProvider: boolean;
+}
+export interface ProfessionalDetail extends Professional {
+  bio?: string | null;
+}
+export interface ProfessionalUpdate {
+  name: string;
+  title: string | null;
+  bio: string | null;
 }
 export interface Block {
   id: string;
@@ -225,6 +234,10 @@ export const realOperations = {
   services: (page = 1, onlyActive?: boolean, pageSize = 20) =>
     paged<Service>(catalog + "/services", page, { onlyActive }, pageSize),
   createService: (input: ServiceInput) => send<Service>(catalog + "/services", "POST", input),
+  service: (id: string) => get<Service>(`${catalog}/services/${id}`),
+  updateService: (id: string, input: ServiceUpdate) =>
+    send<Service>(`${catalog}/services/${id}`, "PUT", input),
+  activateService: (id: string) => send<void>(`${catalog}/services/${id}/activate`, "POST"),
   price: (id: string, price: number) =>
     send<Service>(`${catalog}/services/${id}/price`, "PATCH", { price }),
   deactivate: (id: string) => send<void>(`${catalog}/services/${id}/deactivate`, "POST"),
@@ -234,13 +247,21 @@ export const realOperations = {
   combos: () => get<Combo[]>(catalog + "/combos"),
   createCombo: (name: string, price: number, items: { serviceId: string; quantity: number }[]) =>
     send<Combo>(catalog + "/combos", "POST", { name, price, items }),
-  professionals: (page = 1, pageSize = 20) => paged<Professional>(pros, page, {}, pageSize),
+  professionals: (page = 1, pageSize = 20, includeInactive = false) =>
+    paged<Professional>(pros, page, { includeInactive }, pageSize),
+  professional: (id: string) => get<ProfessionalDetail>(`${pros}/${id}`),
+  updatePro: (id: string, input: ProfessionalUpdate) =>
+    send<ProfessionalDetail>(`${pros}/${id}`, "PUT", input),
+  activatePro: (id: string) => send<void>(`${pros}/${id}/activate`, "POST"),
+  deactivatePro: (id: string) => send<void>(`${pros}/${id}/deactivate`, "POST"),
   createPro: (input: ProfessionalInput) => send<Professional>(pros, "POST", input),
   setProvider: (id: string, isServiceProvider: boolean) =>
     send<Professional>(`${pros}/${id}/service-provider`, "PATCH", { isServiceProvider }),
   professionalServices: (id: string) => get<string[]>(`${pros}/${id}/services`),
   assignService: (id: string, serviceId: string) =>
     send<void>(`${pros}/${id}/services/${serviceId}`, "POST"),
+  unassignService: (id: string, serviceId: string) =>
+    send<void>(`${pros}/${id}/services/${serviceId}`, "DELETE"),
   blocks: (id: string) => get<Block[]>(`${pros}/${id}/blocks`),
   block: (id: string, input: Omit<Block, "id">) =>
     send<Block>(`${pros}/${id}/blocks`, "POST", input),
@@ -279,7 +300,11 @@ export const realOperations = {
   cancel: (id: string, reason?: string) =>
     send<Appointment>(`${appointments}/${id}/cancel`, "POST", reason ? { reason } : undefined),
   cancelOwn: (id: string, reason?: string) =>
-    send<Appointment>(`/agenda/mine/appointments/${id}/cancel`, "POST", reason ? { reason } : undefined),
+    send<Appointment>(
+      `/agenda/mine/appointments/${id}/cancel`,
+      "POST",
+      reason ? { reason } : undefined,
+    ),
   complete: (id: string) => send<Appointment>(`${appointments}/${id}/complete`, "POST"),
   schedule: () => get<{ days: Day[] }>(schedule),
   saveSchedule: (days: Day[]) => send<{ days: Day[] }>(schedule, "PUT", { days }),
@@ -463,6 +488,13 @@ export const demoOperations: typeof realOperations = {
       data.services.push(service);
       return service;
     }),
+  service: async (serviceId) => find(demoData().data.services, serviceId),
+  updateService: async (serviceId, input) =>
+    change((data) => Object.assign(find(data.services, serviceId), input)),
+  activateService: async (serviceId) =>
+    change((data) => {
+      find(data.services, serviceId).isActive = true;
+    }),
   price: async (serviceId, price) =>
     change((data) => Object.assign(find(data.services, serviceId), { price })),
   deactivate: async (serviceId) =>
@@ -483,7 +515,29 @@ export const demoOperations: typeof realOperations = {
       data.combos.push(item);
       return item;
     }),
-  professionals: async (page, pageSize) => list(demoData().data.professionals, page, pageSize),
+  professionals: async (page, pageSize, includeInactive) =>
+    list(
+      demoData().data.professionals.filter((p) => includeInactive || p.isActive),
+      page,
+      pageSize,
+    ),
+  professional: async (professionalId) => find(demoData().data.professionals, professionalId),
+  updatePro: async (professionalId, input) =>
+    change((data) =>
+      Object.assign(find(data.professionals, professionalId), {
+        ...input,
+        title: input.title ?? "",
+        bio: input.bio ?? "",
+      }),
+    ),
+  activatePro: async (professionalId) =>
+    change((data) => {
+      find(data.professionals, professionalId).isActive = true;
+    }),
+  deactivatePro: async (professionalId) =>
+    change((data) => {
+      find(data.professionals, professionalId).isActive = false;
+    }),
   createPro: async (input) =>
     change((data) => {
       if (!input.workDays.length || input.startTime >= input.endTime)
@@ -506,6 +560,12 @@ export const demoOperations: typeof realOperations = {
       data.servicesByProfessional[professionalId] = [
         ...new Set([...(data.servicesByProfessional[professionalId] ?? []), serviceId]),
       ];
+    }),
+  unassignService: async (professionalId, serviceId) =>
+    change((data) => {
+      data.servicesByProfessional[professionalId] = (
+        data.servicesByProfessional[professionalId] ?? []
+      ).filter((id) => id !== serviceId);
     }),
   blocks: async (professionalId) => demoData().data.blocksByProfessional[professionalId] ?? [],
   block: async (professionalId, input) =>
@@ -591,7 +651,9 @@ export const demoOperations: typeof realOperations = {
     const data = demoData().data;
     const item = find(data.appointments, appointmentId);
     demoBookingService(data, item.serviceId, item.professionalId);
-    return { availableSlots: slots(data, item.professionalId, date, item.durationMinutes, item.id) };
+    return {
+      availableSlots: slots(data, item.professionalId, date, item.durationMinutes, item.id),
+    };
   },
   reschedule: async (appointmentId, date, time) =>
     change((data) => {

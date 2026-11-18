@@ -15,13 +15,14 @@ import s from "./styles";
 
 export function TeamPage() {
   const { user } = useAuth();
-  const write = hasPermission(user, "ManageTeam");
-  const read = hasPermission(user, "ViewTeamAgenda");
+  const write = (IS_DEMO || !!user?.permissions) && hasPermission(user, "ManageTeam");
+  const read = (IS_DEMO || !!user?.permissions) && hasPermission(user, "ViewTeamAgenda");
   const [page, setPage] = useState(1);
+  const [includeInactive, setIncludeInactive] = useState(false);
   const [selected, select] = useState("");
   const people = useQuery({
-    queryKey: ["panel", "professionals", page],
-    queryFn: () => api.professionals(page),
+    queryKey: ["panel", "professionals", page, includeInactive],
+    queryFn: () => api.professionals(page, 20, includeInactive),
     enabled: read,
   });
   const membership = people.data?.items.find((item) => item.id === selected);
@@ -35,7 +36,18 @@ export function TeamPage() {
       {op.feedback}
       {read && (
         <ModuleCard title="Profissionais">
-          <p>Profissionais ativos que prestam serviços ocupam vagas no plano.</p>
+          <label className={s.checkLine}>
+            <input
+              type="checkbox"
+              checked={includeInactive}
+              onChange={(event) => {
+                setIncludeInactive(event.target.checked);
+                setPage(1);
+                select("");
+              }}
+            />{" "}
+            Incluir profissionais inativos
+          </label>
           <QueryState query={people}>
             {(data) => (
               <>
@@ -45,6 +57,7 @@ export function TeamPage() {
                       <li key={person.id}>
                         <div>
                           <strong>{person.name}</strong>
+                          <p>{person.isActive ? "Ativo" : "Inativo"}</p>
                           <p>
                             {person.isServiceProvider
                               ? "Presta serviços"
@@ -56,6 +69,30 @@ export function TeamPage() {
                           <Button variant="subtle" onClick={() => select(person.id)}>
                             Ver vínculos e bloqueios
                           </Button>
+                          {write && (
+                            <Button
+                              variant="ghost"
+                              disabled={op.busy}
+                              onClick={() => {
+                                if (
+                                  window.confirm(
+                                    `${person.isActive ? "Desativar" : "Ativar"} “${person.name}”? Os vínculos serão preservados.`,
+                                  )
+                                )
+                                  op.run(
+                                    () =>
+                                      person.isActive
+                                        ? api.deactivatePro(person.id)
+                                        : api.activatePro(person.id),
+                                    person.isActive
+                                      ? "Profissional desativado."
+                                      : "Profissional ativado.",
+                                  );
+                              }}
+                            >
+                              {person.isActive ? "Desativar profissional" : "Ativar profissional"}
+                            </Button>
+                          )}
                           {write && (
                             <Button
                               variant="ghost"
@@ -185,6 +222,10 @@ function ProfessionalDetails({
   close: () => void;
 }) {
   const { user } = useAuth();
+  const detail = useQuery({
+    queryKey: ["panel", "professional", person.id],
+    queryFn: () => api.professional(person.id),
+  });
   const items = useQuery({
     queryKey: ["panel", "professional-services", person.id],
     queryFn: () => api.professionalServices(person.id),
@@ -195,10 +236,18 @@ function ProfessionalDetails({
   });
   const catalog = useQuery({
     queryKey: ["panel", "services", "options"],
-    queryFn: () => api.services(1, undefined, 100),
-    enabled: hasPermission(user, "ViewServices"),
+    queryFn: async () => {
+      let result = await api.services(1, undefined, 100);
+      const items = [...result.items];
+      while (result.hasNext) {
+        result = await api.services(result.page + 1, undefined, 100);
+        items.push(...result.items);
+      }
+      return items;
+    },
+    enabled: (IS_DEMO || !!user?.permissions) && hasPermission(user, "ViewServices"),
   });
-  const names = new Map((catalog.data?.items ?? []).map((item) => [item.id, item.name]));
+  const names = new Map((catalog.data ?? []).map((item) => [item.id, item.name]));
   const op = useOperation();
   return (
     <ModuleCard title={person.name}>
@@ -206,13 +255,71 @@ function ProfessionalDetails({
         Fechar detalhes
       </Button>
       {op.feedback}
+      <QueryState query={detail}>
+        {(data) => (
+          <>
+            {write ? (
+              <form
+                key={data.id}
+                className={s.formGrid}
+                onSubmit={(event) =>
+                  op.submit(
+                    event,
+                    (form) =>
+                      api.updatePro(person.id, {
+                        name: field(form, "name"),
+                        title: field(form, "title") || null,
+                        bio: field(form, "bio") || null,
+                      }),
+                    "Profissional atualizado.",
+                    false,
+                  )
+                }
+              >
+                <TextField
+                  label="Nome completo"
+                  name="name"
+                  defaultValue={data.name}
+                  maxLength={150}
+                  required
+                />
+                <TextField
+                  label="Cargo ou especialidade"
+                  name="title"
+                  defaultValue={data.title ?? ""}
+                  maxLength={100}
+                />
+                <TextField label="Bio" name="bio" defaultValue={data.bio ?? ""} maxLength={1000} />
+                <Button type="submit" loading={op.busy}>
+                  Salvar profissional
+                </Button>
+              </form>
+            ) : (
+              <p>{data.bio}</p>
+            )}
+          </>
+        )}
+      </QueryState>
       <h3>Serviços vinculados</h3>
       <QueryState query={items}>
         {(data) =>
           data.length ? (
             <ul className={s.recordList}>
               {data.map((item) => (
-                <li key={item}>{names.get(item) ?? item}</li>
+                <li key={item}>
+                  {names.get(item) ?? item}
+                  {write && (
+                    <Button
+                      variant="ghost"
+                      disabled={op.busy}
+                      onClick={() =>
+                        op.run(() => api.unassignService(person.id, item), "Serviço desvinculado.")
+                      }
+                    >
+                      Desvincular serviço {names.get(item) ?? item}
+                    </Button>
+                  )}
+                </li>
               ))}
             </ul>
           ) : (
@@ -220,7 +327,7 @@ function ProfessionalDetails({
           )
         }
       </QueryState>
-      {write && catalog.data && (
+      {write && catalog.data && items.data && (
         <form
           className={s.formGrid}
           onSubmit={(event) =>
@@ -234,9 +341,7 @@ function ProfessionalDetails({
           <RecordSelect
             name="serviceId"
             label="Serviço a vincular"
-            records={catalog.data.items.filter(
-              (item) => item.isActive && !items.data?.includes(item.id),
-            )}
+            records={catalog.data.filter((item) => item.isActive && !items.data?.includes(item.id))}
             required
           />
           <Button type="submit" variant="subtle" loading={op.busy}>

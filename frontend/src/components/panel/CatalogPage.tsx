@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Button, TextField } from "@/components/ui-sv";
 import { operations as api } from "@/lib/api/operations";
+import { IS_DEMO } from "@/lib/api/http";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { hasPermission } from "@/lib/permissions";
 import { ModuleCard, QueryState, Pagination, RecordSelect } from "./OperationsUI";
@@ -12,22 +13,31 @@ import s from "./styles";
 
 export function CatalogPage() {
   const { user } = useAuth();
-  const write = hasPermission(user, "ManageServices");
+  const write = (IS_DEMO || !!user?.permissions) && hasPermission(user, "ManageServices");
+  const read = (IS_DEMO || !!user?.permissions) && hasPermission(user, "ViewServices");
+  const [selected, select] = useState("");
   const [page, setPage] = useState(1);
   const [active, setActive] = useState(false);
   const [lines, setLines] = useState(1);
   const services = useQuery({
     queryKey: ["panel", "services", page, active],
     queryFn: () => api.services(page, active),
+    enabled: read,
   });
   const options = useQuery({
     queryKey: ["panel", "services", "active"],
     queryFn: () => api.services(1, true, 100),
-    enabled: write,
+    enabled: write && read,
   });
-  const categories = useQuery({ queryKey: ["panel", "categories"], queryFn: api.categories });
-  const combos = useQuery({ queryKey: ["panel", "combos"], queryFn: api.combos });
+  const categories = useQuery({
+    queryKey: ["panel", "categories"],
+    queryFn: api.categories,
+    enabled: read,
+  });
+  const combos = useQuery({ queryKey: ["panel", "combos"], queryFn: api.combos, enabled: read });
   const op = useOperation();
+
+  if (!read) return <p>Você não tem permissão para consultar serviços.</p>;
 
   return (
     <>
@@ -77,9 +87,12 @@ export function CatalogPage() {
                           <td>{service.isActive ? "Ativo" : "Desativado"}</td>
                           {write && (
                             <td>
-                              {service.isActive && (
+                              {
                                 <details>
                                   <summary>Gerenciar</summary>
+                                  <Button variant="subtle" onClick={() => select(service.id)}>
+                                    Editar serviço
+                                  </Button>
                                   <form
                                     className={s.formGrid}
                                     key={service.price}
@@ -96,7 +109,7 @@ export function CatalogPage() {
                                       label="Novo preço (R$)"
                                       name="price"
                                       type="number"
-                                      min="0.01"
+                                      min="0"
                                       max="1000000"
                                       step="0.01"
                                       defaultValue={service.price}
@@ -112,19 +125,24 @@ export function CatalogPage() {
                                     onClick={() => {
                                       if (
                                         window.confirm(
-                                          `Desativar “${service.name}”? O histórico será preservado.`,
+                                          `${service.isActive ? "Desativar" : "Ativar"} “${service.name}”? O histórico será preservado.`,
                                         )
                                       )
                                         op.run(
-                                          () => api.deactivate(service.id),
-                                          "Serviço desativado.",
+                                          () =>
+                                            service.isActive
+                                              ? api.deactivate(service.id)
+                                              : api.activateService(service.id),
+                                          service.isActive
+                                            ? "Serviço desativado."
+                                            : "Serviço ativado.",
                                         );
                                     }}
                                   >
-                                    Desativar serviço
+                                    {service.isActive ? "Desativar serviço" : "Ativar serviço"}
                                   </Button>
                                 </details>
-                              )}
+                              }
                             </td>
                           )}
                         </tr>
@@ -138,6 +156,9 @@ export function CatalogPage() {
           )}
         </QueryState>
       </ModuleCard>
+      {write && selected && (
+        <ServiceEditor id={selected} categories={categories.data ?? []} close={() => select("")} />
+      )}
       {write && (
         <ModuleCard id="novo-servico" title="Cadastrar serviço">
           <form
@@ -163,7 +184,7 @@ export function CatalogPage() {
               label="Preço (R$)"
               name="price"
               type="number"
-              min="0.01"
+              min="0"
               max="1000000"
               step="0.01"
               required
@@ -329,5 +350,85 @@ export function CatalogPage() {
         </ModuleCard>
       </div>
     </>
+  );
+}
+
+function ServiceEditor({
+  id,
+  categories,
+  close,
+}: {
+  id: string;
+  categories: { id: string; name: string }[];
+  close: () => void;
+}) {
+  const detail = useQuery({ queryKey: ["panel", "service", id], queryFn: () => api.service(id) });
+  const op = useOperation();
+  return (
+    <ModuleCard title="Editar serviço">
+      <Button variant="ghost" onClick={close}>
+        Fechar edição
+      </Button>
+      {op.feedback}
+      <QueryState query={detail}>
+        {(service) => (
+          <form
+            key={service.id}
+            className={s.formGrid}
+            onSubmit={(event) =>
+              op.submit(
+                event,
+                (data) =>
+                  api.updateService(id, {
+                    name: field(data, "name"),
+                    durationMinutes: numberField(data, "durationMinutes"),
+                    description: field(data, "description"),
+                    ...optional(data, "categoryId"),
+                    highlight: data.has("highlight"),
+                  }),
+                "Serviço atualizado.",
+                false,
+              )
+            }
+          >
+            <TextField
+              label="Nome do serviço"
+              name="name"
+              defaultValue={service.name}
+              maxLength={150}
+              required
+            />
+            <TextField
+              label="Duração (minutos)"
+              name="durationMinutes"
+              type="number"
+              min="1"
+              max="1440"
+              defaultValue={service.durationMinutes}
+              required
+            />
+            <TextField
+              label="Descrição"
+              name="description"
+              defaultValue={service.description ?? ""}
+              maxLength={1000}
+            />
+            <RecordSelect
+              label="Categoria"
+              name="categoryId"
+              records={categories}
+              defaultValue={service.categoryId ?? ""}
+            />
+            <label className={s.checkLine}>
+              <input type="checkbox" name="highlight" defaultChecked={service.highlight} /> Destacar
+              serviço
+            </label>
+            <Button type="submit" loading={op.busy}>
+              Salvar serviço
+            </Button>
+          </form>
+        )}
+      </QueryState>
+    </ModuleCard>
   );
 }
