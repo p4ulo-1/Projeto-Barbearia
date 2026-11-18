@@ -4,7 +4,8 @@
 # Executa em todo push e pull request para main:
 #   1. Restore e build da solução
 #   2. Testes automatizados
-#   3. Build da imagem Docker
+#   3. Instalação, testes e build do frontend oficial para desenvolvimento
+#   4. Build da imagem Docker
 #
 # O pipeline falha se qualquer etapa falhar: um PR só é aceitável
 # quando build e testes passam.
@@ -14,11 +15,41 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'codex/**']
   pull_request:
     branches: [main]
 
 jobs:
+  frontend:
+    name: Frontend — instalação, testes e build
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Configurar Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: frontend/.nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Testes
+        run: npm test
+
+      - name: Tipos
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
   build-and-test:
     name: Build e testes
     runs-on: ubuntu-24.04

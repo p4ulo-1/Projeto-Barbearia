@@ -11,7 +11,19 @@ import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 
 export default defineConfig({
   // Pre-bundle lucide-react so first-load discovery does not re-optimize deps (mixed React copies).
-  vite: { optimizeDeps: { include: ["lucide-react"] } },
+  vite: {
+    optimizeDeps: { include: ["lucide-react"] },
+    server: {
+      proxy: {
+        // Use the HTTP profile of Servia.Api by default; Docker Compose exposes 8080.
+        // Override only the server-side target when using another local API port.
+        "/api": {
+          target: process.env["SERVIA_API_PROXY_TARGET"] || "http://localhost:5222",
+          changeOrigin: true,
+        },
+      },
+    },
+  },
   tanstackStart: {
     // Redirect TanStack Start's bundled server entry to src/server.ts (our SSR error wrapper).
     // nitro/vite builds from this

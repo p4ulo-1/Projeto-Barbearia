@@ -143,7 +143,7 @@ Interface da aplicação, navegação, interação com o usuário e comunicaçã
 - React 19
 - TypeScript (modo estrito)
 - Vite
-- React Router
+- TanStack Start e TanStack Router
 
 ### Superfícies de produto
 
@@ -154,17 +154,17 @@ Interface da aplicação, navegação, interação com o usuário e comunicaçã
 | Painel do estabelecimento | Equipe do tenant | ✅ |
 | Painel da plataforma | Administradores da plataforma | ✅ |
 
-O código está em [`web/`](web/). A comunicação com o backend é HTTP, centralizada em um cliente de API tipado — nenhum componente chama `fetch` diretamente.
+O frontend adotado para continuar o desenvolvimento está em [`frontend/`](frontend/). A implementação anterior em [`web/`](web/) permanece preservada até a substituição operacional. A comunicação com a API é centralizada em `frontend/src/lib/api/http.ts`.
 
 O endereço da API é configurado por variável de ambiente:
 
 ```env
-VITE_API_URL=http://localhost:8080
+VITE_API_URL=/
 ```
 
-Na ausência da variável, o frontend usa `http://localhost:8080` como padrão de desenvolvimento.
+Em desenvolvimento, `/api` é encaminhado pelo Vite para `http://localhost:5222` por padrão; `SERVIA_API_PROXY_TARGET` troca esse alvo, por exemplo para `http://localhost:8080` do Docker Compose. Sem `VITE_API_URL`, o frontend usa a mesma origem e **não** ativa dados simulados. A demonstração isolada exige `VITE_DEMO_MODE=true`.
 
-**Segurança de sessão:** o token de acesso fica em memória (um XSS não o lê); o refresh token fica em `localStorage` porque precisa sobreviver ao recarregamento.
+**Sessão no frontend atual:** tokens reais ficam em `sessionStorage` por aba; o refresh token é rotacionado pela API. A política de segurança final permanece sob avaliação no escopo apropriado.
 
 ---
 
@@ -268,7 +268,7 @@ curl.exe http://localhost:8080/health
 
 ```powershell
 cd src
-..\build.cmd run --project Servia.Api\Servia.Api.csproj --urls http://localhost:5099
+..\build.cmd run --project Servia.Api\Servia.Api.csproj --urls http://localhost:5222
 ```
 
 Requer `ConnectionStrings__DefaultConnection` apontando para um PostgreSQL acessível.
@@ -278,15 +278,15 @@ Requer `ConnectionStrings__DefaultConnection` apontando para um PostgreSQL acess
 Em outro terminal:
 
 ```powershell
-cd web
-npm install
+cd frontend
+npm ci
 npm run dev
 ```
 
-Aplicação em `http://localhost:5173`. Por padrão aponta para `http://localhost:8080`; para usar a API local:
+O Vite informa a porta local ao iniciar. Para usar a API do Docker Compose, defina o destino do proxy antes de `npm run dev`:
 
 ```powershell
-$env:VITE_API_URL="http://localhost:5099"; npm run dev
+$env:SERVIA_API_PROXY_TARGET="http://localhost:8080"; npm run dev
 ```
 
 ### Endpoints de saúde

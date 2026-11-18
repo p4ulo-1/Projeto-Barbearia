@@ -75,10 +75,10 @@ export interface AppointmentInput {
   professionalId: string;
   date: string;
   time: string;
-  durationMinutes: number;
 }
 export interface Appointment extends AppointmentInput {
   id: string;
+  durationMinutes: number;
   status: "Confirmed" | "Cancelled" | "Completed";
   cancellationReason?: string;
 }
@@ -261,11 +261,11 @@ export const realOperations = {
     send<Preferences>(`${customers}/${id}/preferences`, "PUT", input),
   appointments: (date: string, professionalId?: string) =>
     get<Appointment[]>(appointments, { date, professionalId }),
-  availability: (professionalId: string, date: string, durationMinutes: number) =>
+  availability: (professionalId: string, date: string, serviceId: string) =>
     get<{ availableSlots: string[] }>("/agenda/availability", {
       professionalId,
       date,
-      durationMinutes,
+      serviceId,
     }),
   createAppointment: (input: AppointmentInput) => send<Appointment>(appointments, "POST", input),
   reschedule: (id: string, date: string, time: string) =>
@@ -553,16 +553,26 @@ export const demoOperations: typeof realOperations = {
     demoData().data.appointments.filter(
       (item) => item.date === date && (!professionalId || item.professionalId === professionalId),
     ),
-  availability: async (professionalId, date, duration) => ({
-    availableSlots: slots(demoData().data, professionalId, date, duration),
-  }),
+  availability: async (professionalId, date, serviceId) => {
+    const data = demoData().data;
+    const service = demoBookingService(data, serviceId, professionalId);
+    return {
+      availableSlots: slots(data, professionalId, date, service.durationMinutes),
+    };
+  },
   createAppointment: async (input) =>
     change((data) => {
+      const service = demoBookingService(data, input.serviceId, input.professionalId);
       if (
-        !slots(data, input.professionalId, input.date, input.durationMinutes).includes(input.time)
+        !slots(data, input.professionalId, input.date, service.durationMinutes).includes(input.time)
       )
         throw new ApiError("Horário indisponível.", 409);
-      const item: Appointment = { ...input, id: id(), status: "Confirmed" };
+      const item: Appointment = {
+        ...input,
+        id: id(),
+        durationMinutes: service.durationMinutes,
+        status: "Confirmed",
+      };
       data.appointments.push(item);
       return item;
     }),

@@ -286,7 +286,6 @@ function CreateOwnAppointment({
               return api.createAppointment({
                 professionalId,
                 serviceId,
-                durationMinutes: service.durationMinutes,
                 customerId: field(form, "customerId"),
                 date: field(form, "date"),
                 time: timeField(field(form, "time")),
@@ -342,22 +341,22 @@ function CreateOwnAppointment({
 function SlotSelect({
   professional,
   date,
-  duration,
+  serviceId,
   time,
   onTime,
 }: {
   professional: string;
   date: string;
-  duration: number;
+  serviceId: string;
   time: string;
   onTime: (value: string) => void;
 }) {
   const query = useQuery({
-    queryKey: ["panel", "availability", professional, date, duration],
-    queryFn: () => api.availability(professional, date, duration),
-    enabled: !!professional && !!date && !!duration,
+    queryKey: ["panel", "availability", professional, date, serviceId],
+    queryFn: () => api.availability(professional, date, serviceId),
+    enabled: !!professional && !!date && !!serviceId,
   });
-  if (!professional || !date || !duration)
+  if (!professional || !date || !serviceId)
     return <p>Escolha o profissional, o serviço e a data para consultar os horários.</p>;
   return (
     <QueryState query={query}>
@@ -407,7 +406,6 @@ function CreateAppointment({
     enabled: manage && canViewCustomers,
   });
   const eligible = services.filter((entry) => associations.data?.includes(entry.id));
-  const duration = eligible.find((entry) => entry.id === serviceId)?.durationMinutes ?? 0;
   const op = useOperation();
   if (!pros.length || !services.length)
     return (
@@ -431,7 +429,6 @@ function CreateAppointment({
                 professionalId,
                 date,
                 time,
-                durationMinutes: duration,
               }),
             "Agendamento criado.",
             false,
@@ -474,7 +471,7 @@ function CreateAppointment({
         <SlotSelect
           professional={professionalId}
           date={date}
-          duration={duration}
+          serviceId={serviceId}
           time={time}
           onTime={setTime}
         />
@@ -514,7 +511,7 @@ function CreateAppointment({
             type="submit"
             loading={op.busy}
             disabled={
-              !duration ||
+              !serviceId ||
               !time ||
               !date ||
               (canViewCustomers && !customerQuery.data?.items.some((entry) => entry.isActive))
@@ -568,7 +565,7 @@ function Reschedule({
           <SlotSelect
             professional={appointment.professionalId}
             date={date}
-            duration={appointment.durationMinutes}
+            serviceId={appointment.serviceId}
             time={time}
             onTime={setTime}
           />

@@ -13,6 +13,58 @@ describe("Servia HTTP contract", () => {
     vi.unstubAllGlobals();
   });
 
+  it("uses the same-origin API by default without falling back to demo data", async () => {
+    vi.stubEnv("VITE_API_URL", "");
+    vi.stubEnv("VITE_DEMO_MODE", "false");
+    const { http, IS_DEMO } = await import("@/lib/api/http");
+    const fetchMock = vi.fn(async (_target: string) => Response.json({ items: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    expect(IS_DEMO).toBe(false);
+    await http("/api/v1/public/site", { anonymous: true });
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/v1/public/site");
+  });
+
+  it("uses serviceId for private availability and never sends appointment duration", async () => {
+    const { tokenStore } = await import("@/lib/auth/token");
+    const { realOperations } = await import("@/lib/api/operations");
+    tokenStore.setSession({
+      accessToken: "current",
+      refreshToken: "refresh",
+      expiresAt: new Date(Date.now() + 900_000).toISOString(),
+    });
+    const fetchMock = vi.fn(async (target: string, options: RequestInit) => {
+      const url = new URL(target);
+      if (url.pathname.endsWith("/availability")) {
+        expect(url.searchParams.get("professionalId")).toBe("professional");
+        expect(url.searchParams.get("serviceId")).toBe("service");
+        expect(url.searchParams.get("date")).toBe("2026-11-23");
+        expect(url.searchParams.has("durationMinutes")).toBe(false);
+        return Response.json({ availableSlots: ["09:00:00"] });
+      }
+      expect(url.pathname).toBe("/api/v1/agenda/appointments");
+      expect(JSON.parse(String(options.body))).toEqual({
+        customerId: "customer",
+        serviceId: "service",
+        professionalId: "professional",
+        date: "2026-11-23",
+        time: "09:00:00",
+      });
+      return Response.json({ id: "appointment", durationMinutes: 45 }, { status: 201 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await realOperations.availability("professional", "2026-11-23", "service");
+    await realOperations.createAppointment({
+      customerId: "customer",
+      serviceId: "service",
+      professionalId: "professional",
+      date: "2026-11-23",
+      time: "09:00:00",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("renews an expired session only once for concurrent requests", async () => {
     const { tokenStore } = await import("@/lib/auth/token");
     const { http } = await import("@/lib/api/http");

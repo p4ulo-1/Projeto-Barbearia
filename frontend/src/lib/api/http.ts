@@ -20,10 +20,11 @@ export class ApiError extends Error {
   }
 }
 
-export const API_BASE_URL = (import.meta.env["VITE_API_URL"] as string | undefined)
-  ?.trim()
-  .replace(/\/+$/, "");
-export const IS_DEMO = !API_BASE_URL;
+const configuredApiUrl = (import.meta.env["VITE_API_URL"] as string | undefined)?.trim();
+// The development server proxies /api to the existing backend. Demo is explicit,
+// so a missing API never silently switches the application to local data.
+export const IS_DEMO = import.meta.env["VITE_DEMO_MODE"] === "true";
+export const API_BASE_URL = configuredApiUrl?.replace(/\/+$/, "") ?? "";
 export const UNAUTHORIZED_EVENT = "servia:unauthorized";
 export const TOKEN_REFRESH_EVENT = "servia:token-refresh";
 
@@ -58,7 +59,7 @@ function apiError(status: number, body: unknown) {
 }
 
 async function fetchResponse(path: string, options: Options, token?: string | null) {
-  if (!API_BASE_URL) throw new ApiError("API do Servia não configurada.", 0);
+  if (IS_DEMO) throw new ApiError("A API real não é usada no modo demonstrativo.", 0);
   const { json, anonymous, response, ...init } = options;
   const headers = new Headers(init.headers);
   if (token && !anonymous) headers.set("Authorization", `Bearer ${token}`);

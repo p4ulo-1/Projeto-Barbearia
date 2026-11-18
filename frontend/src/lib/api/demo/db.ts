@@ -1,4 +1,4 @@
-// DEMO ADAPTER — simulates the Servia backend in the browser while VITE_API_URL is not set.
+// DEMO ADAPTER — simulates the Servia backend only when VITE_DEMO_MODE=true.
 // Data lives in localStorage and is NOT real. Remove once the APIs are integrated.
 import type { OnboardingSessionDto, SiteConfigDto, UserDto } from "../types";
 
