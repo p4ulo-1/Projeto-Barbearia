@@ -189,6 +189,35 @@ await step("AV2-04.2", "UI+API", "Cancelamento persiste após recarga", async ()
   assert.match(await row(movedTime).innerText(), /Cancelado/);
   assert.equal((await appointments()).find((x) => x.id === appointmentId)?.status, "Cancelled");
 });
+await step("AV2-01.3", "UI+API", "Criação interna exibe conflito sem duplicar reserva", async () => {
+  const form = page.locator("#novo-agendamento");
+  await choose(form, "professionalId", "Profissional Homolog");
+  await choose(form, "serviceId", "Corte Homolog");
+  const select = form.locator('select[name="time"]');
+  await select.locator("option").nth(1).waitFor({ state: "attached" });
+  const time = await select.locator("option").nth(1).getAttribute("value");
+  assert.ok(time);
+  await select.selectOption(time);
+  await choose(form, "customerId", "Cliente Homolog");
+  const competing = await context.request.post(url("/api/v1/agenda/appointments"), {
+    headers: auth, data: { customerId: seed.customerId, serviceId: seed.serviceId,
+      professionalId: seed.professionalId, date: seed.date, time },
+  });
+  assert.equal(competing.status(), 201);
+  const competingId = (await competing.json()).id;
+  const response = page.waitForResponse((r) => r.url().includes("/api/v1/agenda/appointments")
+    && r.request().method() === "POST");
+  await form.getByRole("button", { name: /^agendar$/i }).click();
+  assert.equal((await response).status(), 409);
+  const toast = page.locator("[data-sonner-toast]").first();
+  await toast.waitFor({ timeout: 5000 });
+  assert.match(await toast.innerText(), /horário|conflito|ocupado|disponível/i);
+  assert.equal((await appointments()).filter((item) => item.professionalId === seed.professionalId
+    && item.time.slice(0, 5) === time.slice(0, 5) && item.status === "Confirmed").length, 1);
+  assert.equal((await appointments()).find((item) => item.professionalId === seed.professionalId
+    && item.time.slice(0, 5) === time.slice(0, 5)
+    && item.status === "Confirmed")?.id, competingId);
+});
 await step("AV2-04.3", "UI+API", "Atendimento passado é concluído e persiste", async () => {
   await page.getByLabel("Data dos atendimentos").fill(seed.pastDate);
   await row("09:00").waitFor();
