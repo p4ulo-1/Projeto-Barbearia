@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Servia.Api.Authorization;
 using Servia.Api.Contracts;
+using Servia.Application.Billing;
 using Servia.Domain.Catalog;
 using Servia.Domain.Common;
 using Servia.Domain.Identity;
@@ -24,7 +25,9 @@ namespace Servia.Api.Controllers;
 [Authorize]
 public sealed class CatalogController(
     AppDbContext context,
-    ITenantContext tenantContext) : ControllerBase
+    ITenantContext tenantContext,
+    PlanSlotService planSlots,
+    ISubscriptionRepository subscriptions) : ControllerBase
 {
     // ---------- Serviços ----------
 
@@ -91,6 +94,7 @@ public sealed class CatalogController(
     [RequirePermission(Permission.ManageServices)]
     [ProducesResponseType<ServiceResponse>(StatusCodes.Status200OK)]
     [ProducesResponseType<ErrorResponse>(StatusCodes.Status404NotFound)]
+    [ProducesResponseType<ErrorResponse>(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> ChangeServicePriceAsync(
         Guid id,
         [FromBody] ChangePriceRequest request,
@@ -98,16 +102,16 @@ public sealed class CatalogController(
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        var service = await context.Services
-            .FirstOrDefaultAsync(item => item.Id == id, cancellationToken);
-
-        if (service is null)
+        var price = Money.From(request.Price);
+        // Corrigir um preço legado inválido pode habilitar profissionais já vinculados.
+        var service = await planSlots.ExecuteWithSlotCheckAsync(RequireTenant(), async token =>
         {
-            throw NotFoundException.For("Serviço", id);
-        }
-
-        service.ChangePrice(Money.From(request.Price));
-        await context.SaveChangesAsync(cancellationToken);
+            var item = await context.Services.FirstOrDefaultAsync(service => service.Id == id, token)
+                ?? throw NotFoundException.For("Serviço", id);
+            item.ChangePrice(price);
+            await context.SaveChangesAsync(token);
+            return item;
+        }, cancellationToken);
 
         return Ok(ServiceResponse.From(service));
     }
@@ -116,20 +120,20 @@ public sealed class CatalogController(
     [HttpPost("services/{id:guid}/deactivate")]
     [RequirePermission(Permission.ManageServices)]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType<ErrorResponse>(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> DeactivateServiceAsync(
         Guid id,
         CancellationToken cancellationToken)
     {
-        var service = await context.Services
-            .FirstOrDefaultAsync(item => item.Id == id, cancellationToken);
-
-        if (service is null)
+        // Desativação só pode reduzir ocupação, mas participa do isolamento dos demais escritores.
+        await subscriptions.ExecuteSerializableAsync(async token =>
         {
-            throw NotFoundException.For("Serviço", id);
-        }
-
-        service.Deactivate();
-        await context.SaveChangesAsync(cancellationToken);
+            var service = await context.Services.FirstOrDefaultAsync(item => item.Id == id, token)
+                ?? throw NotFoundException.For("Serviço", id);
+            service.Deactivate();
+            await context.SaveChangesAsync(token);
+            return true;
+        }, cancellationToken);
 
         return NoContent();
     }

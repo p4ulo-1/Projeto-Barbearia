@@ -18,6 +18,8 @@ public readonly record struct Money
 
     public string Currency { get; }
 
+    internal bool IsValid => Amount >= 0 && !string.IsNullOrWhiteSpace(Currency);
+
     public static Money Zero(string currency = DefaultCurrency) => new(0m, currency);
 
     public static Money From(decimal amount, string currency = DefaultCurrency)

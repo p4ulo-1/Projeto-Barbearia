@@ -1,5 +1,6 @@
 using Servia.Domain.Appointments;
 using Servia.Domain.Common;
+using Servia.Domain.Team;
 
 namespace Servia.Application.Appointments;
 
@@ -215,7 +216,7 @@ public sealed class AppointmentService(
     {
         var service = await repository.FindServiceAsync(tenantId, serviceId, cancellationToken);
 
-        if (service is null || !service.IsActive)
+        if (!BookingEligibility.IsServiceBookable(service))
         {
             throw new DomainRuleException("O serviço não está disponível para agendamento.");
         }

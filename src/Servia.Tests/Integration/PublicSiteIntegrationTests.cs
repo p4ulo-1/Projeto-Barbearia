@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Servia.Application.Appointments;
 using Servia.Domain.Appointments;
 using Servia.Domain.Catalog;
 using Servia.Domain.Common;
@@ -191,6 +192,57 @@ public sealed class PublicSiteIntegrationTests : IClassFixture<PublicSiteApiFact
     // ---------- Validacao da disponibilidade publica ----------
 
     [Fact]
+    public async Task Servico_Legado_Invalido_E_Gratuito_Seguem_A_Mesma_Regra_Nos_Dois_Canais()
+    {
+        var booking = await _factory.RegisterPublicBookingDataAsync();
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var tenantId = await db.Tenants.Where(item => item.Slug == PublicSiteApiFactory.PublishedHost)
+            .Select(item => item.Id).SingleAsync();
+        scope.ServiceProvider.GetRequiredService<ITenantContext>().SetTenant(tenantId);
+        var counts = scope.ServiceProvider.GetRequiredService<IProfessionalCountReader>();
+        var service = await db.Services.AsNoTracking().SingleAsync(item => item.Id == booking.ServiceId);
+        var initialCount = await counts.CountEligibleAsync(tenantId);
+        var host = PublicSiteApiFactory.PublishedHost;
+        var date = booking.Date.AddDays(60);
+        var availability = scope.ServiceProvider.GetRequiredService<AvailabilityService>();
+
+        Task SetServiceAsync(int duration, decimal price) => db.Database.ExecuteSqlInterpolatedAsync(
+            $"UPDATE \"Services\" SET \"DurationMinutes\" = {duration}, \"Price_Amount\" = {price} WHERE \"Id\" = {booking.ServiceId}");
+
+        try
+        {
+            foreach (var (duration, price, isEligible) in new[]
+            {
+                (0, service.Price.Amount, false),
+                (service.DurationMinutes, -1m, false),
+                (service.DurationMinutes, 0m, true)
+            })
+            {
+                await SetServiceAsync(duration, price);
+                // A consulta interna carrega o serviço de novo em cada iteração.
+                db.ChangeTracker.Clear();
+                Assert.Equal(initialCount - (isEligible ? 0 : 1), await counts.CountEligibleAsync(tenantId));
+
+                var professionals = await _client.GetFromJsonAsync<List<PublicProfessionalDto>>(
+                    $"/api/v1/public/site/professionals?host={host}&serviceId={booking.ServiceId}");
+                Assert.Equal(isEligible, professionals!.Any(item => item.Id == booking.ProfessionalId));
+                var publicSlots = await _client.GetFromJsonAsync<PublicAvailabilityDto>(
+                    $"/api/v1/public/site/availability?host={host}&serviceId={booking.ServiceId}"
+                    + $"&professionalId={booking.ProfessionalId}&date={date:yyyy-MM-dd}");
+                var internalSlots = await availability.GetAvailableSlotsAsync(
+                    tenantId, booking.ProfessionalId, booking.ServiceId, date);
+                Assert.Equal(internalSlots, publicSlots!.Slots);
+                Assert.Equal(isEligible, internalSlots.Count > 0);
+            }
+        }
+        finally
+        {
+            await SetServiceAsync(service.DurationMinutes, service.Price.Amount);
+        }
+    }
+
+    [Fact]
     public async Task Disponibilidade_Publica_Sem_Servico_Retorna_400()
     {
         var register = await _factory.RegisterPublicBookingDataAsync();
@@ -231,6 +283,13 @@ public sealed class PublicSiteIntegrationTests : IClassFixture<PublicSiteApiFact
     public async Task Disponibilidade_Publica_Valida_Sem_Horarios_Retorna_200_Vazio()
     {
         var register = await _factory.RegisterPublicBookingDataAsync();
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var tenantId = await db.Tenants.Where(item => item.Slug == PublicSiteApiFactory.PublishedHost)
+            .Select(item => item.Id).SingleAsync();
+        scope.ServiceProvider.GetRequiredService<ITenantContext>().SetTenant(tenantId);
+        var counts = scope.ServiceProvider.GetRequiredService<IProfessionalCountReader>();
+        var initialCount = await counts.CountEligibleAsync(tenantId);
 
         // Data distante, exclusiva deste teste: o bloqueio não vaza para os
         // demais cenários, que usam a data padrão do profissional.
@@ -251,6 +310,7 @@ public sealed class PublicSiteIntegrationTests : IClassFixture<PublicSiteApiFact
 
         Assert.NotNull(body);
         Assert.Empty(body!.Slots);
+        Assert.Equal(initialCount, await counts.CountEligibleAsync(tenantId));
     }
 
     [Fact]

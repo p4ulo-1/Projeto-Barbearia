@@ -14,6 +14,7 @@ using Servia.Domain.Tenancy;
 using Servia.Domain.Team;
 using Servia.Infrastructure.Integrations;
 using Servia.Infrastructure.Persistence;
+using Servia.Infrastructure.Repositories;
 
 namespace Servia.Api.Controllers;
 
@@ -97,9 +98,13 @@ public sealed class PublicSiteController(
         var site = await ResolveAsync(host, cancellationToken);
         tenantContext.SetTenant(site.TenantId);
 
-        var services = await context.Services
-            .Where(service => service.IsActive)
+        var candidates = await context.Services
+            .AsNoTracking()
             .OrderBy(service => service.Name)
+            .ToListAsync(cancellationToken);
+
+        var services = candidates
+            .Where(BookingEligibility.IsServiceBookable)
             .Select(service => new PublicServiceResponse(
                 service.Id,
                 service.Name,
@@ -107,7 +112,7 @@ public sealed class PublicSiteController(
                 service.Price.Amount,
                 service.Price.Currency,
                 service.DurationMinutes))
-            .ToListAsync(cancellationToken);
+            .ToList();
 
         return Ok(services);
     }
@@ -141,32 +146,13 @@ public sealed class PublicSiteController(
         var site = await ResolveAsync(host, cancellationToken);
         tenantContext.SetTenant(site.TenantId);
 
-        // Apenas vínculos com serviços ativos do tenant.
-        var activeLinks = await context.ProfessionalServices
-            .Where(link => context.Services.Any(service =>
-                service.Id == link.ServiceId && service.IsActive))
-            .Select(link => new { link.ProfessionalId, link.ServiceId })
-            .ToListAsync(cancellationToken);
-
-        var professionals = await context.Professionals
-            .Where(professional => professional.IsActive)
-            .OrderBy(professional => professional.Name)
-            .ToListAsync(cancellationToken);
+        var professionals = await EligibleProfessionalReader.ListAsync(
+            context, site.TenantId, cancellationToken);
 
         var result = professionals
-            .Where(BookingEligibility.IsOperationallyEligible)
-            .Select(professional => new PublicProfessionalResponse(
-                professional.Id,
-                professional.Name,
-                activeLinks
-                    .Where(link => link.ProfessionalId == professional.Id)
-                    .Select(link => link.ServiceId)
-                    .ToList()))
-            // Sem serviço público, não há o que agendar.
-            .Where(professional => professional.ServiceIds.Count > 0)
-            // Filtro opcional pelo serviço escolhido.
-            .Where(professional => !serviceId.HasValue
-                || professional.ServiceIds.Contains(serviceId.Value))
+            .Where(item => !serviceId.HasValue || item.ServiceIds.Contains(serviceId.Value))
+            .Select(item => new PublicProfessionalResponse(
+                item.Professional.Id, item.Professional.Name, item.ServiceIds))
             .ToList();
 
         return Ok(result);

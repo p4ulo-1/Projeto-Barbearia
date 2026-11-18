@@ -43,6 +43,9 @@ public sealed class WorkSchedule
 
     public int SlotIntervalMinutes { get; private set; }
 
+    internal bool IsConfiguredForBooking =>
+        _workDays.Count > 0 && StartTime < EndTime && IsValidSlotInterval(SlotIntervalMinutes);
+
     /// <summary>Intervalo de expediente como objeto de valor comparável.</summary>
     public TimeRange WorkingHours => TimeRange.Between(StartTime, EndTime);
 
@@ -66,7 +69,7 @@ public sealed class WorkSchedule
             throw new DomainRuleException("O início do expediente deve ser anterior ao fim.");
         }
 
-        if (slotIntervalMinutes is < MinSlotIntervalMinutes or > MaxSlotIntervalMinutes)
+        if (!IsValidSlotInterval(slotIntervalMinutes))
         {
             throw new DomainRuleException(
                 $"A granularidade de horários deve estar entre {MinSlotIntervalMinutes} e {MaxSlotIntervalMinutes} minutos.");
@@ -74,6 +77,9 @@ public sealed class WorkSchedule
 
         return new WorkSchedule(days, startTime, endTime, slotIntervalMinutes);
     }
+
+    private static bool IsValidSlotInterval(int minutes) =>
+        minutes is >= MinSlotIntervalMinutes and <= MaxSlotIntervalMinutes;
 
     /// <summary>Indica se o profissional trabalha na data informada.</summary>
     public bool WorksOn(DateOnly date) => _workDays.Contains(date.DayOfWeek);

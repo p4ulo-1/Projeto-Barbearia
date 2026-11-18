@@ -1,7 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using Servia.Domain.Common;
-using Servia.Domain.Team;
 using Servia.Domain.Tenancy;
 using Servia.Infrastructure.Persistence;
 
@@ -92,7 +91,7 @@ public sealed class SubscriptionRepository(AppDbContext context) : ISubscription
                 || (postgres?.SqlState == PostgresErrorCodes.UniqueViolation
                     && postgres.ConstraintName == "PK_ProfessionalServices"))
                 throw new ConcurrencyConflictException(
-                    "Outra alteração de equipe ocorreu ao mesmo tempo. Tente novamente.", exception);
+                    "Outra alteração que afeta a capacidade do plano ocorreu ao mesmo tempo. Tente novamente.", exception);
             throw;
         }
     }
@@ -167,16 +166,7 @@ public sealed class ProfessionalCountReader(AppDbContext context) : IProfessiona
         Guid tenantId,
         CancellationToken cancellationToken = default)
     {
-        // O banco seleciona os vínculos ativos; a regra de domínio decide
-        // atividade e jornada sem manter outro predicado de elegibilidade.
-        var candidates = await context.Professionals.AsNoTracking()
-            .Where(professional => professional.TenantId == tenantId
-                && context.ProfessionalServices.Any(link =>
-                    link.TenantId == tenantId && link.ProfessionalId == professional.Id
-                    && context.Services.Any(service => service.TenantId == tenantId
-                        && service.Id == link.ServiceId && service.IsActive)))
-            .ToListAsync(cancellationToken);
-        return candidates.Count(professional =>
-            BookingEligibility.OccupiesPlanSlot(professional, hasActiveLinkedService: true));
+        var eligible = await EligibleProfessionalReader.ListAsync(context, tenantId, cancellationToken);
+        return eligible.Count;
     }
 }

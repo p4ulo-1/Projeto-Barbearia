@@ -156,6 +156,7 @@ public sealed class BillingController(
     [RequirePermission(Permission.ManageBilling)]
     [ProducesResponseType<SubscriptionResponse>(StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status409Conflict)]
     public async Task<IActionResult> ChangePlanAsync(
         [FromBody] SubscribePlanRequest request,
         CancellationToken cancellationToken)

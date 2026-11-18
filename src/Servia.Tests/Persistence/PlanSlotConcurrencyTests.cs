@@ -1,4 +1,6 @@
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Servia.Api.Controllers;
 using Servia.Application.Billing;
 using Servia.Domain.Appointments;
 using Servia.Domain.Catalog;
@@ -204,6 +206,156 @@ public class PlanSlotConcurrencyTests : IAsyncLifetime
         // E apenas um vínculo foi gravado.
         await using var context = _database.CreateContext(ContextFor(TenantId));
         Assert.Equal(1, await context.ProfessionalServices.CountAsync());
+    }
+
+    [Fact]
+    public async Task Downgrade_Com_Contagem_Desatualizada_Reverte_Plano_E_Historico()
+    {
+        var first = await SeedIneligibleAsync("Ocupante");
+        var second = await SeedIneligibleAsync("Novo ocupante");
+        var original = Plan.Create("DUAS-VAGAS", "Duas vagas", Money.From(149m), 2,
+            SiteCustomizationLevel.Basic, includedAiUnits: 0);
+        string destinationCode;
+        await using (var setup = _database.CreateContext(ContextFor(TenantId)))
+        {
+            destinationCode = await setup.Plans.Where(plan => plan.Id == _planId)
+                .Select(plan => plan.Code).SingleAsync();
+            setup.Plans.Add(original);
+            (await setup.Subscriptions.SingleAsync()).ChangePlan(original.Id);
+            await setup.SaveChangesAsync();
+        }
+        Assert.True(await TryLinkAsync(first.ProfessionalId, first.ServiceId));
+
+        await using var context = _database.CreateContext(ContextFor(TenantId));
+        var counts = new PausedCountReader(new ProfessionalCountReader(context));
+        var service = new SubscriptionService(
+            new SubscriptionRepository(context), new PlanRepository(context), counts, TimeProvider.System);
+        var request = Record.ExceptionAsync(() =>
+            service.ChangePlanAsync(TenantId, destinationCode, Guid.NewGuid()));
+        try
+        {
+            Assert.Equal(1, await counts.WaitForFirstCountAsync());
+            Assert.True(await TryLinkAsync(second.ProfessionalId, second.ServiceId));
+        }
+        finally
+        {
+            counts.Resume();
+        }
+
+        var exception = await request;
+        await using var verification = _database.CreateContext(ContextFor(TenantId));
+        var effective = await verification.Subscriptions.SingleAsync();
+        var occupancy = await CountEligibleAsync();
+        Assert.Equal(2, occupancy);
+        Assert.True(effective.PlanId == original.Id,
+            $"O downgrade efetivou com {occupancy} profissionais para um plano de uma vaga.");
+        Assert.IsType<ConcurrencyConflictException>(exception);
+        Assert.Empty(await verification.PlanChanges.ToListAsync());
+
+        var retry = new SubscriptionService(new SubscriptionRepository(verification),
+            new PlanRepository(verification), new ProfessionalCountReader(verification), TimeProvider.System);
+        var result = await retry.ChangePlanAsync(TenantId, destinationCode, Guid.NewGuid());
+        Assert.False(result.Success);
+        Assert.Empty(await verification.PlanChanges.ToListAsync());
+    }
+
+    [Fact]
+    public async Task Associacao_Concorrente_Com_Correcao_De_Preco_Grava_Apenas_Uma_Ocupacao()
+    {
+        var legacy = await SeedIneligibleAsync("Serviço com preço inválido");
+        var newcomer = await SeedIneligibleAsync("Novo ocupante");
+        var tenant = ContextFor(TenantId);
+        await using (var setup = _database.CreateContext(tenant))
+        {
+            await setup.Database.ExecuteSqlInterpolatedAsync(
+                $"UPDATE \"Services\" SET \"Price_Amount\" = -1 WHERE \"Id\" = {legacy.ServiceId}");
+        }
+        Assert.True(await TryLinkAsync(legacy.ProfessionalId, legacy.ServiceId));
+
+        await using var context = _database.CreateContext(tenant);
+        var counts = new PausedCountReader(new ProfessionalCountReader(context));
+        var subscriptions = new SubscriptionRepository(context);
+        var catalog = new CatalogController(context, tenant,
+            new PlanSlotService(subscriptions, new PlanRepository(context), counts), subscriptions);
+        var request = Record.ExceptionAsync(() =>
+            catalog.ChangeServicePriceAsync(legacy.ServiceId, new ChangePriceRequest(50m), default));
+        try
+        {
+            Assert.Equal(0, await counts.WaitForFirstCountAsync());
+            Assert.True(await TryLinkAsync(newcomer.ProfessionalId, newcomer.ServiceId));
+        }
+        finally
+        {
+            counts.Resume();
+        }
+
+        Assert.IsType<ConcurrencyConflictException>(await request);
+        await Assert.ThrowsAsync<DomainRuleException>(() =>
+            catalog.ChangeServicePriceAsync(legacy.ServiceId, new ChangePriceRequest(50m), default));
+        await using var verification = _database.CreateContext(tenant);
+        var storedService = await verification.Services.SingleAsync(item => item.Id == legacy.ServiceId);
+        Assert.Equal(-1m, storedService.Price.Amount);
+        Assert.Equal(2, await verification.ProfessionalServices.CountAsync());
+        Assert.Equal(1, await CountEligibleAsync());
+    }
+
+    [Fact]
+    public async Task Desativacao_Concorrente_Libera_Vaga_Para_Nova_Tentativa_De_Associacao()
+    {
+        var occupying = await SeedIneligibleAsync("Ocupante");
+        var newcomer = await SeedIneligibleAsync("Novo ocupante");
+        Assert.True(await TryLinkAsync(occupying.ProfessionalId, occupying.ServiceId));
+        var tenant = ContextFor(TenantId);
+
+        await using var linkingContext = _database.CreateContext(tenant);
+        var counts = new PausedCountReader(new ProfessionalCountReader(linkingContext));
+        var team = new TeamController(linkingContext, tenant, new PlanSlotService(
+            new SubscriptionRepository(linkingContext), new PlanRepository(linkingContext), counts));
+
+        await using var catalogContext = _database.CreateContext(tenant);
+        var subscriptions = new SubscriptionRepository(catalogContext);
+        var catalog = new CatalogController(catalogContext, tenant,
+            new PlanSlotService(subscriptions, new PlanRepository(catalogContext),
+                new ProfessionalCountReader(catalogContext)), subscriptions);
+        var request = Record.ExceptionAsync(() =>
+            team.LinkServiceAsync(newcomer.ProfessionalId, newcomer.ServiceId, default));
+        try
+        {
+            Assert.Equal(1, await counts.WaitForFirstCountAsync());
+            Assert.IsType<NoContentResult>(await catalog.DeactivateServiceAsync(occupying.ServiceId, default));
+        }
+        finally
+        {
+            counts.Resume();
+        }
+
+        Assert.IsType<DomainRuleException>(await request);
+        Assert.Equal(0, await CountEligibleAsync());
+        await using var verification = _database.CreateContext(tenant);
+        Assert.False(await verification.ProfessionalServices.AnyAsync(link => link.ProfessionalId == newcomer.ProfessionalId));
+        Assert.IsType<NoContentResult>(await catalog.DeactivateServiceAsync(occupying.ServiceId, default));
+        Assert.True(await TryLinkAsync(newcomer.ProfessionalId, newcomer.ServiceId));
+        Assert.Equal(1, await CountEligibleAsync());
+    }
+
+    private sealed class PausedCountReader(IProfessionalCountReader reader) : IProfessionalCountReader
+    {
+        private readonly TaskCompletionSource<int> _firstCount = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _continue = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task<int> WaitForFirstCountAsync() => _firstCount.Task.WaitAsync(TimeSpan.FromSeconds(15));
+
+        public void Resume() => _continue.TrySetResult();
+
+        public async Task<int> CountEligibleAsync(Guid tenantId, CancellationToken cancellationToken = default)
+        {
+            var count = await reader.CountEligibleAsync(tenantId, cancellationToken);
+            if (_firstCount.TrySetResult(count))
+            {
+                await _continue.Task.WaitAsync(cancellationToken);
+            }
+            return count;
+        }
     }
 
     [Fact]

@@ -124,7 +124,7 @@ public sealed class AvailabilityService(IAvailabilityRepository repository)
     {
         var service = await repository.FindServiceAsync(tenantId, serviceId, cancellationToken);
 
-        if (service is null || !service.IsActive)
+        if (!BookingEligibility.IsServiceBookable(service))
         {
             return SlotEvaluation.Empty(
                 "O serviço não está disponível para agendamento.");

@@ -1,4 +1,5 @@
-using Servia.Domain.Appointments;
+using System.Diagnostics.CodeAnalysis;
+using Servia.Domain.Catalog;
 
 namespace Servia.Domain.Team;
 
@@ -9,7 +10,7 @@ namespace Servia.Domain.Team;
 ///
 /// <b>A. Ocupar vaga no plano SaaS</b> — <see cref="OccupiesPlanSlot"/>.
 /// Responde "esta pessoa deve ser contabilizada no limite contratado?".
-/// Depende de: estar ativa, ter ao menos um serviço ativo associado e ter
+/// Depende de: estar ativa, ter ao menos um serviço agendável associado e ter
 /// jornada configurada. <b>Não</b> depende de horário livre: um profissional
 /// com a agenda cheia continua ocupando a vaga.
 ///
@@ -39,45 +40,35 @@ public static class BookingEligibility
     {
         ArgumentNullException.ThrowIfNull(professional);
 
-        return professional.IsActive
-            && professional.Schedule.WorkDays.Count > 0;
+        return professional.IsActive && professional.Schedule.IsConfiguredForBooking;
     }
 
     /// <summary>
     /// Indica se o profissional ocupa uma vaga no plano SaaS.
     ///
     /// Critério aprovado (ESCOPO_AV2 §2.3): ativo, com ao menos um serviço
-    /// ativo associado e com jornada configurada. Não considera cargo,
+    /// agendável associado e com jornada configurada. Não considera cargo,
     /// usuário vinculado, cadastro isolado nem disponibilidade momentânea.
     ///
-    /// <paramref name="hasActiveLinkedService"/> informa se existe vínculo
-    /// com um serviço ativo — a consulta pertence ao repositório, porque
-    /// depende de dados fora do agregado do profissional.
+    /// <paramref name="hasBookableLinkedService"/> informa se existe vínculo
+    /// com um serviço que satisfaz <see cref="IsServiceBookable"/>.
     /// </summary>
-    public static bool OccupiesPlanSlot(Professional professional, bool hasActiveLinkedService)
-    {
-        ArgumentNullException.ThrowIfNull(professional);
+    public static bool OccupiesPlanSlot(Professional professional, bool hasBookableLinkedService) =>
+        IsOperationallyEligible(professional) && hasBookableLinkedService;
 
-        return IsOperationallyEligible(professional) && hasActiveLinkedService;
-    }
+    public static bool IsServiceBookable([NotNullWhen(true)] Service? service) =>
+        service is { IsActive: true, HasValidBookingDetails: true };
 
     /// <summary>
     /// Indica se o profissional pode executar o serviço informado.
     ///
     /// Exige que o profissional esteja operacionalmente elegível e que exista
-    /// vínculo com um serviço ativo. O vínculo é o que autoriza o profissional
+    /// vínculo com um serviço agendável. O vínculo é o que autoriza o profissional
     /// a receber agendamentos daquele serviço.
     /// </summary>
     public static bool CanExecute(
         Professional professional,
-        Servia.Domain.Catalog.Service service,
-        bool isLinked)
-    {
-        ArgumentNullException.ThrowIfNull(professional);
-        ArgumentNullException.ThrowIfNull(service);
-
-        return IsOperationallyEligible(professional)
-            && service.IsActive
-            && isLinked;
-    }
+        Service service,
+        bool isLinked) =>
+        OccupiesPlanSlot(professional, isLinked && IsServiceBookable(service));
 }

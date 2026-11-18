@@ -62,6 +62,8 @@ public sealed class Service : ITenantScoped
 
     public bool IsActive { get; private set; }
 
+    internal bool HasValidBookingDetails => IsValidDuration(DurationMinutes) && Price.IsValid;
+
     public static Service Create(
         Guid tenantId,
         string name,
@@ -81,7 +83,7 @@ public sealed class Service : ITenantScoped
             throw new DomainRuleException("O nome do serviço é obrigatório.");
         }
 
-        if (durationMinutes <= 0)
+        if (!IsValidDuration(durationMinutes))
         {
             throw new DomainRuleException("A duração do serviço deve ser maior que zero.");
         }
@@ -121,13 +123,15 @@ public sealed class Service : ITenantScoped
     /// <summary>Altera a duração, preservando a invariante de duração positiva.</summary>
     public void ChangeDuration(int durationMinutes)
     {
-        if (durationMinutes <= 0)
+        if (!IsValidDuration(durationMinutes))
         {
             throw new DomainRuleException("A duração do serviço deve ser maior que zero.");
         }
 
         DurationMinutes = durationMinutes;
     }
+
+    private static bool IsValidDuration(int durationMinutes) => durationMinutes > 0;
 
     /// <summary>Desativa o serviço preservando o histórico de atendimentos.</summary>
     public void Deactivate() => IsActive = false;

@@ -69,7 +69,7 @@ public sealed class SubscriptionService(
     /// O motivo é derivado comparando as faixas: subir é upgrade, descer é
     /// downgrade. A regra de faixa é verificada antes de aceitar.
     /// </summary>
-    public async Task<SubscriptionResult> ChangePlanAsync(
+    public Task<SubscriptionResult> ChangePlanAsync(
         Guid tenantId,
         string planCode,
         Guid requestedBy,
@@ -77,9 +77,19 @@ public sealed class SubscriptionService(
     {
         if (tenantId == Guid.Empty)
         {
-            return SubscriptionResult.Invalid("Estabelecimento não identificado.");
+            return Task.FromResult(SubscriptionResult.Invalid("Estabelecimento não identificado."));
         }
 
+        return subscriptions.ExecuteSerializableAsync(
+            token => ChangePlanCoreAsync(tenantId, planCode, requestedBy, token), cancellationToken);
+    }
+
+    private async Task<SubscriptionResult> ChangePlanCoreAsync(
+        Guid tenantId,
+        string planCode,
+        Guid requestedBy,
+        CancellationToken cancellationToken)
+    {
         var subscription = await subscriptions.FindCurrentAsync(tenantId, cancellationToken);
 
         if (subscription is null)

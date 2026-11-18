@@ -138,21 +138,21 @@ public sealed class BookingEligibilityTests
     [Fact]
     public void Profissional_Ativo_Com_Servico_Ativo_Ocupa_Vaga()
     {
-        Assert.True(BookingEligibility.OccupiesPlanSlot(ProfessionalOn(), hasActiveLinkedService: true));
+        Assert.True(BookingEligibility.OccupiesPlanSlot(ProfessionalOn(), hasBookableLinkedService: true));
     }
 
     [Fact]
     public void Profissional_Sem_Servico_Ativo_Nao_Ocupa_Vaga()
     {
         // Cadastro isolado não consome vaga.
-        Assert.False(BookingEligibility.OccupiesPlanSlot(ProfessionalOn(), hasActiveLinkedService: false));
+        Assert.False(BookingEligibility.OccupiesPlanSlot(ProfessionalOn(), hasBookableLinkedService: false));
     }
 
     [Fact]
     public void Profissional_Inativo_Nao_Ocupa_Vaga_Mesmo_Com_Servico()
     {
         Assert.False(BookingEligibility.OccupiesPlanSlot(
-            ProfessionalOn(isActive: false), hasActiveLinkedService: true));
+            ProfessionalOn(isActive: false), hasBookableLinkedService: true));
     }
 
     [Fact]
@@ -162,8 +162,8 @@ public sealed class BookingEligibilityTests
         // O predicado de vaga não consulta horários.
         var professional = ProfessionalOn();
 
-        Assert.True(BookingEligibility.OccupiesPlanSlot(professional, hasActiveLinkedService: true));
-        Assert.True(BookingEligibility.OccupiesPlanSlot(professional, hasActiveLinkedService: true));
+        Assert.True(BookingEligibility.OccupiesPlanSlot(professional, hasBookableLinkedService: true));
+        Assert.True(BookingEligibility.OccupiesPlanSlot(professional, hasBookableLinkedService: true));
     }
 
     [Fact]
@@ -174,7 +174,7 @@ public sealed class BookingEligibilityTests
         var professional = ProfessionalOn();
         var otherService = ActiveService();
 
-        Assert.True(BookingEligibility.OccupiesPlanSlot(professional, hasActiveLinkedService: true));
+        Assert.True(BookingEligibility.OccupiesPlanSlot(professional, hasBookableLinkedService: true));
         Assert.False(BookingEligibility.CanExecute(professional, otherService, isLinked: false));
     }
 }
