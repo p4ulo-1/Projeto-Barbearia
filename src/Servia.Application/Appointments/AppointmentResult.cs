@@ -33,6 +33,9 @@ public sealed class AppointmentResult
 
     public static AppointmentResult Invalid(string message) =>
         new(null, new AppointmentFailure(AppointmentFailureKind.Invalid, message));
+
+    public static AppointmentResult NotFound(string message) =>
+        new(null, new AppointmentFailure(AppointmentFailureKind.NotFound, message));
 }
 
 /// <summary>Natureza da falha ao criar um agendamento.</summary>
@@ -42,7 +45,10 @@ public enum AppointmentFailureKind
     Invalid = 1,
 
     /// <summary>O horário conflita com outro agendamento (409).</summary>
-    Conflict = 2
+    Conflict = 2,
+
+    /// <summary>O agendamento não existe no tenant (404).</summary>
+    NotFound = 3
 }
 
 /// <summary>Detalhe da falha.</summary>

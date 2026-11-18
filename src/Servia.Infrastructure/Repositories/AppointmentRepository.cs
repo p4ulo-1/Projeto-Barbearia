@@ -41,6 +41,18 @@ public sealed class AppointmentRepository(AppDbContext context) : IAppointmentRe
                 cancellationToken);
     }
 
+    public async Task<Servia.Domain.Catalog.Service?> FindServiceAsync(
+        Guid tenantId,
+        Guid serviceId,
+        CancellationToken cancellationToken = default)
+    {
+        return await context.Services
+            .AsNoTracking()
+            .FirstOrDefaultAsync(
+                service => service.TenantId == tenantId && service.Id == serviceId,
+                cancellationToken);
+    }
+
     public async Task AddAsync(Appointment appointment, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(appointment);

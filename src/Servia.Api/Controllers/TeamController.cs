@@ -25,11 +25,17 @@ public sealed class TeamController(
     IProfessionalCountReader professionalCounts) : ControllerBase
 {
     /// <summary>
-    /// Garante que o estabelecimento comporta mais um prestador de serviços,
-    /// segundo o plano contratado. A validação é feita no backend: o cliente
-    /// não decide o limite.
+    /// Garante que o estabelecimento comporta mais um profissional ocupando
+    /// vaga, segundo o plano contratado. A validação é feita no backend: o
+    /// cliente não decide o limite.
+    ///
+    /// <paramref name="additionalSlots"/> é quantas vagas a operação
+    /// pretende acrescentar. Criar um profissional é 1; associar um serviço
+    /// a alguém que ainda não ocupava vaga também é 1.
     /// </summary>
-    private async Task EnsurePlanAllowsAnotherProviderAsync(CancellationToken cancellationToken)
+    private async Task EnsurePlanAllowsAnotherProviderAsync(
+        CancellationToken cancellationToken,
+        int additionalSlots = 1)
     {
         var tenantId = RequireTenant();
 
@@ -52,9 +58,9 @@ public sealed class TeamController(
             return;
         }
 
-        var current = await professionalCounts.CountActiveAsync(tenantId, cancellationToken);
+        var current = await professionalCounts.CountEligibleAsync(tenantId, cancellationToken);
 
-        if (current + 1 > plan.IncludedProfessionals)
+        if (current + additionalSlots > plan.IncludedProfessionals)
         {
             throw new DomainRuleException(
                 $"O plano {plan.Name} comporta até {plan.IncludedProfessionals} profissionais "
@@ -105,13 +111,13 @@ public sealed class TeamController(
 
         var tenantId = RequireTenant();
 
-        // Seção 2: só prestador de serviços ocupa vaga no plano. A validação
-        // do limite é feita no backend antes de gravar.
-        if (request.IsServiceProvider)
-        {
-            await EnsurePlanAllowsAnotherProviderAsync(cancellationToken);
-        }
-
+        // Um profissional recém-criado não tem serviço associado, então não
+        // ocupa vaga: o critério aprovado exige ao menos um serviço ativo
+        // vinculado. A vaga é consumida quando o primeiro serviço é
+        // associado — e é ali que o limite é verificado.
+        //
+        // Verificar o limite aqui contaria um cadastro que ainda não pode
+        // receber agendamento, bloqueando a montagem da equipe.
         var schedule = WorkSchedule.Create(
             request.WorkDays,
             request.StartTime,
@@ -170,22 +176,83 @@ public sealed class TeamController(
             professional.IsActive, professional.IsServiceProvider));
     }
 
-    /// <summary>Vincula um profissional a um serviço.</summary>
+    /// <summary>
+    /// Vincula um profissional a um serviço.
+    ///
+    /// <b>O vínculo pode tornar o profissional elegível para ocupar vaga.</b>
+    /// Antes, um profissional ativo sem serviço não consumia vaga; ao receber
+    /// o primeiro serviço ativo, passa a consumir. Sem a verificação aqui,
+    /// seria possível contornar o plano cadastrando profissionais sem serviço
+    /// e associando-os depois.
+    ///
+    /// A verificação só se aplica quando o vínculo <b>torna</b> a pessoa
+    /// elegível: se ela já ocupava vaga, o vínculo não acrescenta consumo.
+    /// </summary>
     [HttpPost("professionals/{id:guid}/services/{serviceId:guid}")]
     [RequirePermission(Permission.ManageTeam)]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType<ErrorResponse>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType<ErrorResponse>(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> LinkServiceAsync(
         Guid id,
         Guid serviceId,
         CancellationToken cancellationToken)
     {
-        var link = ProfessionalService.Create(RequireTenant(), id, serviceId);
+        var tenantId = RequireTenant();
+
+        var professional = await context.Professionals
+            .FirstOrDefaultAsync(item => item.Id == id, cancellationToken)
+            ?? throw NotFoundException.For("Profissional", id);
+
+        var service = await context.Services
+            .FirstOrDefaultAsync(item => item.Id == serviceId, cancellationToken)
+            ?? throw NotFoundException.For("Serviço", serviceId);
+
+        // Idempotente: repetir o vínculo não cria duplicata nem consome vaga.
+        var alreadyLinked = await context.ProfessionalServices
+            .AnyAsync(
+                link => link.ProfessionalId == id && link.ServiceId == serviceId,
+                cancellationToken);
+
+        if (alreadyLinked)
+        {
+            return NoContent();
+        }
+
+        // O profissional já ocupava vaga antes deste vínculo?
+        var occupiedBefore = await OccupiesPlanSlotAsync(professional, cancellationToken);
+
+        var link = ProfessionalService.Create(tenantId, id, serviceId);
 
         context.ProfessionalServices.Add(link);
+
+        // O vínculo só acrescenta consumo se tornar a pessoa elegível.
+        var becomesEligible = !occupiedBefore
+            && BookingEligibility.OccupiesPlanSlot(professional, service.IsActive);
+
+        if (becomesEligible)
+        {
+            await EnsurePlanAllowsAnotherProviderAsync(cancellationToken);
+        }
+
         await context.SaveChangesAsync(cancellationToken);
 
         return NoContent();
     }
+
+    /// <summary>
+    /// Indica se o profissional já ocupa vaga no plano, considerando os
+    /// vínculos persistidos com serviços ativos.
+    /// </summary>
+    private Task<bool> OccupiesPlanSlotAsync(
+        Professional professional,
+        CancellationToken cancellationToken) =>
+        context.ProfessionalServices
+            .AnyAsync(
+                link => link.ProfessionalId == professional.Id
+                    && context.Services.Any(service =>
+                        service.Id == link.ServiceId && service.IsActive),
+                cancellationToken);
 
     /// <summary>Lista os serviços que um profissional executa.</summary>
     [HttpGet("professionals/{id:guid}/services")]

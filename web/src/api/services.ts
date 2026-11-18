@@ -103,19 +103,29 @@ export function createCustomersApi(client: ApiClient) {
 
 export function createAgendaApi(client: ApiClient) {
   return {
-    availability: (professionalId: string, date: string, durationMinutes: number) =>
+    /**
+     * Consulta a disponibilidade de um profissional para um serviço.
+     *
+     * O serviço é obrigatório: a duração vem do cadastro do serviço, não do
+     * cliente. Enviar `durationMinutes` permitiria reservar um intervalo
+     * menor que o real.
+     */
+    availability: (professionalId: string, serviceId: string, date: string) =>
       client.request<Availability>(
         'GET',
-        `/api/v1/agenda/availability${buildQuery({ professionalId, date, durationMinutes })}`,
+        `/api/v1/agenda/availability${buildQuery({ professionalId, serviceId, date })}`,
       ),
 
+    /**
+     * Cria um agendamento. A duração é determinada pelo backend a partir do
+     * serviço; o cliente não a informa.
+     */
     createAppointment: (input: {
       customerId: string;
       serviceId: string;
       professionalId: string;
       date: string;
       time: string;
-      durationMinutes: number;
     }) => client.request<Appointment>('POST', '/api/v1/agenda/appointments', input),
 
     listAppointments: (date: string, professionalId?: string) =>

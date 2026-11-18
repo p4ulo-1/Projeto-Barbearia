@@ -9,14 +9,14 @@ namespace Servia.Api.Contracts;
 /// (ARCH.md §3.2). Aceitá-lo do cliente permitiria acessar dados de outro
 /// estabelecimento.
 ///
-/// A duração não é informada pelo cliente: ela vem do serviço escolhido.
-/// Quem agenda não decide quanto tempo o atendimento ocupa.
+/// <b>A duração não é informada pelo cliente.</b> Ela vem do serviço
+/// escolhido, lido no backend. Quem agenda não decide quanto tempo o
+/// atendimento ocupa — aceitar o valor permitiria reservar um intervalo
+/// menor que o real e sobrepor outro atendimento.
 /// </summary>
 public sealed record CreateAppointmentRequest(
     [Required] Guid CustomerId,
     [Required] Guid ServiceId,
     [Required] Guid ProfessionalId,
     [Required] DateOnly Date,
-    [Required] TimeOnly Time,
-    [Range(1, 1440, ErrorMessage = "A duração deve estar entre 1 e 1440 minutos.")]
-    int DurationMinutes);
+    [Required] TimeOnly Time);

@@ -339,7 +339,7 @@ internal sealed class FakeProfessionalCountReader : IProfessionalCountReader
 
     public void Set(Guid tenantId, int count) => _counts[tenantId] = count;
 
-    public Task<int> CountActiveAsync(
+    public Task<int> CountEligibleAsync(
         Guid tenantId, CancellationToken cancellationToken = default) =>
         Task.FromResult(_counts.GetValueOrDefault(tenantId));
 }

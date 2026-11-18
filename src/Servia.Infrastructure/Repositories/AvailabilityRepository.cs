@@ -28,6 +28,26 @@ public sealed class AvailabilityRepository(AppDbContext context) : IAvailability
             .Where(professional => professional.TenantId == tenantId && professional.Id == professionalId)
             .FirstOrDefaultAsync(cancellationToken);
 
+    public async Task<Servia.Domain.Catalog.Service?> FindServiceAsync(
+        Guid tenantId,
+        Guid serviceId,
+        CancellationToken cancellationToken = default) =>
+        await context.Services
+            .Where(service => service.TenantId == tenantId && service.Id == serviceId)
+            .FirstOrDefaultAsync(cancellationToken);
+
+    public Task<bool> IsServiceLinkedAsync(
+        Guid tenantId,
+        Guid professionalId,
+        Guid serviceId,
+        CancellationToken cancellationToken = default) =>
+        context.ProfessionalServices
+            .AnyAsync(
+                link => link.TenantId == tenantId
+                    && link.ProfessionalId == professionalId
+                    && link.ServiceId == serviceId,
+                cancellationToken);
+
     public async Task<IReadOnlyList<Professional>> ListActiveProfessionalsAsync(
         Guid tenantId,
         CancellationToken cancellationToken = default) =>

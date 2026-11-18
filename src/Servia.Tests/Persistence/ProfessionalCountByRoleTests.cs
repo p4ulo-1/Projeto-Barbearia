@@ -1,5 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Servia.Domain.Appointments;
+using Servia.Domain.Catalog;
+using Servia.Domain.Common;
 using Servia.Domain.Team;
 using Servia.Domain.Tenancy;
 using Servia.Infrastructure.Persistence;
@@ -9,12 +11,14 @@ using Servia.Infrastructure.Tenancy;
 namespace Servia.Tests.Persistence;
 
 /// <summary>
-/// Seção 2 do pedido de ajustes: a contagem de profissionais do plano
-/// considera exclusivamente quem presta serviços, independentemente do
-/// perfil de acesso.
+/// Contagem de profissionais que ocupam vaga no plano.
 ///
-/// Contra PostgreSQL 17, para provar que a coluna nova é persistida e que a
-/// consulta de contagem a respeita.
+/// <b>Critério aprovado (ESCOPO_AV2 §2.3):</b> profissional ativo, com ao
+/// menos um serviço ativo associado e com jornada configurada. Não conta
+/// cargo, usuário vinculado nem cadastro isolado.
+///
+/// Contra PostgreSQL 17, para provar que a consulta de contagem respeita o
+/// vínculo persistido com o serviço.
 /// </summary>
 public class ProfessionalCountByRoleTests : IAsyncLifetime
 {
@@ -39,61 +43,70 @@ public class ProfessionalCountByRoleTests : IAsyncLifetime
             new TimeOnly(9, 0),
             new TimeOnly(18, 0));
 
-    private async Task AddProfessionalAsync(string name, bool isServiceProvider)
+    /// <summary>
+    /// Cria um profissional e, quando pedido, um serviço ativo vinculado a
+    /// ele. O vínculo é o que torna a pessoa elegível para ocupar vaga.
+    /// </summary>
+    private async Task<Guid> AddProfessionalAsync(
+        string name,
+        bool withActiveService,
+        bool isActive = true)
     {
         await using var context = _database.CreateContext(ContextFor(TenantId));
 
-        context.Professionals.Add(
-            Professional.Create(TenantId, name, Schedule(), isServiceProvider: isServiceProvider));
+        var professional = Professional.Create(TenantId, name, Schedule());
+
+        if (!isActive)
+        {
+            professional.Deactivate();
+        }
+
+        context.Professionals.Add(professional);
+
+        if (withActiveService)
+        {
+            var service = Service.Create(TenantId, $"Serviço de {name}", Money.From(50m), 30);
+
+            context.Services.Add(service);
+            context.ProfessionalServices.Add(
+                ProfessionalService.Create(TenantId, professional.Id, service.Id));
+        }
 
         await context.SaveChangesAsync();
+
+        return professional.Id;
     }
 
     private async Task<int> CountAsync()
     {
         await using var context = _database.CreateContext(ContextFor(TenantId));
-        return await new ProfessionalCountReader(context).CountActiveAsync(TenantId);
+        return await new ProfessionalCountReader(context).CountEligibleAsync(TenantId);
     }
 
     [Fact]
-    public async Task Conta_Apenas_Prestadores_De_Servico()
+    public async Task Conta_Apenas_Quem_Tem_Servico_Ativo_Associado()
     {
-        // Administrador que atende (prestador) e administrador que não atende.
-        await AddProfessionalAsync("Admin que atende", isServiceProvider: true);
-        await AddProfessionalAsync("Admin que não atende", isServiceProvider: false);
+        // Com serviço ativo: ocupa vaga.
+        await AddProfessionalAsync("Com serviço", withActiveService: true);
 
-        // Recepcionista que atende e recepcionista que não atende.
-        await AddProfessionalAsync("Recepção que atende", isServiceProvider: true);
-        await AddProfessionalAsync("Recepção que não atende", isServiceProvider: false);
+        // Sem serviço: cadastro isolado não consome vaga.
+        await AddProfessionalAsync("Sem serviço", withActiveService: false);
 
-        // Profissional que atende.
-        await AddProfessionalAsync("Profissional", isServiceProvider: true);
-
-        Assert.Equal(3, await CountAsync());
+        Assert.Equal(1, await CountAsync());
     }
 
     [Fact]
-    public async Task Atuacao_Persistida_E_Atualiza_A_Contagem()
+    public async Task Servico_Inativo_Nao_Torna_O_Profissional_Elegivel()
     {
-        await AddProfessionalAsync("Pessoa", isServiceProvider: false);
-
-        Assert.Equal(0, await CountAsync());
-
-        // Passa a prestar serviços: passa a ocupar vaga.
-        await using (var context = _database.CreateContext(ContextFor(TenantId)))
-        {
-            var professional = await context.Professionals.SingleAsync();
-            professional.SetServiceProvider(true);
-            await context.SaveChangesAsync();
-        }
+        var professionalId = await AddProfessionalAsync("Com serviço", withActiveService: true);
 
         Assert.Equal(1, await CountAsync());
 
-        // Deixa de prestar: libera a vaga.
+        // Desativar o serviço remove a elegibilidade: não há serviço agendável.
         await using (var context = _database.CreateContext(ContextFor(TenantId)))
         {
-            var professional = await context.Professionals.SingleAsync();
-            professional.SetServiceProvider(false);
+            var service = await context.Services.SingleAsync();
+            service.Deactivate();
             await context.SaveChangesAsync();
         }
 
@@ -103,13 +116,52 @@ public class ProfessionalCountByRoleTests : IAsyncLifetime
     [Fact]
     public async Task Profissional_Inativo_Nao_Conta()
     {
-        await AddProfessionalAsync("Ativo", isServiceProvider: true);
-        await AddProfessionalAsync("Inativo", isServiceProvider: true);
+        await AddProfessionalAsync("Ativo", withActiveService: true);
+        await AddProfessionalAsync("Inativo", withActiveService: true, isActive: false);
 
+        Assert.Equal(1, await CountAsync());
+    }
+
+    [Fact]
+    public async Task Vinculo_Torna_O_Profissional_Elegivel()
+    {
+        // Cadastro sem serviço: não ocupa vaga.
+        var professionalId = await AddProfessionalAsync("Pessoa", withActiveService: false);
+
+        Assert.Equal(0, await CountAsync());
+
+        // Ao receber um serviço ativo, passa a ocupar vaga.
         await using (var context = _database.CreateContext(ContextFor(TenantId)))
         {
-            var inactive = await context.Professionals.SingleAsync(p => p.Name == "Inativo");
-            inactive.Deactivate();
+            var service = Service.Create(TenantId, "Serviço novo", Money.From(40m), 30);
+
+            context.Services.Add(service);
+            context.ProfessionalServices.Add(
+                ProfessionalService.Create(TenantId, professionalId, service.Id));
+
+            await context.SaveChangesAsync();
+        }
+
+        Assert.Equal(1, await CountAsync());
+    }
+
+    [Fact]
+    public async Task Cargo_Nao_Participa_Da_Contagem()
+    {
+        // IsServiceProvider é um atributo de atuação, não o critério de vaga.
+        // Quem tem serviço ativo conta, independentemente do atributo.
+        await using (var context = _database.CreateContext(ContextFor(TenantId)))
+        {
+            var professional = Professional.Create(
+                TenantId, "Sem atributo de prestador", Schedule(), isServiceProvider: false);
+
+            var service = Service.Create(TenantId, "Serviço", Money.From(50m), 30);
+
+            context.Professionals.Add(professional);
+            context.Services.Add(service);
+            context.ProfessionalServices.Add(
+                ProfessionalService.Create(TenantId, professional.Id, service.Id));
+
             await context.SaveChangesAsync();
         }
 

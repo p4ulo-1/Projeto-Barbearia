@@ -109,7 +109,7 @@ public sealed class SubscriptionService(
 
         // Regra de faixa (F16.4): o plano de destino precisa comportar a
         // equipe atual. Descer para um plano menor que a equipe é rejeitado.
-        var professionalCount = await professionalCounts.CountActiveAsync(
+        var professionalCount = await professionalCounts.CountEligibleAsync(
             tenantId, cancellationToken);
 
         if (!newPlan.AllowsProfessionals(professionalCount))
@@ -198,7 +198,7 @@ public sealed class SubscriptionService(
             return null;
         }
 
-        var professionalCount = await professionalCounts.CountActiveAsync(
+        var professionalCount = await professionalCounts.CountEligibleAsync(
             tenantId, cancellationToken);
 
         if (currentPlan.AllowsProfessionals(professionalCount))

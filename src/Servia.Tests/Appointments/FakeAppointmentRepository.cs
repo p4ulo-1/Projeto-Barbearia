@@ -12,12 +12,31 @@ namespace Servia.Tests.Appointments;
 internal sealed class FakeAppointmentRepository : IAppointmentRepository
 {
     private readonly List<Appointment> _appointments = [];
+    private readonly Dictionary<Guid, Servia.Domain.Catalog.Service> _services = [];
 
     public int SaveCount { get; private set; }
 
     public IReadOnlyList<Appointment> All => _appointments;
 
     public void Seed(Appointment appointment) => _appointments.Add(appointment);
+
+    /// <summary>
+    /// Semeia o serviço sob um identificador explícito.
+    ///
+    /// O comando de criação usa um identificador fixo; o dublê precisa
+    /// responder por ele, e não pelo identificador gerado na construção.
+    /// </summary>
+    public void SeedService(Servia.Domain.Catalog.Service service, Guid? id = null) =>
+        _services[id ?? service.Id] = service;
+
+    public Task<Servia.Domain.Catalog.Service?> FindServiceAsync(
+        Guid tenantId,
+        Guid serviceId,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult(_services.TryGetValue(serviceId, out var service)
+            && service.TenantId == tenantId
+                ? service
+                : null);
 
     public Task<IReadOnlyList<Appointment>> GetActiveByProfessionalAndDateAsync(
         Guid tenantId,

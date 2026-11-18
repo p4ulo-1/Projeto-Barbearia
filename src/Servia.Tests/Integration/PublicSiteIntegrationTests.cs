@@ -232,6 +232,30 @@ public sealed class PublicSiteIntegrationTests : IClassFixture<PublicSiteApiFact
     }
 
     [Fact]
+    public async Task Agendamento_Publico_Rejeita_Profissional_Sem_Vinculo()
+    {
+        // O canal público aplica a mesma regra do interno: um profissional
+        // que não executa o serviço não pode receber o agendamento.
+        var register = await _factory.RegisterPublicBookingDataAsync();
+        var unlinkedServiceId = await _factory.RegisterUnlinkedServiceAsync();
+
+        var response = await _client.PostAsJsonAsync(
+            $"/api/v1/public/site/appointments?host={PublicSiteApiFactory.PublishedHost}",
+            new
+            {
+                name = "Cliente Sem Vinculo",
+                phone = "11912341111",
+                email = (string?)null,
+                serviceId = unlinkedServiceId,
+                professionalId = register.ProfessionalId,
+                date = register.Date.ToString("yyyy-MM-dd"),
+                time = "10:00:00"
+            });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
     public async Task Agendamento_Sobre_Bloqueio_E_Rejeitado()
     {
         var register = await _factory.RegisterPublicBookingDataAsync();
@@ -336,6 +360,30 @@ public class PublicSiteApiFactory : IsolatedApiFactory
         context.SaveChanges();
 
         _seeded = true;
+    }
+
+    /// <summary>
+    /// Cria um serviço ativo no estabelecimento publicado, sem vínculo com
+    /// nenhum profissional. Serve para provar que o canal público recusa
+    /// agendamento de serviço que o profissional não executa.
+    /// </summary>
+    public async Task<Guid> RegisterUnlinkedServiceAsync()
+    {
+        EnsureSeeded();
+
+        using var scope = Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        var tenant = context.Tenants.IgnoreQueryFilters()
+            .First(item => item.Slug == PublishedHost);
+
+        var service = Service.Create(
+            tenant.Id, "Servico Sem Vinculo", Money.From(30m), 30);
+
+        context.Services.Add(service);
+        await context.SaveChangesAsync();
+
+        return service.Id;
     }
 
     /// <summary>Cria serviço e profissional prontos para o agendamento público.</summary>

@@ -4,7 +4,8 @@ namespace Servia.Domain.Appointments;
 /// Leitura necessária ao cálculo de disponibilidade (C9).
 ///
 /// Separado do repositório de agendamento porque a disponibilidade depende
-/// de três fontes: jornada do profissional, bloqueios e agendamentos ativos.
+/// de quatro fontes: o serviço solicitado, o vínculo profissional-serviço,
+/// a jornada do profissional, os bloqueios e os agendamentos ativos.
 /// Todas as consultas são escopadas por tenant.
 /// </summary>
 public interface IAvailabilityRepository
@@ -14,10 +15,28 @@ public interface IAvailabilityRepository
         Guid tenantId,
         CancellationToken cancellationToken = default);
 
-    /// <summary>Profissional ativo do tenant, ou nulo.</summary>
+    /// <summary>Profissional do tenant, ou nulo.</summary>
     Task<Team.Professional?> FindProfessionalAsync(
         Guid tenantId,
         Guid professionalId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Serviço do tenant, ou nulo.</summary>
+    Task<Catalog.Service?> FindServiceAsync(
+        Guid tenantId,
+        Guid serviceId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Indica se existe vínculo entre o profissional e o serviço no tenant.
+    ///
+    /// É o que autoriza o profissional a receber agendamentos daquele serviço.
+    /// Sem o vínculo, o horário não pode ser oferecido nem reservado.
+    /// </summary>
+    Task<bool> IsServiceLinkedAsync(
+        Guid tenantId,
+        Guid professionalId,
+        Guid serviceId,
         CancellationToken cancellationToken = default);
 
     /// <summary>Profissionais ativos do tenant.</summary>

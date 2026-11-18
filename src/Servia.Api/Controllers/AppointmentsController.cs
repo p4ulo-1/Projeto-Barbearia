@@ -51,8 +51,7 @@ public sealed class AppointmentsController(
             request.ServiceId,
             request.ProfessionalId,
             request.Date,
-            request.Time,
-            request.DurationMinutes);
+            request.Time);
 
         var result = await appointmentService.CreateAsync(command, cancellationToken);
 
@@ -70,6 +69,7 @@ public sealed class AppointmentsController(
         return failure.Kind switch
         {
             AppointmentFailureKind.Conflict => Conflict(new ErrorResponse(failure.Message)),
+            AppointmentFailureKind.NotFound => NotFound(new ErrorResponse(failure.Message)),
             _ => BadRequest(new ErrorResponse(failure.Message))
         };
     }

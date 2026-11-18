@@ -54,13 +54,20 @@ public interface IPlanRepository
 }
 
 /// <summary>
-/// Leitura da quantidade de profissionais ativos do tenant (F16.4).
+/// Leitura da quantidade de profissionais que ocupam vaga no plano (F16.4).
 ///
 /// Separado do repositório de assinatura porque a regra de faixa depende
 /// da equipe, não da assinatura.
+///
+/// <b>Conta apenas quem ocupa vaga</b>, conforme o critério aprovado
+/// (ESCOPO_AV2 §2.3): profissional ativo, com ao menos um serviço ativo
+/// associado e com jornada configurada. Não conta cargo, usuário vinculado
+/// nem cadastro isolado, e não varia por disponibilidade momentânea.
 /// </summary>
 public interface IProfessionalCountReader
 {
-    /// <summary>Conta os profissionais ativos do tenant.</summary>
-    Task<int> CountActiveAsync(Guid tenantId, CancellationToken cancellationToken = default);
+    /// <summary>
+    /// Conta os profissionais do tenant que ocupam vaga no plano.
+    /// </summary>
+    Task<int> CountEligibleAsync(Guid tenantId, CancellationToken cancellationToken = default);
 }

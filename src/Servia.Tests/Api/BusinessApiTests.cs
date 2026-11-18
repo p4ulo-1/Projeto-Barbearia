@@ -196,10 +196,10 @@ public class BusinessApiTests : IClassFixture<IsolatedApiFactory>
     [Fact]
     public async Task Agenda_Consulta_Disponibilidade()
     {
-        var professional = await CreateProfessionalAsync();
+        var (professional, service) = await CreateLinkedProfessionalAsync();
 
         var response = await SendAsync(HttpMethod.Get,
-            $"/api/v1/agenda/availability?professionalId={professional}&date=2026-11-16&durationMinutes=30");
+            $"/api/v1/agenda/availability?professionalId={professional}&serviceId={service}&date=2026-11-16");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
@@ -212,15 +212,64 @@ public class BusinessApiTests : IClassFixture<IsolatedApiFactory>
     [Fact]
     public async Task Agenda_Nao_Oferece_Horario_Em_Dia_Nao_Trabalhado()
     {
-        var professional = await CreateProfessionalAsync();
+        var (professional, service) = await CreateLinkedProfessionalAsync();
 
         // 2026-11-15 e domingo; a jornada e segunda e terca.
         var response = await SendAsync(HttpMethod.Get,
-            $"/api/v1/agenda/availability?professionalId={professional}&date=2026-11-15&durationMinutes=30");
+            $"/api/v1/agenda/availability?professionalId={professional}&serviceId={service}&date=2026-11-15");
 
         var availability = await response.Content.ReadFromJsonAsync<AvailabilityResponse>();
 
         Assert.Empty(availability!.AvailableSlots);
+    }
+
+    [Fact]
+    public async Task Agenda_Nao_Oferece_Horario_Para_Profissional_Sem_Vinculo()
+    {
+        // Profissional sem vínculo com o serviço: não há horário a oferecer.
+        var professional = await CreateProfessionalAsync();
+
+        var serviceResponse = await SendAsync(HttpMethod.Post, "/api/v1/catalog/services",
+            new CreateServiceRequest("Servico Sem Vinculo", 50m, 30));
+
+        var service = await serviceResponse.Content.ReadFromJsonAsync<ServiceResponse>();
+
+        var response = await SendAsync(HttpMethod.Get,
+            $"/api/v1/agenda/availability?professionalId={professional}&serviceId={service!.Id}&date=2026-11-16");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var availability = await response.Content.ReadFromJsonAsync<AvailabilityResponse>();
+
+        Assert.Empty(availability!.AvailableSlots);
+    }
+
+    [Fact]
+    public async Task Agenda_Sem_Servico_Retorna_400_E_Nao_Lista_Vazia()
+    {
+        // Requisição incompleta não é "sem horários": é 400. Confundir os dois
+        // faria o cliente achar que a agenda está cheia quando o pedido está
+        // errado.
+        var professional = await CreateProfessionalAsync();
+
+        var response = await SendAsync(HttpMethod.Get,
+            $"/api/v1/agenda/availability?professionalId={professional}&date=2026-11-16");
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+
+        var body = await response.Content.ReadFromJsonAsync<ErrorResponse>();
+
+        Assert.NotNull(body);
+        Assert.Contains("serviço", body!.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Agenda_Sem_Profissional_Retorna_400()
+    {
+        var response = await SendAsync(HttpMethod.Get,
+            $"/api/v1/agenda/availability?serviceId={Guid.NewGuid()}&date=2026-11-16");
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
     // ---------- F13.7: financeiro ----------
@@ -359,5 +408,31 @@ public class BusinessApiTests : IClassFixture<IsolatedApiFactory>
         var professional = await response.Content.ReadFromJsonAsync<ProfessionalResponse>();
 
         return professional!.Id;
+    }
+
+    /// <summary>
+    /// Cria um serviço e um profissional vinculado a ele.
+    ///
+    /// A disponibilidade passou a depender do serviço: um profissional que
+    /// não o executa não tem horário a oferecer. Os testes de consulta
+    /// precisam do vínculo para exercitar a jornada.
+    /// </summary>
+    private async Task<(Guid ProfessionalId, Guid ServiceId)> CreateLinkedProfessionalAsync()
+    {
+        var serviceResponse = await SendAsync(HttpMethod.Post, "/api/v1/catalog/services",
+            new CreateServiceRequest("Servico Agenda", 50m, 30));
+
+        var service = await serviceResponse.Content.ReadFromJsonAsync<ServiceResponse>();
+
+        var professionalId = await CreateProfessionalAsync();
+
+        var link = await SendAsync(
+            HttpMethod.Post,
+            $"/api/v1/team/professionals/{professionalId}/services/{service!.Id}",
+            body: null);
+
+        Assert.True(link.IsSuccessStatusCode, $"Vínculo falhou: {link.StatusCode}");
+
+        return (professionalId, service.Id);
     }
 }

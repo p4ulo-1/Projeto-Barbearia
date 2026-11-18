@@ -15,8 +15,9 @@ namespace Servia.Application.Appointments;
 /// estabelecimento está aberto; <b>não</b> determina nem restringe
 /// agendamentos.
 ///
-/// <b>B. Disponibilidade do profissional</b> — jornada, bloqueios e
-/// agendamentos confirmados, considerando a duração integral do serviço.
+/// <b>B. Disponibilidade do profissional</b> — vínculo com o serviço,
+/// jornada, bloqueios e agendamentos confirmados, considerando a duração
+/// integral do serviço.
 ///
 /// <b>Agendamentos dependem exclusivamente do profissional (B).</b> Um
 /// profissional pode ter horário livre para agendamento mesmo com o
@@ -24,8 +25,14 @@ namespace Servia.Application.Appointments;
 /// nenhum profissional disponível. As duas disponibilidades nunca se
 /// restringem mutuamente.
 ///
-/// Tanto a consulta quanto a validação no momento do agendamento usam as
-/// mesmas regras do profissional, garantindo consulta e gravação idênticas.
+/// <b>Um único caminho de validação.</b> A consulta de horários, a criação e
+/// a remarcação passam por <see cref="EvaluateAsync"/>. Nenhum canal —
+/// interno ou público — reimplementa a regra. Sem isso, a agenda ofereceria
+/// um horário que a gravação rejeita, ou aceitaria um que a consulta esconde.
+///
+/// <b>Serviço é parte da regra.</b> Um profissional só está disponível para
+/// um serviço que executa. A duração vem do serviço persistido, nunca do
+/// pedido do cliente.
 /// </summary>
 public sealed class AvailabilityService(IAvailabilityRepository repository)
 {
@@ -44,35 +51,130 @@ public sealed class AvailabilityService(IAvailabilityRepository repository)
     }
 
     /// <summary>
-    /// Horários livres de um profissional na data, para um serviço de
-    /// <paramref name="durationMinutes"/> (C9-B).
+    /// Horários livres de um profissional na data, para um serviço do tenant.
     ///
-    /// Depende apenas do profissional — jornada, bloqueios e agendamentos.
-    /// O expediente do estabelecimento não é consultado.
+    /// Depende apenas do profissional e do serviço — vínculo, jornada,
+    /// bloqueios e agendamentos. O expediente do estabelecimento não é
+    /// consultado. Serviço inexistente, inativo ou não executado pelo
+    /// profissional resulta em lista vazia: não há horário a oferecer.
     /// </summary>
     public async Task<IReadOnlyList<TimeOnly>> GetAvailableSlotsAsync(
         Guid tenantId,
         Guid professionalId,
+        Guid serviceId,
         DateOnly date,
-        int durationMinutes,
         CancellationToken cancellationToken = default)
     {
-        if (durationMinutes <= 0)
+        var evaluation = await EvaluateAsync(
+            tenantId, professionalId, serviceId, date, time: null, cancellationToken);
+
+        return evaluation.Slots;
+    }
+
+    /// <summary>
+    /// Indica se um horário específico pode ser agendado (C9 — validação).
+    ///
+    /// Usa exatamente as mesmas regras da consulta. O expediente do
+    /// estabelecimento não participa.
+    /// </summary>
+    public async Task<SlotAvailability> CheckSlotAsync(
+        Guid tenantId,
+        Guid professionalId,
+        Guid serviceId,
+        DateOnly date,
+        TimeOnly time,
+        CancellationToken cancellationToken = default)
+    {
+        var evaluation = await EvaluateAsync(
+            tenantId, professionalId, serviceId, date, time, cancellationToken);
+
+        return evaluation.Availability;
+    }
+
+    /// <summary>
+    /// Regra única de disponibilidade, compartilhada por consulta, criação e
+    /// remarcação.
+    ///
+    /// Quando <paramref name="time"/> é nulo, avalia o dia inteiro e devolve
+    /// os horários livres. Quando informado, avalia aquele horário e devolve
+    /// o veredito em <see cref="SlotEvaluation.Availability"/>.
+    ///
+    /// <paramref name="excludeAppointmentId"/> permite que a remarcação
+    /// ignore o próprio agendamento ao verificar sobreposição — sem isso, o
+    /// agendamento conflitaria consigo mesmo.
+    ///
+    /// <paramref name="durationMinutesOverride"/> permite que a remarcação
+    /// valide o intervalo com a duração <b>registrada no agendamento</b>, e
+    /// não com a duração atual do serviço. A duração de um agendamento é
+    /// fixada na criação e preservada no ciclo de vida: se o serviço mudar de
+    /// 30 para 45 minutos, o agendamento antigo continua ocupando 30. Sem
+    /// isso, o intervalo validado divergiria do intervalo efetivamente
+    /// ocupado. Quando nulo, usa a duração atual do serviço — o caso da
+    /// consulta e da criação.
+    /// </summary>
+    public async Task<SlotEvaluation> EvaluateAsync(
+        Guid tenantId,
+        Guid professionalId,
+        Guid serviceId,
+        DateOnly date,
+        TimeOnly? time,
+        CancellationToken cancellationToken = default,
+        Guid? excludeAppointmentId = null,
+        int? durationMinutesOverride = null)
+    {
+        var service = await repository.FindServiceAsync(tenantId, serviceId, cancellationToken);
+
+        if (service is null || !service.IsActive)
         {
-            return [];
+            return SlotEvaluation.Empty(
+                "O serviço não está disponível para agendamento.");
         }
 
-        var professional = await repository.FindProfessionalAsync(tenantId, professionalId, cancellationToken);
+        var professional = await repository.FindProfessionalAsync(
+            tenantId, professionalId, cancellationToken);
 
-        if (professional is null || !professional.IsActive || !professional.Schedule.WorksOn(date))
+        if (professional is null || !BookingEligibility.IsOperationallyEligible(professional))
         {
-            return [];
+            return SlotEvaluation.Empty("O profissional não está disponível.");
         }
+
+        var isLinked = await repository.IsServiceLinkedAsync(
+            tenantId, professionalId, serviceId, cancellationToken);
+
+        if (!BookingEligibility.CanExecute(professional, service, isLinked))
+        {
+            return SlotEvaluation.Empty(
+                "O profissional não executa o serviço solicitado.");
+        }
+
+        if (!professional.Schedule.WorksOn(date))
+        {
+            return SlotEvaluation.Empty("O profissional não atende nesta data.");
+        }
+
+        // A duração efetiva é a do agendamento, quando informada (remarcação);
+        // caso contrário, a atual do serviço (consulta e criação).
+        var durationMinutes = durationMinutesOverride ?? service.DurationMinutes;
 
         var occupied = await repository.GetConfirmedAppointmentsAsync(
             tenantId, professionalId, date, cancellationToken);
 
-        var blocks = await repository.GetBlocksAsync(tenantId, professionalId, date, cancellationToken);
+        // A remarcação não pode conflitar com o próprio agendamento.
+        if (excludeAppointmentId.HasValue)
+        {
+            occupied = occupied
+                .Where(appointment => appointment.Id != excludeAppointmentId.Value)
+                .ToList();
+        }
+
+        var blocks = await repository.GetBlocksAsync(
+            tenantId, professionalId, date, cancellationToken);
+
+        if (time.HasValue)
+        {
+            return SlotEvaluation.ForSlot(
+                EvaluateSlot(professional, date, time.Value, durationMinutes, occupied, blocks));
+        }
 
         var slots = new List<TimeOnly>();
 
@@ -84,53 +186,27 @@ public sealed class AvailabilityService(IAvailabilityRepository repository)
             }
         }
 
-        return slots;
+        return SlotEvaluation.WithSlots(slots);
     }
 
     /// <summary>
-    /// Indica se um horário específico pode ser agendado (C9 — validação).
-    ///
-    /// Usa exatamente as mesmas regras da consulta, baseadas apenas no
-    /// profissional. O expediente do estabelecimento não participa.
+    /// Veredito de um horário específico. Conflito com agendamento existente
+    /// é 409 (disputa de horário); bloqueio e fora de jornada são 400.
     /// </summary>
-    public async Task<SlotAvailability> CheckSlotAsync(
-        Guid tenantId,
-        Guid professionalId,
+    private static SlotAvailability EvaluateSlot(
+        Professional professional,
         DateOnly date,
         TimeOnly time,
         int durationMinutes,
-        CancellationToken cancellationToken = default)
+        IReadOnlyList<Appointment> occupied,
+        IReadOnlyList<ScheduleBlock> blocks)
     {
-        if (durationMinutes <= 0)
-        {
-            return SlotAvailability.Unavailable("A duração do serviço deve ser maior que zero.");
-        }
-
-        var professional = await repository.FindProfessionalAsync(tenantId, professionalId, cancellationToken);
-
-        if (professional is null || !professional.IsActive)
-        {
-            return SlotAvailability.Unavailable("O profissional não está disponível.");
-        }
-
-        if (!professional.Schedule.WorksOn(date))
-        {
-            return SlotAvailability.Unavailable("O profissional não atende nesta data.");
-        }
-
         if (!professional.Schedule.FitsWithinSchedule(time, durationMinutes))
         {
             return SlotAvailability.Unavailable(
                 "O horário está fora do expediente do profissional para este serviço.");
         }
 
-        var occupied = await repository.GetConfirmedAppointmentsAsync(
-            tenantId, professionalId, date, cancellationToken);
-
-        var blocks = await repository.GetBlocksAsync(tenantId, professionalId, date, cancellationToken);
-
-        // Conflito com agendamento existente e um 409 (disputa de horario),
-        // nao um 400 (pedido invalido). Bloqueio e fora de expediente sao 400.
         var candidate = TimeRange.From(time, durationMinutes);
 
         if (occupied.Any(appointment => appointment.OccupiedRange.Overlaps(candidate)))
@@ -143,7 +219,8 @@ public sealed class AvailabilityService(IAvailabilityRepository repository)
 
         if (blocks.Any(block => block.Overlaps(slotStart, slotEnd)))
         {
-            return SlotAvailability.Unavailable("O profissional não tem disponibilidade neste horário.");
+            return SlotAvailability.Unavailable(
+                "O profissional não tem disponibilidade neste horário.");
         }
 
         return SlotAvailability.Available();
@@ -160,25 +237,30 @@ public sealed class AvailabilityService(IAvailabilityRepository repository)
         TimeOnly time,
         int durationMinutes,
         IReadOnlyList<Appointment> occupied,
-        IReadOnlyList<ScheduleBlock> blocks)
-    {
-        if (!professional.Schedule.FitsWithinSchedule(time, durationMinutes))
-        {
-            return false;
-        }
+        IReadOnlyList<ScheduleBlock> blocks) =>
+        EvaluateSlot(professional, date, time, durationMinutes, occupied, blocks).IsAvailable;
+}
 
-        var candidate = TimeRange.From(time, durationMinutes);
+/// <summary>
+/// Resultado de uma avaliação de disponibilidade.
+///
+/// Carrega os horários livres (consulta do dia) e o veredito de um horário
+/// específico (validação). Os dois vêm da mesma execução da regra, o que
+/// garante que consulta e gravação nunca divirjam.
+/// </summary>
+public sealed record SlotEvaluation(
+    IReadOnlyList<TimeOnly> Slots,
+    SlotAvailability Availability)
+{
+    public static SlotEvaluation WithSlots(IReadOnlyList<TimeOnly> slots) =>
+        new(slots, SlotAvailability.Available());
 
-        if (occupied.Any(appointment => appointment.OccupiedRange.Overlaps(candidate)))
-        {
-            return false;
-        }
+    public static SlotEvaluation ForSlot(SlotAvailability availability) =>
+        new([], availability);
 
-        var slotStart = new DateTimeOffset(date.ToDateTime(time), TimeSpan.Zero);
-        var slotEnd = slotStart.AddMinutes(durationMinutes);
-
-        return !blocks.Any(block => block.Overlaps(slotStart, slotEnd));
-    }
+    /// <summary>Serviço ou profissional inelegível: sem horários e com motivo.</summary>
+    public static SlotEvaluation Empty(string reason) =>
+        new([], SlotAvailability.Unavailable(reason));
 }
 
 /// <summary>Resultado da verificação de um horário específico (C9).</summary>

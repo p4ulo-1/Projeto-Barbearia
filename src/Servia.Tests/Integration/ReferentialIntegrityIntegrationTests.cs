@@ -145,11 +145,21 @@ public class ReferentialIntegrityIntegrationTests : MultiTenantIntegrationTestBa
         var professional = await professionalResponse.Content
             .ReadFromJsonAsync<ProfessionalResponse>();
 
+        // O agendamento exige vinculo profissional-servico: sem ele, o
+        // horario nao e oferecido nem reservado.
+        var linkResponse = await SendAsync(
+            HttpMethod.Post,
+            $"/api/v1/team/professionals/{professional!.Id}/services/{service!.Id}",
+            token,
+            body: null);
+
+        Assert.True(linkResponse.IsSuccessStatusCode, $"Vinculo falhou: {linkResponse.StatusCode}");
+
         // Data futura em dia util.
         var date = new DateOnly(2026, 11, 17);
 
         var request = new CreateAppointmentRequest(
-            customer!.Id, service!.Id, professional!.Id, date, new TimeOnly(10, 0), 30);
+            customer!.Id, service!.Id, professional!.Id, date, new TimeOnly(10, 0));
 
         // Cinco requisicoes simultaneas no mesmo horario.
         var tasks = Enumerable.Range(0, 5)

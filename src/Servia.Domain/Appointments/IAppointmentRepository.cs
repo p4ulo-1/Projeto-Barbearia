@@ -28,6 +28,17 @@ public interface IAppointmentRepository
         Guid appointmentId,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Serviço do tenant, ou nulo.
+    ///
+    /// Usado para obter a duração do atendimento: ela vem do serviço
+    /// persistido, nunca do pedido do cliente.
+    /// </summary>
+    Task<Servia.Domain.Catalog.Service?> FindServiceAsync(
+        Guid tenantId,
+        Guid serviceId,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Adiciona um novo agendamento.</summary>
     Task AddAsync(Appointment appointment, CancellationToken cancellationToken = default);
 

@@ -82,26 +82,49 @@ public sealed class AgendaController(
     }
 
     /// <summary>
-    /// Consulta os horários disponíveis de um profissional em uma data.
+    /// Consulta os horários disponíveis de um profissional para um serviço.
+    ///
+    /// O serviço é obrigatório: sem ele não há duração nem vínculo a
+    /// verificar, e a disponibilidade seria calculada sobre um intervalo
+    /// arbitrário.
+    ///
+    /// Requisição sem serviço é <b>400</b>, não 200 com lista vazia: uma lista
+    /// vazia significa "não há horário livre", que é uma resposta diferente de
+    /// "o pedido está incompleto".
     /// </summary>
     [HttpGet("availability")]
     [RequirePermission(Permission.ViewTeamAgenda)]
     [ProducesResponseType<AvailabilityResponse>(StatusCodes.Status200OK)]
-    [ProducesResponseType<ErrorResponse>(StatusCodes.Status404NotFound)]
+    [ProducesResponseType<ErrorResponse>(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> GetAvailabilityAsync(
         [FromQuery] Guid professionalId,
+        [FromQuery] Guid serviceId,
         [FromQuery] DateOnly date,
-        [FromQuery, Range(1, 1440)] int durationMinutes,
         CancellationToken cancellationToken)
     {
+        if (professionalId == Guid.Empty)
+        {
+            return BadRequest(new ErrorResponse("O profissional é obrigatório."));
+        }
+
+        if (serviceId == Guid.Empty)
+        {
+            return BadRequest(new ErrorResponse("O serviço é obrigatório."));
+        }
+
+        if (date == default)
+        {
+            return BadRequest(new ErrorResponse("A data é obrigatória."));
+        }
+
         var tenantId = tenantContext.TenantId
             ?? throw new DomainRuleException("Estabelecimento não identificado.");
 
         // C9: disponibilidade centralizada. O controller nao recalcula regras.
         var slots = await availabilityService.GetAvailableSlotsAsync(
-            tenantId, professionalId, date, durationMinutes, cancellationToken);
+            tenantId, professionalId, serviceId, date, cancellationToken);
 
-        return Ok(new AvailabilityResponse(professionalId, date, slots));
+        return Ok(new AvailabilityResponse(professionalId, serviceId, date, slots));
     }
 
     /// <summary>Cria um agendamento.</summary>
@@ -129,8 +152,7 @@ public sealed class AgendaController(
                 request.ServiceId,
                 request.ProfessionalId,
                 request.Date,
-                request.Time,
-                request.DurationMinutes),
+                request.Time),
             cancellationToken);
 
         if (result.IsSuccess)
@@ -141,9 +163,12 @@ public sealed class AgendaController(
 
         var failure = result.Failure!;
 
-        return failure.Kind == AppointmentFailureKind.Conflict
-            ? Conflict(new ErrorResponse(failure.Message))
-            : BadRequest(new ErrorResponse(failure.Message));
+        return failure.Kind switch
+        {
+            AppointmentFailureKind.Conflict => Conflict(new ErrorResponse(failure.Message)),
+            AppointmentFailureKind.NotFound => NotFound(new ErrorResponse(failure.Message)),
+            _ => BadRequest(new ErrorResponse(failure.Message))
+        };
     }
 
     /// <summary>Lista os agendamentos de uma data.</summary>
@@ -182,11 +207,19 @@ public sealed class AgendaController(
         return Ok(items);
     }
 
-    /// <summary>Remarca um agendamento.</summary>
+    /// <summary>
+    /// Remarca um agendamento.
+    ///
+    /// A validação (serviço, vínculo, jornada, bloqueio, conflito) pertence
+    /// ao caso de uso, não ao controller. Aqui só se resolve o tenant, se
+    /// verifica a autorização e se traduz o resultado em HTTP.
+    /// </summary>
     [HttpPatch("appointments/{id:guid}/reschedule")]
     [RequirePermission(Permission.ManageAppointments)]
     [ProducesResponseType<AppointmentResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ErrorResponse>(StatusCodes.Status400BadRequest)]
     [ProducesResponseType<ErrorResponse>(StatusCodes.Status404NotFound)]
+    [ProducesResponseType<ErrorResponse>(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> RescheduleAsync(
         Guid id,
         [FromBody] RescheduleRequest request,
@@ -194,21 +227,40 @@ public sealed class AgendaController(
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        var appointment = await context.Appointments
-            .FirstOrDefaultAsync(item => item.Id == id, cancellationToken);
+        var tenantId = tenantContext.TenantId
+            ?? throw new DomainRuleException("Estabelecimento não identificado.");
 
-        if (appointment is null)
+        // Seção 3: profissional comum só remarca a própria agenda.
+        // O profissional do agendamento é lido antes da remarcação; o caso de
+        // uso revalida a existência dentro da transação.
+        var professionalId = await context.Appointments
+            .Where(item => item.Id == id)
+            .Select(item => (Guid?)item.ProfessionalId)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (professionalId is null)
         {
             throw NotFoundException.For("Agendamento", id);
         }
 
-        // Seção 3: profissional comum só remarca a própria agenda.
-        await EnsureCanManageAsync(appointment.ProfessionalId, cancellationToken);
+        await EnsureCanManageAsync(professionalId.Value, cancellationToken);
 
-        appointment.Reschedule(request.Date, request.Time);
-        await context.SaveChangesAsync(cancellationToken);
+        var result = await appointmentService.RescheduleAsync(
+            tenantId, id, request.Date, request.Time, cancellationToken);
 
-        return Ok(AppointmentResponse.From(appointment));
+        if (result.IsSuccess)
+        {
+            return Ok(AppointmentResponse.From(result.Appointment!));
+        }
+
+        var failure = result.Failure!;
+
+        return failure.Kind switch
+        {
+            AppointmentFailureKind.Conflict => Conflict(new ErrorResponse(failure.Message)),
+            AppointmentFailureKind.NotFound => NotFound(new ErrorResponse(failure.Message)),
+            _ => BadRequest(new ErrorResponse(failure.Message))
+        };
     }
 
     /// <summary>Cancela um agendamento.</summary>
@@ -266,6 +318,7 @@ public sealed class AgendaController(
 /// <summary>Resposta de disponibilidade.</summary>
 public sealed record AvailabilityResponse(
     Guid ProfessionalId,
+    Guid ServiceId,
     DateOnly Date,
     IReadOnlyList<TimeOnly> AvailableSlots);
 

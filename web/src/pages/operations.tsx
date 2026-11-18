@@ -178,7 +178,6 @@ export function AgendaPage({ client }: { client: ApiClient }) {
   const [serviceId, setServiceId] = useState('');
   const [professionalId, setProfessionalId] = useState('');
   const [time, setTime] = useState('09:00');
-  const [duration, setDuration] = useState('30');
 
   const form = useSubmit();
 
@@ -244,7 +243,6 @@ export function AgendaPage({ client }: { client: ApiClient }) {
           professionalId,
           date,
           time: `${time}:00`,
-          durationMinutes: Number(duration),
         });
       },
       'Agendamento criado.',
@@ -350,16 +348,6 @@ export function AgendaPage({ client }: { client: ApiClient }) {
             </div>
 
             <Field id="appt-time" label="Horário" type="time" value={time} onChange={setTime} required />
-            <Field
-              id="appt-duration"
-              label="Duração (minutos)"
-              type="number"
-              value={duration}
-              onChange={setDuration}
-              required
-              min={1}
-              max={1440}
-            />
 
             <FormError message={form.error} />
             <SubmitButton isSubmitting={form.isSubmitting} label="Agendar" />

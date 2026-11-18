@@ -54,6 +54,12 @@ public class AppointmentConcurrencyTests : IAsyncLifetime
         context.Customers.Add(customer);
         context.Services.Add(service);
         context.Professionals.Add(professional);
+
+        // O agendamento exige vinculo profissional-servico: sem ele, o
+        // horario nao e oferecido nem reservado.
+        context.ProfessionalServices.Add(
+            ProfessionalService.Create(TenantId, professional.Id, service.Id));
+
         await context.SaveChangesAsync();
 
         _customerId = customer.Id;
@@ -78,12 +84,13 @@ public class AppointmentConcurrencyTests : IAsyncLifetime
     {
         var context = _database.CreateContext(ContextFor(TenantId));
         var repository = new AppointmentRepository(context);
+        var availability = new AvailabilityService(new AvailabilityRepository(context));
 
-        return new AppointmentService(repository, new FixedTimeProvider(Now));
+        return new AppointmentService(repository, availability, new FixedTimeProvider(Now));
     }
 
-    private CreateAppointmentCommand Command(TimeOnly time, int duration = 30) =>
-        new(TenantId, _customerId, _serviceId, _professionalId, Date, time, duration);
+    private CreateAppointmentCommand Command(TimeOnly time) =>
+        new(TenantId, _customerId, _serviceId, _professionalId, Date, time);
 
     // ---------- Concorrência real ----------
 
@@ -130,12 +137,12 @@ public class AppointmentConcurrencyTests : IAsyncLifetime
     [Fact]
     public async Task Sobreposicao_Com_Duracao_Diferente_Eh_Rejeitada()
     {
-        // 10:00-11:00 (60 min).
-        var first = await NewService().CreateAsync(Command(new TimeOnly(10, 0), 60));
+        // O servico tem 30 min: 10:00-10:30.
+        var first = await NewService().CreateAsync(Command(new TimeOnly(10, 0)));
         Assert.True(first.IsSuccess);
 
-        // 10:30-11:00 (30 min) cai dentro do intervalo anterior.
-        var overlapping = await NewService().CreateAsync(Command(new TimeOnly(10, 30), 30));
+        // 10:15-10:45 cai dentro do intervalo anterior.
+        var overlapping = await NewService().CreateAsync(Command(new TimeOnly(10, 15)));
 
         Assert.False(overlapping.IsSuccess);
     }
@@ -166,6 +173,72 @@ public class AppointmentConcurrencyTests : IAsyncLifetime
         Assert.True(first.IsSuccess);
         Assert.True(second.IsSuccess);
         Assert.True(third.IsSuccess);
+    }
+
+    // ---------- Remarcacao concorrente ----------
+
+    [Fact]
+    public async Task Remarcacoes_Simultaneas_Para_O_Mesmo_Horario_Aceitam_Apenas_Uma()
+    {
+        // Dois agendamentos distintos, remarcados ao mesmo tempo para o
+        // mesmo horario livre. Apenas um pode ocupar o horario.
+        var first = await NewService().CreateAsync(Command(new TimeOnly(9, 0)));
+        var second = await NewService().CreateAsync(Command(new TimeOnly(11, 0)));
+
+        Assert.True(first.IsSuccess);
+        Assert.True(second.IsSuccess);
+
+        var target = new TimeOnly(15, 0);
+
+        var tasks = new[]
+        {
+            NewService().RescheduleAsync(TenantId, first.Appointment!.Id, Date, target),
+            NewService().RescheduleAsync(TenantId, second.Appointment!.Id, Date, target)
+        };
+
+        var results = await Task.WhenAll(tasks);
+
+        var accepted = results.Count(result => result.IsSuccess);
+
+        Assert.Equal(1, accepted);
+
+        // Apenas um agendamento ocupa o horario alvo.
+        await using var context = _database.CreateContext(ContextFor(TenantId));
+        var atTarget = await context.Appointments
+            .CountAsync(appointment => appointment.Time == target
+                && appointment.Status == AppointmentStatus.Confirmed);
+
+        Assert.Equal(1, atTarget);
+    }
+
+    [Fact]
+    public async Task Remarcacao_Concorrente_Com_Criacao_No_Mesmo_Horario_Aceita_Apenas_Uma()
+    {
+        // Um agendamento existente e remarcado para o mesmo horario em que
+        // outra requisicao tenta criar. Apenas uma operacao vence.
+        var existing = await NewService().CreateAsync(Command(new TimeOnly(9, 0)));
+        Assert.True(existing.IsSuccess);
+
+        var target = new TimeOnly(16, 0);
+
+        var tasks = new[]
+        {
+            NewService().RescheduleAsync(TenantId, existing.Appointment!.Id, Date, target),
+            NewService().CreateAsync(Command(target))
+        };
+
+        var results = await Task.WhenAll(tasks);
+
+        var accepted = results.Count(result => result.IsSuccess);
+
+        Assert.Equal(1, accepted);
+
+        await using var context = _database.CreateContext(ContextFor(TenantId));
+        var atTarget = await context.Appointments
+            .CountAsync(appointment => appointment.Time == target
+                && appointment.Status == AppointmentStatus.Confirmed);
+
+        Assert.Equal(1, atTarget);
     }
 
     // ---------- ScheduleLock ----------

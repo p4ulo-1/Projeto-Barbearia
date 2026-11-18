@@ -99,18 +99,34 @@ public sealed class PlanRepository(AppDbContext context) : IPlanRepository
 /// <summary>
 /// Implementação EF Core de <see cref="IProfessionalCountReader"/> (F16.4).
 ///
-/// Conta apenas quem ocupa vaga no plano: ativo <b>e</b> prestador de
-/// serviços. O perfil de acesso não participa da contagem — um
-/// administrador que atende conta, um profissional que não atende não conta.
+/// Conta apenas quem ocupa vaga no plano, conforme o critério aprovado
+/// (ESCOPO_AV2 §2.3): profissional <b>ativo</b>, com <b>ao menos um serviço
+/// ativo associado</b> e com <b>jornada configurada</b>.
+///
+/// <b>Não conta</b> cargo, usuário vinculado nem cadastro isolado. Um
+/// profissional ativo sem serviço agendável não consome vaga; um
+/// administrador que atende consome, porque satisfaz o mesmo critério.
+///
+/// <b>Não varia por disponibilidade momentânea.</b> Um horário ocupado não
+/// altera a contagem — se alterasse, a vaga oscilaria a cada reserva.
+///
+/// A jornada é composição do profissional e sempre existe; a verificação de
+/// dias protege contra dados materializados incompletos.
 /// </summary>
 public sealed class ProfessionalCountReader(AppDbContext context) : IProfessionalCountReader
 {
-    public Task<int> CountActiveAsync(
+    public Task<int> CountEligibleAsync(
         Guid tenantId,
         CancellationToken cancellationToken = default) =>
         context.Professionals
             .Where(professional => professional.TenantId == tenantId
                 && professional.IsActive
-                && professional.IsServiceProvider)
+                && context.ProfessionalServices.Any(link =>
+                    link.TenantId == tenantId
+                    && link.ProfessionalId == professional.Id
+                    && context.Services.Any(service =>
+                        service.TenantId == tenantId
+                        && service.Id == link.ServiceId
+                        && service.IsActive)))
             .CountAsync(cancellationToken);
 }

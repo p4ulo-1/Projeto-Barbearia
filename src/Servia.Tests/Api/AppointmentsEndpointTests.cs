@@ -109,6 +109,12 @@ public class AppointmentsEndpointTests : IClassFixture<IsolatedApiFactory>
         context.Customers.Add(customer);
         context.Services.Add(service);
         context.Professionals.Add(professional);
+
+        // O agendamento exige vinculo profissional-servico: sem ele, o
+        // horario nao e oferecido nem reservado.
+        context.ProfessionalServices.Add(
+            ProfessionalService.Create(TenantId, professional.Id, service.Id));
+
         context.SaveChanges();
 
         _customerId = customer.Id;
@@ -116,8 +122,8 @@ public class AppointmentsEndpointTests : IClassFixture<IsolatedApiFactory>
         _professionalId = professional.Id;
     }
 
-    private CreateAppointmentRequest Request(TimeOnly time, int duration = 30) =>
-        new(_customerId, _serviceId, _professionalId, Date, time, duration);
+    private CreateAppointmentRequest Request(TimeOnly time) =>
+        new(_customerId, _serviceId, _professionalId, Date, time);
 
     /// <summary>Envia o pedido com o tenant resolvido pelo header do servidor.</summary>
     private async Task<HttpResponseMessage> PostAsync(
@@ -168,10 +174,10 @@ public class AppointmentsEndpointTests : IClassFixture<IsolatedApiFactory>
     [Fact]
     public async Task Criar_Agendamento_Conflitante_Retorna_409()
     {
-        var first = await PostAsync(Request(new TimeOnly(14, 0), 60));
+        var first = await PostAsync(Request(new TimeOnly(14, 0)));
         Assert.Equal(HttpStatusCode.Created, first.StatusCode);
 
-        var second = await PostAsync(Request(new TimeOnly(14, 30), 30));
+        var second = await PostAsync(Request(new TimeOnly(14, 15)));
 
         Assert.Equal(HttpStatusCode.Conflict, second.StatusCode);
 
@@ -185,8 +191,8 @@ public class AppointmentsEndpointTests : IClassFixture<IsolatedApiFactory>
     {
         var time = new TimeOnly(16, 0);
 
-        await PostAsync(Request(time, 60));
-        await PostAsync(Request(time, 60));
+        await PostAsync(Request(time));
+        await PostAsync(Request(time));
 
         await using var scope = _factory.Services.CreateAsyncScope();
         scope.ServiceProvider.GetRequiredService<ITenantContext>().SetTenant(TenantId);
@@ -199,9 +205,14 @@ public class AppointmentsEndpointTests : IClassFixture<IsolatedApiFactory>
     // ---------- Validação ----------
 
     [Fact]
-    public async Task Criar_Com_Duracao_Invalida_Retorna_400()
+    public async Task Criar_Com_Servico_Inexistente_Retorna_400()
     {
-        var response = await PostAsync(Request(new TimeOnly(11, 0), 0));
+        // A duracao deixou de ser informada pelo cliente: o servico e que a
+        // define. Servico inexistente nao tem duracao nem vinculo.
+        var request = new CreateAppointmentRequest(
+            _customerId, Guid.NewGuid(), _professionalId, Date, new TimeOnly(11, 0));
+
+        var response = await PostAsync(request);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
@@ -210,7 +221,7 @@ public class AppointmentsEndpointTests : IClassFixture<IsolatedApiFactory>
     public async Task Criar_Com_Referencia_Vazia_Retorna_400()
     {
         var request = new CreateAppointmentRequest(
-            Guid.Empty, _serviceId, _professionalId, Date, new TimeOnly(11, 0), 30);
+            Guid.Empty, _serviceId, _professionalId, Date, new TimeOnly(11, 0));
 
         var response = await PostAsync(request);
 
@@ -226,7 +237,7 @@ public class AppointmentsEndpointTests : IClassFixture<IsolatedApiFactory>
         // Forjar o header nao muda o tenant efetivo da requisicao.
         var time = new TimeOnly(15, 0);
 
-        var forged = await PostAsync(Request(time, 60), Guid.NewGuid());
+        var forged = await PostAsync(Request(time), Guid.NewGuid());
 
         // A requisicao e aceita, mas no tenant do token — nao no forjado.
         Assert.Equal(HttpStatusCode.Created, forged.StatusCode);

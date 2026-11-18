@@ -3,8 +3,9 @@ namespace Servia.Application.Appointments;
 /// <summary>
 /// Dados necessários para criar um agendamento.
 ///
-/// A duração é informada pelo serviço, não pelo cliente: quem agenda não
-/// escolhe quanto tempo o atendimento ocupa.
+/// <b>A duração não faz parte do comando.</b> Ela é lida do serviço
+/// persistido dentro da transação de criação. Aceitá-la do cliente permitiria
+/// reservar um intervalo menor que o real e sobrepor outro atendimento.
 /// </summary>
 public sealed record CreateAppointmentCommand(
     Guid TenantId,
@@ -12,5 +13,4 @@ public sealed record CreateAppointmentCommand(
     Guid ServiceId,
     Guid ProfessionalId,
     DateOnly Date,
-    TimeOnly Time,
-    int DurationMinutes);
+    TimeOnly Time);

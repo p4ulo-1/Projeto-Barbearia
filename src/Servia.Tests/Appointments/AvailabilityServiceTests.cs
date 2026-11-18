@@ -23,6 +23,27 @@ public sealed class AvailabilityServiceTests
         return Professional.Create(TenantId, "Profissional", schedule);
     }
 
+    /// <summary>
+    /// Serviço vinculado ao profissional.
+    ///
+    /// A disponibilidade depende do serviço: sem vínculo, não há horário a
+    /// oferecer. Os testes que exercitam jornada, bloqueio e conflito usam
+    /// este serviço como referência.
+    /// </summary>
+    private static Servia.Domain.Catalog.Service ServiceFor(
+        FakeAvailabilityRepository repository,
+        Professional professional,
+        int durationMinutes = 30)
+    {
+        var service = Servia.Domain.Catalog.Service.Create(
+            TenantId, "Serviço", Servia.Domain.Common.Money.From(50m), durationMinutes);
+
+        repository.AddService(service);
+        repository.LinkService(professional.Id, service.Id);
+
+        return service;
+    }
+
     private static Tenant TenantWithSchedule(EstablishmentSchedule schedule)
     {
         var tenant = Tenant.Create("teste", "Teste", SegmentType.Barbershop, "12345678000190", DateTimeOffset.UtcNow);
@@ -71,12 +92,14 @@ public sealed class AvailabilityServiceTests
 
         var professional = ProfessionalOn(DayOfWeek.Monday);
         repository.AddProfessional(professional);
+        var catalogService = ServiceFor(repository, professional);
 
         var service = new AvailabilityService(repository);
 
         Assert.False(await service.IsEstablishmentOpenAsync(TenantId, Monday));
 
-        var check = await service.CheckSlotAsync(TenantId, professional.Id, Monday, new TimeOnly(9, 0), 30);
+        var check = await service.CheckSlotAsync(
+            TenantId, professional.Id, catalogService.Id, Monday, new TimeOnly(9, 0));
         Assert.True(check.IsAvailable);
     }
 
@@ -90,6 +113,7 @@ public sealed class AvailabilityServiceTests
 
         var professional = ProfessionalOn(DayOfWeek.Monday);
         repository.AddProfessional(professional);
+        var catalogService = ServiceFor(repository, professional);
 
         var service = new AvailabilityService(repository);
 
@@ -97,10 +121,12 @@ public sealed class AvailabilityServiceTests
         Assert.False(await service.IsEstablishmentOpenAsync(TenantId, Monday));
 
         // ...mas o agendamento segue disponível (depende só do profissional).
-        var slots = await service.GetAvailableSlotsAsync(TenantId, professional.Id, Monday, 30);
+        var slots = await service.GetAvailableSlotsAsync(
+            TenantId, professional.Id, catalogService.Id, Monday);
         Assert.NotEmpty(slots);
 
-        var check = await service.CheckSlotAsync(TenantId, professional.Id, Monday, new TimeOnly(9, 0), 30);
+        var check = await service.CheckSlotAsync(
+            TenantId, professional.Id, catalogService.Id, Monday, new TimeOnly(9, 0));
         Assert.True(check.IsAvailable);
     }
 
@@ -117,11 +143,13 @@ public sealed class AvailabilityServiceTests
 
         var professional = ProfessionalOn(DayOfWeek.Monday);
         repository.AddProfessional(professional);
+        var catalogService = ServiceFor(repository, professional);
 
         var service = new AvailabilityService(repository);
 
         // 16:00 está fora do expediente do estabelecimento, mas dentro da jornada do profissional.
-        var check = await service.CheckSlotAsync(TenantId, professional.Id, Monday, new TimeOnly(16, 0), 30);
+        var check = await service.CheckSlotAsync(
+            TenantId, professional.Id, catalogService.Id, Monday, new TimeOnly(16, 0));
         Assert.True(check.IsAvailable);
     }
 
@@ -168,10 +196,12 @@ public sealed class AvailabilityServiceTests
         var repository = new FakeAvailabilityRepository();
         var professional = ProfessionalOn(DayOfWeek.Monday);
         repository.AddProfessional(professional);
+        var catalogService = ServiceFor(repository, professional, durationMinutes: 60);
 
         var service = new AvailabilityService(repository);
 
-        var slots = await service.GetAvailableSlotsAsync(TenantId, professional.Id, Monday, 60);
+        var slots = await service.GetAvailableSlotsAsync(
+            TenantId, professional.Id, catalogService.Id, Monday);
 
         Assert.Equal(new TimeOnly(8, 0), slots.First());
         Assert.Equal(new TimeOnly(17, 0), slots.Last());
@@ -183,15 +213,17 @@ public sealed class AvailabilityServiceTests
         var repository = new FakeAvailabilityRepository();
         var professional = ProfessionalOn(DayOfWeek.Monday);
         repository.AddProfessional(professional);
+        var catalogService = ServiceFor(repository, professional, durationMinutes: 60);
 
         var appointment = Appointment.Create(
-            TenantId, Guid.NewGuid(), Guid.NewGuid(), professional.Id,
+            TenantId, Guid.NewGuid(), catalogService.Id, professional.Id,
             Monday, new TimeOnly(9, 0), 60, DateTimeOffset.UtcNow);
         repository.AddAppointment(appointment);
 
         var service = new AvailabilityService(repository);
 
-        var slots = await service.GetAvailableSlotsAsync(TenantId, professional.Id, Monday, 60);
+        var slots = await service.GetAvailableSlotsAsync(
+            TenantId, professional.Id, catalogService.Id, Monday);
 
         Assert.DoesNotContain(new TimeOnly(9, 0), slots);
     }
@@ -202,6 +234,7 @@ public sealed class AvailabilityServiceTests
         var repository = new FakeAvailabilityRepository();
         var professional = ProfessionalOn(DayOfWeek.Monday);
         repository.AddProfessional(professional);
+        var catalogService = ServiceFor(repository, professional);
 
         repository.AddBlock(ScheduleBlock.Create(
             TenantId, professional.Id,
@@ -210,7 +243,8 @@ public sealed class AvailabilityServiceTests
 
         var service = new AvailabilityService(repository);
 
-        var slots = await service.GetAvailableSlotsAsync(TenantId, professional.Id, Monday, 30);
+        var slots = await service.GetAvailableSlotsAsync(
+            TenantId, professional.Id, catalogService.Id, Monday);
 
         Assert.DoesNotContain(new TimeOnly(10, 0), slots);
     }
@@ -221,11 +255,12 @@ public sealed class AvailabilityServiceTests
         var repository = new FakeAvailabilityRepository();
         var professional = ProfessionalOn(DayOfWeek.Monday);
         repository.AddProfessional(professional);
+        var catalogService = ServiceFor(repository, professional);
 
         var service = new AvailabilityService(repository);
 
         var result = await service.CheckSlotAsync(
-            TenantId, professional.Id, Monday, new TimeOnly(20, 0), 30);
+            TenantId, professional.Id, catalogService.Id, Monday, new TimeOnly(20, 0));
 
         Assert.False(result.IsAvailable);
     }
@@ -236,13 +271,140 @@ public sealed class AvailabilityServiceTests
         var repository = new FakeAvailabilityRepository();
         var professional = ProfessionalOn(DayOfWeek.Monday);
         repository.AddProfessional(professional);
+        var catalogService = ServiceFor(repository, professional);
 
         var service = new AvailabilityService(repository);
 
         var result = await service.CheckSlotAsync(
-            TenantId, professional.Id, Monday.AddDays(1), new TimeOnly(9, 0), 30);
+            TenantId, professional.Id, catalogService.Id, Monday.AddDays(1), new TimeOnly(9, 0));
 
         Assert.False(result.IsAvailable);
+    }
+
+    // ---------- Serviço e vínculo profissional-serviço ----------
+
+    [Fact]
+    public async Task Profissional_Sem_Vinculo_Nao_Tem_Horario_Para_O_Servico()
+    {
+        // O profissional existe e trabalha na segunda, mas não executa o
+        // serviço. Não há horário a oferecer: a consulta não pode apresentar
+        // alguém que não realiza o atendimento.
+        var repository = new FakeAvailabilityRepository();
+        var professional = ProfessionalOn(DayOfWeek.Monday);
+        repository.AddProfessional(professional);
+
+        var service = Servia.Domain.Catalog.Service.Create(
+            TenantId, "Serviço", Servia.Domain.Common.Money.From(50m), 30);
+        repository.AddService(service);
+
+        var availability = new AvailabilityService(repository);
+
+        var slots = await availability.GetAvailableSlotsAsync(
+            TenantId, professional.Id, service.Id, Monday);
+
+        Assert.Empty(slots);
+
+        var check = await availability.CheckSlotAsync(
+            TenantId, professional.Id, service.Id, Monday, new TimeOnly(9, 0));
+
+        Assert.False(check.IsAvailable);
+        Assert.False(check.IsConflict);
+    }
+
+    [Fact]
+    public async Task Servico_Inativo_Nao_Tem_Horario()
+    {
+        var repository = new FakeAvailabilityRepository();
+        var professional = ProfessionalOn(DayOfWeek.Monday);
+        repository.AddProfessional(professional);
+        var service = ServiceFor(repository, professional);
+        service.Deactivate();
+
+        var availability = new AvailabilityService(repository);
+
+        var slots = await availability.GetAvailableSlotsAsync(
+            TenantId, professional.Id, service.Id, Monday);
+
+        Assert.Empty(slots);
+    }
+
+    [Fact]
+    public async Task Servico_Inexistente_Nao_Tem_Horario()
+    {
+        var repository = new FakeAvailabilityRepository();
+        var professional = ProfessionalOn(DayOfWeek.Monday);
+        repository.AddProfessional(professional);
+
+        var availability = new AvailabilityService(repository);
+
+        var slots = await availability.GetAvailableSlotsAsync(
+            TenantId, professional.Id, Guid.NewGuid(), Monday);
+
+        Assert.Empty(slots);
+    }
+
+    [Fact]
+    public async Task Profissional_Inativo_Nao_Tem_Horario()
+    {
+        var repository = new FakeAvailabilityRepository();
+        var professional = ProfessionalOn(DayOfWeek.Monday);
+        repository.AddProfessional(professional);
+        var service = ServiceFor(repository, professional);
+        professional.Deactivate();
+
+        var availability = new AvailabilityService(repository);
+
+        var slots = await availability.GetAvailableSlotsAsync(
+            TenantId, professional.Id, service.Id, Monday);
+
+        Assert.Empty(slots);
+    }
+
+    [Fact]
+    public async Task Duracao_Vem_Do_Servico_E_Define_Os_Horarios()
+    {
+        // Serviço de 60 minutos: o último horário que cabe na jornada
+        // 08:00–18:00 é 17:00. Com 30 minutos, seria 17:30.
+        var repository = new FakeAvailabilityRepository();
+        var professional = ProfessionalOn(DayOfWeek.Monday);
+        repository.AddProfessional(professional);
+        var longService = ServiceFor(repository, professional, durationMinutes: 60);
+
+        var availability = new AvailabilityService(repository);
+
+        var slots = await availability.GetAvailableSlotsAsync(
+            TenantId, professional.Id, longService.Id, Monday);
+
+        Assert.Equal(new TimeOnly(17, 0), slots.Last());
+    }
+
+    [Fact]
+    public async Task Remarcacao_Ignora_O_Proprio_Agendamento()
+    {
+        // O agendamento das 09:00 não pode conflitar consigo mesmo ao ser
+        // remarcado para o mesmo intervalo.
+        var repository = new FakeAvailabilityRepository();
+        var professional = ProfessionalOn(DayOfWeek.Monday);
+        repository.AddProfessional(professional);
+        var service = ServiceFor(repository, professional);
+
+        var appointment = Appointment.Create(
+            TenantId, Guid.NewGuid(), service.Id, professional.Id,
+            Monday, new TimeOnly(9, 0), 30, DateTimeOffset.UtcNow);
+        repository.AddAppointment(appointment);
+
+        var availability = new AvailabilityService(repository);
+
+        var withSelf = await availability.CheckSlotAsync(
+            TenantId, professional.Id, service.Id, Monday, new TimeOnly(9, 0));
+        Assert.False(withSelf.IsAvailable);
+        Assert.True(withSelf.IsConflict);
+
+        var excludingSelf = await availability.EvaluateAsync(
+            TenantId, professional.Id, service.Id, Monday, new TimeOnly(9, 0),
+            excludeAppointmentId: appointment.Id);
+
+        Assert.True(excludingSelf.Availability.IsAvailable);
     }
 
     private static IEnumerable<EstablishmentDaySchedule> BuildWeek(
@@ -264,11 +426,18 @@ public sealed class AvailabilityServiceTests
         private readonly List<Professional> _professionals = [];
         private readonly List<Appointment> _appointments = [];
         private readonly List<ScheduleBlock> _blocks = [];
+        private readonly List<Servia.Domain.Catalog.Service> _services = [];
+        private readonly List<ProfessionalService> _links = [];
         private Tenant? _tenant;
 
         public void SetTenant(Tenant tenant) => _tenant = tenant;
 
         public void AddProfessional(Professional professional) => _professionals.Add(professional);
+
+        public void AddService(Servia.Domain.Catalog.Service service) => _services.Add(service);
+
+        public void LinkService(Guid professionalId, Guid serviceId) =>
+            _links.Add(ProfessionalService.Create(TenantId, professionalId, serviceId));
 
         public void AddAppointment(Appointment appointment) => _appointments.Add(appointment);
 
@@ -281,6 +450,18 @@ public sealed class AvailabilityServiceTests
             Guid tenantId, Guid professionalId, CancellationToken cancellationToken = default) =>
             Task.FromResult(_professionals.FirstOrDefault(
                 professional => professional.TenantId == tenantId && professional.Id == professionalId));
+
+        public Task<Servia.Domain.Catalog.Service?> FindServiceAsync(
+            Guid tenantId, Guid serviceId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(_services.FirstOrDefault(
+                service => service.TenantId == tenantId && service.Id == serviceId));
+
+        public Task<bool> IsServiceLinkedAsync(
+            Guid tenantId, Guid professionalId, Guid serviceId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(_links.Any(link => link.TenantId == tenantId
+                && link.ProfessionalId == professionalId
+                && link.ServiceId == serviceId));
 
         public Task<IReadOnlyList<Professional>> ListActiveProfessionalsAsync(
             Guid tenantId, CancellationToken cancellationToken = default) =>

@@ -98,23 +98,55 @@ interface BookingWidgetPageProps {
  * não pode ser reservado.
  */
 export function BookingWidgetPage({ baseUrl }: BookingWidgetPageProps) {
+  const [services, setServices] = useState<readonly Service[]>([]);
+  const [serviceId, setServiceId] = useState('');
   const [professionalId, setProfessionalId] = useState('');
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [availability, setAvailability] = useState<Availability | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // O serviço é obrigatório na consulta: a duração vem do cadastro dele.
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadServices(): Promise<void> {
+      try {
+        const response = await fetch(`${baseUrl}/api/v1/catalog/services?page=1&pageSize=50`);
+
+        if (!response.ok) {
+          return;
+        }
+
+        const page = (await response.json()) as { items: readonly Service[] };
+
+        if (!cancelled) {
+          setServices(page.items);
+        }
+      } catch {
+        // Sem serviços, o widget fica sem opção; a página não quebra.
+      }
+    }
+
+    void loadServices();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [baseUrl]);
+
   async function handleSearch(event: React.FormEvent): Promise<void> {
     event.preventDefault();
     setLoading(true);
     setError(null);
+    setAvailability(null);
 
     try {
-      const response = await fetch(
-        `${baseUrl}/api/v1/agenda/availability?professionalId=${professionalId}&date=${date}&durationMinutes=30`,
-      );
+      const query = new URLSearchParams({ professionalId, serviceId, date });
+      const response = await fetch(`${baseUrl}/api/v1/agenda/availability?${query.toString()}`);
 
       if (!response.ok) {
+        // Erro de requisição não é "sem horários": a mensagem é distinta.
         setError('Não foi possível consultar a disponibilidade.');
 
         return;
@@ -133,6 +165,21 @@ export function BookingWidgetPage({ baseUrl }: BookingWidgetPageProps) {
       <h1>Agendar horário</h1>
 
       <form onSubmit={(event) => void handleSearch(event)}>
+        <label htmlFor="service">Serviço</label>
+        <select
+          id="service"
+          value={serviceId}
+          onChange={(event) => setServiceId(event.target.value)}
+          required
+        >
+          <option value="">Selecione um serviço</option>
+          {services.map((service) => (
+            <option key={service.id} value={service.id}>
+              {service.name} ({service.durationMinutes} min)
+            </option>
+          ))}
+        </select>
+
         <label htmlFor="professional">Profissional</label>
         <input
           id="professional"

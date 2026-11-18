@@ -166,9 +166,10 @@ public sealed class PublicSiteController(
             .FirstOrDefaultAsync(item => item.Id == serviceId && item.IsActive, cancellationToken)
             ?? throw NotFoundException.For("Serviço", serviceId);
 
-        // C9: mesma regra do painel, via AvailabilityService.
+        // C9: mesma regra do painel, via AvailabilityService. O serviço entra
+        // na avaliação: um profissional que não o executa não tem horário.
         var slots = await availabilityService.GetAvailableSlotsAsync(
-            site.TenantId, professionalId, date, service.DurationMinutes, cancellationToken);
+            site.TenantId, professionalId, service.Id, date, cancellationToken);
 
         return Ok(new PublicAvailabilityResponse(professionalId, date, slots));
     }
@@ -216,10 +217,11 @@ public sealed class PublicSiteController(
             ?? throw NotFoundException.For("Profissional", request.ProfessionalId);
 
         // C9: a validacao do agendamento usa a MESMA regra da consulta de
-        // disponibilidade (AvailabilityService), evitando divergencia.
+        // disponibilidade (AvailabilityService), incluindo o vinculo
+        // profissional-servico. A duracao vem do servico, nao do pedido.
         var slot = await availabilityService.CheckSlotAsync(
-            site.TenantId, professional.Id, request.Date, request.Time,
-            service.DurationMinutes, cancellationToken);
+            site.TenantId, professional.Id, service.Id, request.Date, request.Time,
+            cancellationToken);
 
         if (!slot.IsAvailable)
         {
@@ -250,8 +252,7 @@ public sealed class PublicSiteController(
                 service.Id,
                 professional.Id,
                 request.Date,
-                request.Time,
-                service.DurationMinutes),
+                request.Time),
             newCustomer,
             cancellationToken);
 
@@ -262,14 +263,17 @@ public sealed class PublicSiteController(
             return Created(
                 $"/api/v1/public/site/appointments/{appointment.Id}",
                 new PublicAppointmentResponse(
-                    appointment.Id, request.Date, request.Time, service.DurationMinutes));
+                    appointment.Id, request.Date, request.Time, appointment.DurationMinutes));
         }
 
         var failure = result.Failure!;
 
-        return failure.Kind == AppointmentFailureKind.Conflict
-            ? Conflict(new ErrorResponse(failure.Message))
-            : BadRequest(new ErrorResponse(failure.Message));
+        return failure.Kind switch
+        {
+            AppointmentFailureKind.Conflict => Conflict(new ErrorResponse(failure.Message)),
+            AppointmentFailureKind.NotFound => NotFound(new ErrorResponse(failure.Message)),
+            _ => BadRequest(new ErrorResponse(failure.Message))
+        };
     }
 
     /// <summary>
