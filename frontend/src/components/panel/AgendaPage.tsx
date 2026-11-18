@@ -15,16 +15,22 @@ const status = { Confirmed: "Confirmado", Completed: "Concluído", Cancelled: "C
 export function AgendaPage() {
   const { user } = useAuth();
   const team = hasPermission(user, "ViewTeamAgenda") && user?.role !== "professional";
+  const own = !team && hasPermission(user, "ViewOwnAgenda");
   const manage = hasPermission(user, "ManageAppointments");
-  const cancel = hasPermission(user, "CancelAnyAppointment");
+  const cancel = hasPermission(user, "CancelAnyAppointment") || (own && manage);
   const [date, setDate] = useState(localDate);
   const [selected, select] = useState("");
   const [editing, edit] = useState("");
   const [cancelling, setCancelling] = useState("");
   const appts = useQuery({
     queryKey: ["panel", "appointments", date, selected],
-    queryFn: () => api.appointments(date, selected || undefined),
-    enabled: !!date,
+    queryFn: () => own ? api.ownAppointments(date) : api.appointments(date, selected || undefined),
+    enabled: !!date && (team || own),
+  });
+  const ownProfessional = useQuery({
+    queryKey: ["panel", "own-professional"],
+    queryFn: api.ownProfessional,
+    enabled: own,
   });
   const pros = useQuery({
     queryKey: ["panel", "professionals", "options"],
@@ -49,8 +55,7 @@ export function AgendaPage() {
     ].map((item) => [item.id, item.name]),
   );
   const op = useOperation();
-  const ownId =
-    user?.role === "professional" && !team ? appts.data?.[0]?.professionalId : undefined;
+  const ownId = ownProfessional.data?.professionalId;
   return (
     <>
       <PageHeader
@@ -176,7 +181,6 @@ export function AgendaPage() {
         <Reschedule
           key={editing}
           appointment={appts.data.find((entry) => entry.id === editing)!}
-          availability={team}
           close={() => edit("")}
         />
       )}
@@ -189,7 +193,7 @@ export function AgendaPage() {
               event.preventDefault();
               const reason = field(new FormData(event.currentTarget), "reason");
               op.run(
-                () => api.cancel(cancelling, reason),
+                () => own ? api.cancelOwn(cancelling, reason) : api.cancel(cancelling, reason),
                 "Agendamento cancelado.",
                 () => setCancelling(""),
               );
@@ -215,9 +219,7 @@ export function AgendaPage() {
               <QueryState query={services}>
                 {(catalog) => (
                   <CreateAppointment
-                    pros={data.items.filter(
-                      (person) => person.isActive && person.isServiceProvider,
-                    )}
+                    pros={data.items.filter((person) => person.isActive)}
                     services={catalog.items.filter((item) => item.isActive)}
                     date={date}
                     manage={manage}
@@ -229,7 +231,7 @@ export function AgendaPage() {
           </QueryState>
         </ModuleCard>
       )}
-      {!team &&
+      {own &&
         manage &&
         (ownId && hasPermission(user, "ViewCustomers") && hasPermission(user, "ViewServices") ? (
           <ModuleCard id="novo-agendamento" title="Novo atendimento na minha agenda">
@@ -245,8 +247,9 @@ export function AgendaPage() {
           </ModuleCard>
         ) : (
           <Alert>
-            Para criar um atendimento, consulte uma data que já tenha um compromisso seu. A agenda
-            usa o profissional vinculado ao compromisso retornado pelo servidor.
+            {ownProfessional.isError
+              ? "Seu usuário não está vinculado a um profissional habilitado."
+              : "Carregando seu vínculo profissional…"}
           </Alert>
         ))}
     </>
@@ -263,6 +266,9 @@ function CreateOwnAppointment({
   services: { id: string; name: string; durationMinutes: number }[];
 }) {
   const [search, setSearch] = useState("");
+  const [date, setDate] = useState(initialDate);
+  const [serviceId, setServiceId] = useState("");
+  const [time, setTime] = useState("");
   const customers = useQuery({
     queryKey: ["panel", "customers", "options", search],
     queryFn: () => api.customers(1, search, 100),
@@ -271,24 +277,20 @@ function CreateOwnAppointment({
   return (
     <>
       {op.feedback}
-      <Alert>
-        Informe um horário. O servidor verifica a disponibilidade na sua agenda ao salvar.
-      </Alert>
       <form
         className={s.formGrid}
         onSubmit={(event) =>
           op.submit(
             event,
             (form) => {
-              const serviceId = field(form, "serviceId");
               const service = services.find((entry) => entry.id === serviceId);
               if (!service) throw new Error("Selecione um serviço ativo.");
               return api.createAppointment({
                 professionalId,
                 serviceId,
                 customerId: field(form, "customerId"),
-                date: field(form, "date"),
-                time: timeField(field(form, "time")),
+                date,
+                time,
               });
             },
             "Agendamento criado.",
@@ -296,15 +298,18 @@ function CreateOwnAppointment({
           )
         }
       >
-        <RecordSelect name="serviceId" label="Serviço" records={services} required />
+        <RecordSelect name="serviceId" label="Serviço" records={services} value={serviceId}
+          onChange={(value) => { setServiceId(value); setTime(""); }} required />
         <TextField
           name="date"
           label="Data do novo agendamento"
           type="date"
-          defaultValue={initialDate}
+          value={date}
+          onChange={(event) => { setDate(event.target.value); setTime(""); }}
           required
         />
-        <TextField name="time" label="Horário do novo agendamento" type="time" required />
+        <SlotSelect professional={professionalId} date={date} serviceId={serviceId}
+          time={time} onTime={setTime} own />
         <TextField
           name="search"
           label="Buscar cliente"
@@ -330,7 +335,7 @@ function CreateOwnAppointment({
         <Button
           type="submit"
           loading={op.busy}
-          disabled={!customers.data?.items.some((entry) => entry.isActive) || !services.length}
+          disabled={!customers.data?.items.some((entry) => entry.isActive) || !services.length || !time}
         >
           Agendar na minha agenda
         </Button>
@@ -344,16 +349,18 @@ function SlotSelect({
   serviceId,
   time,
   onTime,
+  own = false,
 }: {
   professional: string;
   date: string;
   serviceId: string;
   time: string;
   onTime: (value: string) => void;
+  own?: boolean;
 }) {
   const query = useQuery({
-    queryKey: ["panel", "availability", professional, date, serviceId],
-    queryFn: () => api.availability(professional, date, serviceId),
+    queryKey: ["panel", "availability", professional, date, serviceId, own],
+    queryFn: () => own ? api.ownAvailability(date, serviceId) : api.availability(professional, date, serviceId),
     enabled: !!professional && !!date && !!serviceId,
   });
   if (!professional || !date || !serviceId)
@@ -527,16 +534,19 @@ function CreateAppointment({
 
 function Reschedule({
   appointment,
-  availability,
   close,
 }: {
   appointment: Appointment;
-  availability: boolean;
   close: () => void;
 }) {
   const [date, setDate] = useState(appointment.date);
   const [time, setTime] = useState("");
   const op = useOperation();
+  const slots = useQuery({
+    queryKey: ["panel", "reschedule-availability", appointment.id, date],
+    queryFn: () => api.rescheduleAvailability(appointment.id, date),
+    enabled: !!date,
+  });
   return (
     <ModuleCard title="Remarcar agendamento">
       {op.feedback}
@@ -561,25 +571,13 @@ function Reschedule({
           }}
           required
         />
-        {availability ? (
-          <SlotSelect
-            professional={appointment.professionalId}
-            date={date}
-            serviceId={appointment.serviceId}
-            time={time}
-            onTime={setTime}
-          />
-        ) : (
-          <TextField
-            label="Novo horário"
-            name="time"
-            type="time"
-            value={time}
-            onChange={(event) => setTime(event.target.value)}
-            required
-          />
-        )}
-        <Button type="submit" disabled={!date || !time} loading={op.busy}>
+        <QueryState query={slots}>
+          {(data) => data.availableSlots.length ? (
+            <RecordSelect name="time" label="Novo horário" value={time} onChange={setTime}
+              records={data.availableSlots.map((slot) => ({ id: slot, name: slot.slice(0, 5) }))} required />
+          ) : <p>Nenhum horário disponível nesta data.</p>}
+        </QueryState>
+        <Button type="submit" disabled={!date || !time || !slots.data?.availableSlots.includes(time)} loading={op.busy}>
           Salvar novo horário
         </Button>
         <Button type="button" variant="ghost" onClick={close}>

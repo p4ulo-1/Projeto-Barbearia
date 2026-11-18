@@ -65,6 +65,44 @@ describe("Servia HTTP contract", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it("uses server-scoped own agenda and appointment-scoped reschedule availability", async () => {
+    const { tokenStore } = await import("@/lib/auth/token");
+    const { realOperations } = await import("@/lib/api/operations");
+    tokenStore.setSession({
+      accessToken: "professional-token",
+      refreshToken: "refresh",
+      expiresAt: new Date(Date.now() + 900_000).toISOString(),
+    });
+    const routes: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (target: string, options: RequestInit) => {
+      const url = new URL(target);
+      routes.push(url.pathname + url.search);
+      expect(new Headers(options.headers).get("Authorization")).toBe("Bearer professional-token");
+      if (url.pathname.endsWith("/me")) return Response.json({ professionalId: "own-id" });
+      if (url.pathname.endsWith("/reschedule-availability"))
+        return Response.json({ availableSlots: ["09:00:00"] });
+      if (url.pathname.endsWith("/availability"))
+        return Response.json({ availableSlots: ["09:00:00"] });
+      if (url.pathname.endsWith("/appointments")) return Response.json([]);
+      return Response.json({ id: "appointment", status: "Cancelled" });
+    }));
+
+    await realOperations.ownProfessional();
+    await realOperations.ownAppointments("2026-11-23");
+    await realOperations.ownAvailability("2026-11-23", "service");
+    await realOperations.rescheduleAvailability("appointment", "2026-11-23");
+    await realOperations.cancelOwn("appointment", "motivo");
+
+    expect(routes).toEqual([
+      "/api/v1/agenda/me",
+      "/api/v1/agenda/mine/appointments?date=2026-11-23",
+      "/api/v1/agenda/mine/availability?date=2026-11-23&serviceId=service",
+      "/api/v1/agenda/appointments/appointment/reschedule-availability?date=2026-11-23",
+      "/api/v1/agenda/mine/appointments/appointment/cancel",
+    ]);
+    expect(routes.join(" ")).not.toContain("durationMinutes");
+  });
+
   it("renews an expired session only once for concurrent requests", async () => {
     const { tokenStore } = await import("@/lib/auth/token");
     const { http } = await import("@/lib/api/http");

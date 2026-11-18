@@ -113,6 +113,38 @@ const availability = await request(
 );
 assert.ok(Array.isArray(availability.availableSlots));
 assert.ok(availability.availableSlots.length > 0);
+const selectedTime = availability.availableSlots[0];
+const appointment = await request("/api/v1/agenda/appointments", {
+  method: "POST",
+  status: 201,
+  token: renewed.accessToken,
+  body: { customerId: customer.id, serviceId: service.id, professionalId: professional.id, date, time: selectedTime },
+});
+assert.equal(appointment.durationMinutes, service.durationMinutes);
+const rescheduleSlots = await request(
+  `/api/v1/agenda/appointments/${appointment.id}/reschedule-availability?date=${date}`,
+  { token: renewed.accessToken },
+);
+assert.ok(rescheduleSlots.availableSlots.includes(selectedTime));
+const nextTime = rescheduleSlots.availableSlots.find((slot) => slot !== selectedTime);
+assert.ok(nextTime);
+const moved = await request(`/api/v1/agenda/appointments/${appointment.id}/reschedule`, {
+  method: "PATCH", token: renewed.accessToken, body: { date, time: nextTime },
+});
+assert.equal(moved.durationMinutes, service.durationMinutes);
+assert.equal(moved.time, nextTime);
+const appointments = await request(`/api/v1/agenda/appointments?date=${date}`, {
+  token: renewed.accessToken,
+});
+assert.ok(appointments.some((item) => item.id === appointment.id && item.time === nextTime));
+await request("/api/v1/agenda/appointments", {
+  method: "POST", status: 409, token: renewed.accessToken,
+  body: { customerId: customer.id, serviceId: service.id, professionalId: professional.id, date, time: nextTime },
+});
+const cancelled = await request(`/api/v1/agenda/appointments/${appointment.id}/cancel`, {
+  method: "POST", token: renewed.accessToken, body: { reason: "Smoke AV2" },
+});
+assert.equal(cancelled.status, "Cancelled");
 
 await request("/api/auth/sign-out", {
   method: "POST",
@@ -126,5 +158,5 @@ await request("/api/auth/refresh", {
 });
 
 console.log(
-  `Marco A: proxy/API real, sessão, persistência, disponibilidade por serviceId e logout OK (tenant ${signup.tenantId}).`,
+  `Marco A/AV2 Fase 1: API real, sessão, disponibilidade, criação, remarcação, conflito, cancelamento e persistência OK (tenant ${signup.tenantId}).`,
 );

@@ -261,6 +261,10 @@ export const realOperations = {
     send<Preferences>(`${customers}/${id}/preferences`, "PUT", input),
   appointments: (date: string, professionalId?: string) =>
     get<Appointment[]>(appointments, { date, professionalId }),
+  ownProfessional: () => get<{ professionalId: string }>("/agenda/me"),
+  ownAppointments: (date: string) => get<Appointment[]>("/agenda/mine/appointments", { date }),
+  ownAvailability: (date: string, serviceId: string) =>
+    get<{ availableSlots: string[] }>("/agenda/mine/availability", { date, serviceId }),
   availability: (professionalId: string, date: string, serviceId: string) =>
     get<{ availableSlots: string[] }>("/agenda/availability", {
       professionalId,
@@ -268,10 +272,14 @@ export const realOperations = {
       serviceId,
     }),
   createAppointment: (input: AppointmentInput) => send<Appointment>(appointments, "POST", input),
+  rescheduleAvailability: (id: string, date: string) =>
+    get<{ availableSlots: string[] }>(`${appointments}/${id}/reschedule-availability`, { date }),
   reschedule: (id: string, date: string, time: string) =>
     send<Appointment>(`${appointments}/${id}/reschedule`, "PATCH", { date, time }),
   cancel: (id: string, reason?: string) =>
     send<Appointment>(`${appointments}/${id}/cancel`, "POST", reason ? { reason } : undefined),
+  cancelOwn: (id: string, reason?: string) =>
+    send<Appointment>(`/agenda/mine/appointments/${id}/cancel`, "POST", reason ? { reason } : undefined),
   complete: (id: string) => send<Appointment>(`${appointments}/${id}/complete`, "POST"),
   schedule: () => get<{ days: Day[] }>(schedule),
   saveSchedule: (days: Day[]) => send<{ days: Day[] }>(schedule, "PUT", { days }),
@@ -553,6 +561,9 @@ export const demoOperations: typeof realOperations = {
     demoData().data.appointments.filter(
       (item) => item.date === date && (!professionalId || item.professionalId === professionalId),
     ),
+  ownProfessional: unavailable,
+  ownAppointments: unavailable,
+  ownAvailability: unavailable,
   availability: async (professionalId, date, serviceId) => {
     const data = demoData().data;
     const service = demoBookingService(data, serviceId, professionalId);
@@ -576,6 +587,12 @@ export const demoOperations: typeof realOperations = {
       data.appointments.push(item);
       return item;
     }),
+  rescheduleAvailability: async (appointmentId, date) => {
+    const data = demoData().data;
+    const item = find(data.appointments, appointmentId);
+    demoBookingService(data, item.serviceId, item.professionalId);
+    return { availableSlots: slots(data, item.professionalId, date, item.durationMinutes, item.id) };
+  },
   reschedule: async (appointmentId, date, time) =>
     change((data) => {
       const item = find(data.appointments, appointmentId);
@@ -596,6 +613,7 @@ export const demoOperations: typeof realOperations = {
         ...(reason ? { cancellationReason: reason } : {}),
       });
     }),
+  cancelOwn: unavailable,
   complete: async (appointmentId) =>
     change((data) => {
       const item = find(data.appointments, appointmentId);
