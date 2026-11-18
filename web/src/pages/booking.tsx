@@ -14,10 +14,10 @@
  * confirmação. A seleção do profissional depende do serviço escolhido.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPublicApi, publicContext, PublicApiError } from '../api/public';
 import type {
   PublicAppointment,
-  PublicAvailability,
   PublicProfessional,
   PublicService,
 } from '../api/types';
@@ -37,6 +37,12 @@ interface BookingError {
 }
 
 export function BookingWidgetPage({ baseUrl }: BookingWidgetPageProps) {
+  const host = publicContext();
+  const api = useMemo(() => createPublicApi(baseUrl, host), [baseUrl, host]);
+  const pendingService = new URLSearchParams(window.location.search).get('serviceId');
+  const submittingRef = useRef(false);
+  const [refreshSlots, setRefreshSlots] = useState(0);
+  const [professionalsError, setProfessionalsError] = useState<string | null>(null);
   const [step, setStep] = useState<Step>('service');
 
   const [services, setServices] = useState<readonly PublicService[]>([]);
@@ -76,20 +82,13 @@ export function BookingWidgetPage({ baseUrl }: BookingWidgetPageProps) {
       setServicesError(null);
 
       try {
-        const response = await fetch(`${baseUrl}/api/v1/public/site/services`);
-
-        if (!response.ok) {
-          if (!cancelled) {
-            setServicesError('Não foi possível carregar os serviços.');
-          }
-
-          return;
-        }
-
-        const body = (await response.json()) as readonly PublicService[];
-
+        const body = await api.services();
         if (!cancelled) {
           setServices(body);
+          if (pendingService && body.some(item => item.id === pendingService)) {
+            setServiceId(pendingService);
+            setStep('professional');
+          }
         }
       } catch {
         if (!cancelled) {
@@ -107,88 +106,42 @@ export function BookingWidgetPage({ baseUrl }: BookingWidgetPageProps) {
     return () => {
       cancelled = true;
     };
-  }, [baseUrl]);
+  }, [api, pendingService]);
 
   // ---------- Profissionais do serviço escolhido ----------
 
-  const loadProfessionals = useCallback(
-    async (chosenServiceId: string): Promise<void> => {
-      setProfessionalsLoading(true);
-      setProfessionals([]);
-      setProfessionalId('');
+  useEffect(() => {
+    let cancelled = false;
+    setProfessionals([]);
+    setProfessionalsError(null);
+    setProfessionalsLoading(serviceId !== '');
+    if (serviceId) {
+      void api.professionals(serviceId).then(items => {
+        if (!cancelled) setProfessionals(items);
+      }).catch(() => {
+        if (!cancelled) setProfessionalsError('Não foi possível carregar os profissionais. Tente novamente.');
+      }).finally(() => { if (!cancelled) setProfessionalsLoading(false); });
+    }
+    return () => { cancelled = true; };
+  }, [api, serviceId]);
 
-      try {
-        // O filtro por serviço é do backend: só vêm profissionais habilitados.
-        const response = await fetch(
-          `${baseUrl}/api/v1/public/site/professionals?serviceId=${chosenServiceId}`,
-        );
-
-        if (!response.ok) {
-          return;
-        }
-
-        setProfessionals((await response.json()) as readonly PublicProfessional[]);
-      } catch {
-        // Sem profissionais, a etapa fica vazia; a tela informa.
-      } finally {
-        setProfessionalsLoading(false);
-      }
-    },
-    [baseUrl],
-  );
-
-  // ---------- Disponibilidade ----------
-
-  const loadSlots = useCallback(
-    async (chosenServiceId: string, chosenProfessionalId: string, chosenDate: string) => {
-      setSlotsLoading(true);
-      setSlots([]);
-      setSlotsLoaded(false);
-      setSlotsError(null);
-      setTime('');
-
-      try {
-        const query = new URLSearchParams({
-          serviceId: chosenServiceId,
-          professionalId: chosenProfessionalId,
-          date: chosenDate,
-        });
-
-        const response = await fetch(
-          `${baseUrl}/api/v1/public/site/availability?${query.toString()}`,
-        );
-
-        if (response.status === 400) {
-          // Pedido inválido não é "sem horários".
-          setSlotsError('Escolha serviço, profissional e data para ver os horários.');
-
-          return;
-        }
-
-        if (response.status === 404) {
-          setSlotsError('Serviço ou profissional indisponível neste estabelecimento.');
-
-          return;
-        }
-
-        if (!response.ok) {
-          setSlotsError('Não foi possível consultar os horários.');
-
-          return;
-        }
-
-        const body = (await response.json()) as PublicAvailability;
-
-        setSlots(body.slots);
-        setSlotsLoaded(true);
-      } catch {
-        setSlotsError('Falha de conexão ao consultar os horários.');
-      } finally {
-        setSlotsLoading(false);
-      }
-    },
-    [baseUrl],
-  );
+  useEffect(() => {
+    let cancelled = false;
+    setSlots([]);
+    setSlotsLoaded(false);
+    setSlotsError(null);
+    setTime('');
+    const complete = !!(serviceId && professionalId && date);
+    setSlotsLoading(complete);
+    if (complete) {
+      void api.availability(serviceId, professionalId, date).then(body => {
+        if (!cancelled) { setSlots(body.slots); setSlotsLoaded(true); }
+      }).catch(() => {
+        if (!cancelled) setSlotsError('Não foi possível consultar os horários. Tente novamente.');
+      }).finally(() => { if (!cancelled) setSlotsLoading(false); });
+    }
+    return () => { cancelled = true; };
+  }, [api, serviceId, professionalId, date, refreshSlots]);
 
   // ---------- Ações ----------
 
@@ -200,8 +153,6 @@ export function BookingWidgetPage({ baseUrl }: BookingWidgetPageProps) {
     setTime('');
     setBookingError(null);
     setStep('professional');
-
-    void loadProfessionals(id);
   }
 
   function chooseProfessional(id: string): void {
@@ -210,20 +161,17 @@ export function BookingWidgetPage({ baseUrl }: BookingWidgetPageProps) {
     setSlotsLoaded(false);
     setTime('');
     setBookingError(null);
+    setRefreshSlots(value => value + 1);
     setStep('slot');
-
-    void loadSlots(serviceId, id, date);
   }
 
   function changeDate(nextDate: string): void {
     setDate(nextDate);
     setTime('');
 
-    // Só consulta com os três parâmetros completos: evita requisição
-    // desatualizada quando o usuário ainda está escolhendo.
-    if (serviceId !== '' && professionalId !== '' && nextDate !== '') {
-      void loadSlots(serviceId, professionalId, nextDate);
-    }
+    setSlots([]);
+    setSlotsLoaded(false);
+    setSlotsError(null);
   }
 
   function chooseSlot(slot: string): void {
@@ -249,60 +197,33 @@ export function BookingWidgetPage({ baseUrl }: BookingWidgetPageProps) {
 
   async function confirmBooking(event: React.FormEvent): Promise<void> {
     event.preventDefault();
+    if (submittingRef.current || !serviceId || !professionalId || !date || !time) return;
+    submittingRef.current = true;
     setSubmitting(true);
     setBookingError(null);
 
     try {
-      const response = await fetch(`${baseUrl}/api/v1/public/site/appointments`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name,
-          phone,
-          email: email === '' ? null : email,
-          serviceId,
-          professionalId,
-          date,
-          time,
-        }),
+      const appointment = await api.book({
+        name, phone, email: email === '' ? null : email,
+        serviceId, professionalId, date, time,
       });
-
-      if (response.status === 409) {
-        // O horário foi ocupado entre a consulta e a confirmação.
-        setBookingError({
-          message: 'Este horário acabou de ser ocupado. Escolha outro.',
-          isConflict: true,
-        });
-
-        return;
-      }
-
-      if (response.status === 400) {
-        setBookingError({
-          message: 'Confira os dados informados e tente novamente.',
-          isConflict: false,
-        });
-
-        return;
-      }
-
-      if (!response.ok) {
-        setBookingError({
-          message: 'Não foi possível concluir o agendamento.',
-          isConflict: false,
-        });
-
-        return;
-      }
-
-      setConfirmed((await response.json()) as PublicAppointment);
+      setConfirmed(appointment);
       setStep('confirmed');
-    } catch {
+    } catch (error) {
+      const conflict = error instanceof PublicApiError && error.status === 409;
       setBookingError({
-        message: 'Falha de conexão ao confirmar o agendamento.',
-        isConflict: false,
+        message: conflict ? 'Este horário acabou de ser ocupado. Escolha outro.' :
+          error instanceof PublicApiError ? 'Não foi possível confirmar. Confira os dados e tente novamente.' :
+          'Falha de conexão ao confirmar o agendamento.',
+        isConflict: conflict,
       });
+      if (conflict) {
+        setStep('slot');
+        setTime('');
+        setRefreshSlots(value => value + 1);
+      }
     } finally {
+      submittingRef.current = false;
       setSubmitting(false);
     }
   }
@@ -336,7 +257,7 @@ export function BookingWidgetPage({ baseUrl }: BookingWidgetPageProps) {
                   <button type="button" onClick={() => chooseService(service.id)}>
                     <strong>{service.name}</strong>
                     <span>
-                      R$ {service.price.toFixed(2)} · {service.durationMinutes} min
+                      {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: service.currency }).format(service.price)} · {service.durationMinutes} min
                     </span>
                   </button>
                 </li>
@@ -353,7 +274,8 @@ export function BookingWidgetPage({ baseUrl }: BookingWidgetPageProps) {
 
           {professionalsLoading && <p role="status">Carregando profissionais…</p>}
 
-          {!professionalsLoading && professionals.length === 0 && (
+          {professionalsError !== null && <p role="alert">{professionalsError}</p>}
+          {!professionalsLoading && professionalsError === null && professionals.length === 0 && (
             <p className="muted">
               Nenhum profissional disponível para este serviço no momento.
             </p>
@@ -391,6 +313,7 @@ export function BookingWidgetPage({ baseUrl }: BookingWidgetPageProps) {
             required
           />
 
+          {bookingError?.isConflict && <p role="alert">{bookingError.message}</p>}
           {slotsLoading && <p role="status">Consultando horários…</p>}
 
           {slotsError !== null && (
@@ -470,17 +393,11 @@ export function BookingWidgetPage({ baseUrl }: BookingWidgetPageProps) {
 
           <button
             type="button"
+            disabled={submitting}
             className="link"
             onClick={() => {
-              // Conflito exige novo horário; demais erros voltam aos dados.
-              if (bookingError?.isConflict === true) {
-                setBookingError(null);
-                setStep('slot');
-                void loadSlots(serviceId, professionalId, date);
-
-                return;
-              }
-
+              setBookingError(null);
+              setRefreshSlots(value => value + 1);
               setStep('slot');
             }}
           >

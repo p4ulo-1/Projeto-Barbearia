@@ -1,86 +1,47 @@
-/**
- * Página pública do site (F14.6).
- *
- * O site do tenant é acessível sem login: é o que o cliente final vê.
- */
+import { useEffect, useMemo, useState } from 'react';
+import { bookingPath, createPublicApi, publicContext } from '../api/public';
+import type { PublicService } from '../api/types';
 
-import { useEffect, useState } from 'react';
-import type { Service } from '../api/types';
-
-interface PublicSitePageProps {
-  readonly baseUrl: string;
-}
-
-/**
- * Site público do estabelecimento (F14.6).
- *
- * Renderiza o snapshot publicado. O conteúdo vem do servidor, não é
- * hardcoded: cada tenant tem o seu.
- */
-export function PublicSitePage({ baseUrl }: PublicSitePageProps) {
-  const [services, setServices] = useState<readonly Service[]>([]);
+export function PublicSitePage({ baseUrl }: { readonly baseUrl: string }) {
+  const host = publicContext();
+  const api = useMemo(() => createPublicApi(baseUrl, host), [baseUrl, host]);
+  const [services, setServices] = useState<readonly PublicService[]>([]);
+  const [businessName, setBusinessName] = useState('');
   const [loading, setLoading] = useState(true);
-
+  const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     let cancelled = false;
-
-    async function load(): Promise<void> {
-      try {
-        const response = await fetch(`${baseUrl}/api/v1/catalog/services?page=1&pageSize=20`);
-
-        if (response.ok) {
-          const page = (await response.json()) as { items: readonly Service[] };
-
-          if (!cancelled) {
-            setServices(page.items);
-          }
-        }
-      } catch {
-        // Site publico degrada para conteudo vazio, nao para erro.
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      }
-    }
-
-    void load();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [baseUrl]);
-
+    setLoading(true);
+    setError(null);
+    setServices([]);
+    setBusinessName('');
+    void Promise.all([api.site(), api.services()]).then(([site, items]) => {
+      if (!cancelled) { setBusinessName(site.businessName); setServices(items); }
+    }).catch(() => {
+      if (!cancelled) setError('Não foi possível carregar o estabelecimento. Tente novamente.');
+    }).finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [api]);
   return (
     <main className="public-site">
       <header className="hero">
-        <h1>Bem-vindo</h1>
+        <h1>{businessName || 'Estabelecimento'}</h1>
         <p>Agende seu horário em poucos passos.</p>
-        <a href="/agendar" className="cta">
-          Agendar agora
-        </a>
+        {!loading && error === null && <a href={bookingPath(host)} className="cta">Agendar agora</a>}
       </header>
-
       <section aria-labelledby="services-heading">
         <h2 id="services-heading">Serviços</h2>
-
         {loading && <p role="status">Carregando…</p>}
-
-        {!loading && services.length === 0 && (
-          <p className="muted">Nenhum serviço disponível no momento.</p>
-        )}
-
-        {services.length > 0 && (
-          <ul className="service-list">
-            {services.map((service) => (
-              <li key={service.id}>
-                <strong>{service.name}</strong>
-                <span>R$ {service.price.toFixed(2)}</span>
-                <span>{service.durationMinutes} min</span>
-              </li>
-            ))}
-          </ul>
-        )}
+        {error !== null && <p role="alert">{error}</p>}
+        {!loading && error === null && services.length === 0 && <p>Nenhum serviço disponível no momento.</p>}
+        <ul className="service-list">
+          {services.map(service => <li key={service.id}>
+            <strong>{service.name}</strong>
+            <span>{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: service.currency }).format(service.price)}</span>
+            <span>{service.durationMinutes} min</span>
+            <a href={bookingPath(host, service.id)}>Agendar {service.name}</a>
+          </li>)}
+        </ul>
       </section>
     </main>
   );
