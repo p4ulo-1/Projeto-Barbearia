@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { TenantSite } from "./TenantSite";
 import type { GeneratedSite } from "@/lib/site-templates";
@@ -160,6 +160,7 @@ function BookingForm({
   config: Record<string, string>;
 }) {
   const qc = useQueryClient();
+  const submitting = useRef(false);
   const [serviceId, setService] = useState(config["serviceId"] ?? "");
   const [professionalId, setProfessional] = useState(config["professionalId"] ?? "");
   const [date, setDate] = useState("");
@@ -188,12 +189,17 @@ function BookingForm({
     onError: (error) => {
       if (error instanceof ApiError && error.status === 409) setTime("");
     },
-    onSettled: () => qc.invalidateQueries({ queryKey: ["public-site", host, "availability"] }),
+    onSettled: () => {
+      submitting.current = false;
+      return qc.invalidateQueries({ queryKey: ["public-site", host, "availability"] });
+    },
   });
   const handle = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!slots.isFetching && slots.data?.slots.includes(time) && !book.isPending)
+    if (!submitting.current && !slots.isFetching && slots.data?.slots.includes(time) && !book.isPending) {
+      submitting.current = true;
       book.mutate(new FormData(event.currentTarget));
+    }
   };
   if (book.data)
     return (

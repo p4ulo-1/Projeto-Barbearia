@@ -1,4 +1,4 @@
-import type { FormEvent } from "react";
+import { useRef, type FormEvent } from "react";
 import { toast } from "sonner";
 import { fieldFeedback, operationErrorMessage } from "@/lib/operation-feedback";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -16,6 +16,7 @@ export const weekLabels = [
 
 export function useOperation() {
   const qc = useQueryClient();
+  const submitting = useRef(false);
   const mutation = useMutation({
     mutationFn: ({ action }: { action: () => Promise<unknown>; success: string }) => action(),
     onSuccess: (_result, { success }) => {
@@ -25,9 +26,11 @@ export function useOperation() {
     onError: (error) => {
       if (!fieldFeedback(error).length) toast.error(operationErrorMessage(error));
     },
+    onSettled: () => { submitting.current = false; },
   });
   function run(action: () => Promise<unknown>, success: string, after?: () => void) {
-    if (mutation.isPending) return;
+    if (submitting.current || mutation.isPending) return;
+    submitting.current = true;
     mutation.mutate({ action, success }, { onSuccess: () => after?.() });
   }
   function submit(
