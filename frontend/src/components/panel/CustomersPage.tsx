@@ -2,6 +2,7 @@ import { useDeferredValue, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Button, TextField } from "@/components/ui-sv";
 import { operations as api } from "@/lib/api/operations";
+import { ApiError } from "@/lib/api/http";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { hasPermission } from "@/lib/permissions";
 import { ModuleCard, QueryState, Pagination, RecordSelect } from "./OperationsUI";
@@ -84,13 +85,15 @@ export function CustomersPage() {
                 )
               }
             >
-              <TextField label="Nome" name="name" autoComplete="name" maxLength={150} required />
+              <TextField label="Nome" name="name" autoComplete="name" maxLength={150} pattern=".*\S.*" title="Informe um nome válido." required />
               <TextField
                 label="Telefone"
                 name="phone"
                 type="tel"
                 autoComplete="tel"
                 maxLength={20}
+                pattern=".*\S.*"
+                title="Informe um telefone válido."
                 required
               />
               <TextField
@@ -134,7 +137,15 @@ function CustomerDetails({
 }) {
   const customer = useQuery({
     queryKey: ["panel", "customer", id],
-    queryFn: () => api.customer(id),
+    queryFn: async () => {
+      try {
+        return await api.customer(id);
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 404)
+          throw new ApiError("Cliente não encontrado ou indisponível neste estabelecimento.", 404);
+        throw error;
+      }
+    },
   });
   const preferences = useQuery({
     queryKey: ["panel", "preferences", id],

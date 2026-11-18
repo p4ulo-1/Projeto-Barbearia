@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
     professionals: vi.fn(), services: vi.fn(), professionalServices: vi.fn(),
     customers: vi.fn(), availability: vi.fn(), ownAvailability: vi.fn(),
     rescheduleAvailability: vi.fn(),
+    createAppointment: vi.fn(),
   },
 }));
 
@@ -80,5 +81,20 @@ describe("agenda da Fase 1", () => {
       "appointment", "2026-11-23",
     ));
     expect(mocks.api.availability).not.toHaveBeenCalled();
+  });
+
+  it("envia o cliente selecionado na criação do agendamento", async () => {
+    mocks.api.customers.mockResolvedValue({ items: [{ id: "customer-new", name: "Ana", isActive: true }] });
+    mocks.api.createAppointment.mockResolvedValue({ id: "appointment" });
+    show();
+    fireEvent.change(await screen.findByLabelText("Profissional"), { target: { value: "eligible" } });
+    fireEvent.change(await screen.findByLabelText("Serviço"), { target: { value: "service" } });
+    const client = await screen.findByLabelText("Cliente");
+    fireEvent.change(client, { target: { value: "customer-new" } });
+    const slot = await screen.findByLabelText("Horário disponível");
+    await waitFor(() => expect(within(slot).getByRole("option", { name: /09:00/ })).toBeInTheDocument());
+    fireEvent.change(slot, { target: { value: "09:00:00" } });
+    fireEvent.click(screen.getByRole("button", { name: "Agendar" }));
+    await waitFor(() => expect(mocks.api.createAppointment).toHaveBeenCalledWith(expect.objectContaining({ customerId: "customer-new" })));
   });
 });
