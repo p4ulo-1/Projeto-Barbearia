@@ -145,6 +145,35 @@ public class PlanLimitOnLinkTests : IClassFixture<IsolatedApiFactory>
             body: null);
 
     [Fact]
+    public async Task Troca_Local_De_Plano_Aplica_Novo_Limite()
+    {
+        var code = $"LIM2-{TenantId.ToString("N")[..12]}";
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            db.Plans.Add(Plan.Create(code, "Limite 2", Money.From(199m), 2,
+                SiteCustomizationLevel.Basic, includedAiUnits: 0));
+            await db.SaveChangesAsync();
+        }
+
+        var service = await CreateServiceAsync("Serviço");
+        var first = await CreateProfessionalAsync("Primeiro");
+        var second = await CreateProfessionalAsync("Segundo");
+        Assert.Equal(HttpStatusCode.NoContent, (await LinkAsync(first, service)).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await LinkAsync(second, service)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await SendAsync(HttpMethod.Patch,
+            "/api/v1/billing/subscription", new SubscribePlanRequest(code))).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await LinkAsync(second, service)).StatusCode);
+        var originalCode = $"LIM1-{TenantId.ToString("N")[..12]}";
+        Assert.Equal(HttpStatusCode.BadRequest, (await SendAsync(HttpMethod.Patch,
+            "/api/v1/billing/subscription", new SubscribePlanRequest(originalCode))).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await SendAsync(HttpMethod.Post,
+            $"/api/v1/catalog/services/{service}/deactivate")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await SendAsync(HttpMethod.Patch,
+            "/api/v1/billing/subscription", new SubscribePlanRequest(originalCode))).StatusCode);
+    }
+
+    [Fact]
     public async Task Profissional_Sem_Servico_Nao_Consome_Vaga()
     {
         // Dois profissionais sem serviço: nenhum ocupa vaga, então ambos

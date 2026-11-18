@@ -122,6 +122,28 @@ public class BusinessApiTests : IClassFixture<IsolatedApiFactory>
     }
 
     [Fact]
+    public async Task Catalogo_Desativa_Servico_E_Responde_A_Referencias_Inexistentes()
+    {
+        var created = await SendAsync(HttpMethod.Post, "/api/v1/catalog/services",
+            new CreateServiceRequest("Serviço para desativar", 30m, 20));
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        var service = (await created.Content.ReadFromJsonAsync<ServiceResponse>())!;
+
+        Assert.Equal(HttpStatusCode.NoContent, (await SendAsync(HttpMethod.Post,
+            $"/api/v1/catalog/services/{service.Id}/deactivate")).StatusCode);
+        var listed = await SendAsync(HttpMethod.Get, "/api/v1/catalog/services?page=1&pageSize=100");
+        Assert.Equal(HttpStatusCode.OK, listed.StatusCode);
+        var page = (await listed.Content.ReadFromJsonAsync<PagedResponse<ServiceResponse>>())!;
+        Assert.Contains(page.Items, item => item.Id == service.Id && !item.IsActive);
+        Assert.Equal(HttpStatusCode.NotFound, (await SendAsync(HttpMethod.Post,
+            $"/api/v1/catalog/services/{Guid.NewGuid()}/deactivate")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await SendAsync(HttpMethod.Patch,
+            $"/api/v1/catalog/services/{Guid.NewGuid()}/price", new ChangePriceRequest(45m))).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await SendAsync(HttpMethod.Patch,
+            $"/api/v1/catalog/services/{service.Id}/price", new ChangePriceRequest(-1m))).StatusCode);
+    }
+
+    [Fact]
     public async Task Catalogo_Cria_Categoria()
     {
         var response = await SendAsync(HttpMethod.Post, "/api/v1/catalog/categories",
