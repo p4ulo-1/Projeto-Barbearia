@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -61,11 +62,20 @@ public sealed class CatalogController(
         return Ok(PagedResponse<ServiceResponse>.Create(items, request, total));
     }
 
+    /// <summary>Consulta um serviço pelo identificador.</summary>
+    [HttpGet("services/{id:guid}")]
+    [RequirePermission(Permission.ViewServices)]
+    [ProducesResponseType<ServiceResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ErrorResponse>(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetServiceAsync(Guid id, CancellationToken cancellationToken) =>
+        Ok(ServiceResponse.From(await FindServiceAsync(id, cancellationToken)));
+
     /// <summary>Cria um serviço.</summary>
     [HttpPost("services")]
     [RequirePermission(Permission.ManageServices)]
     [ProducesResponseType<ServiceResponse>(StatusCodes.Status201Created)]
     [ProducesResponseType<ErrorResponse>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType<ErrorResponse>(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> CreateServiceAsync(
         [FromBody] CreateServiceRequest request,
         CancellationToken cancellationToken)
@@ -73,6 +83,7 @@ public sealed class CatalogController(
         ArgumentNullException.ThrowIfNull(request);
 
         var tenantId = RequireTenant();
+        await EnsureCategoryExistsAsync(request.CategoryId, cancellationToken);
 
         var service = Service.Create(
             tenantId,
@@ -89,10 +100,38 @@ public sealed class CatalogController(
         return Created($"/api/v1/catalog/services/{service.Id}", ServiceResponse.From(service));
     }
 
+    /// <summary>Atualiza os dados cadastrais e a duração de um serviço.</summary>
+    [HttpPut("services/{id:guid}")]
+    [RequirePermission(Permission.ManageServices)]
+    [ProducesResponseType<ServiceResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ErrorResponse>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType<ErrorResponse>(StatusCodes.Status404NotFound)]
+    [ProducesResponseType<ErrorResponse>(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> UpdateServiceAsync(
+        Guid id,
+        [FromBody] UpdateServiceRequest request,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var service = await planSlots.ExecuteWithSlotCheckAsync(RequireTenant(), async token =>
+        {
+            var item = await FindServiceAsync(id, token);
+            await EnsureCategoryExistsAsync(request.CategoryId, token);
+            item.Update(request.Name, request.Description, request.CategoryId, request.Highlight);
+            item.ChangeDuration(request.DurationMinutes);
+            await context.SaveChangesAsync(token);
+            return item;
+        }, cancellationToken);
+
+        return Ok(ServiceResponse.From(service));
+    }
+
     /// <summary>Altera o preço de um serviço.</summary>
     [HttpPatch("services/{id:guid}/price")]
     [RequirePermission(Permission.ManageServices)]
     [ProducesResponseType<ServiceResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ErrorResponse>(StatusCodes.Status400BadRequest)]
     [ProducesResponseType<ErrorResponse>(StatusCodes.Status404NotFound)]
     [ProducesResponseType<ErrorResponse>(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> ChangeServicePriceAsync(
@@ -106,8 +145,7 @@ public sealed class CatalogController(
         // Corrigir um preço legado inválido pode habilitar profissionais já vinculados.
         var service = await planSlots.ExecuteWithSlotCheckAsync(RequireTenant(), async token =>
         {
-            var item = await context.Services.FirstOrDefaultAsync(service => service.Id == id, token)
-                ?? throw NotFoundException.For("Serviço", id);
+            var item = await FindServiceAsync(id, token);
             item.ChangePrice(price);
             await context.SaveChangesAsync(token);
             return item;
@@ -116,10 +154,31 @@ public sealed class CatalogController(
         return Ok(ServiceResponse.From(service));
     }
 
+    /// <summary>Reativa um serviço e verifica a ocupação dos profissionais vinculados.</summary>
+    [HttpPost("services/{id:guid}/activate")]
+    [RequirePermission(Permission.ManageServices)]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType<ErrorResponse>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType<ErrorResponse>(StatusCodes.Status404NotFound)]
+    [ProducesResponseType<ErrorResponse>(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> ActivateServiceAsync(Guid id, CancellationToken cancellationToken)
+    {
+        await planSlots.ExecuteWithSlotCheckAsync(RequireTenant(), async token =>
+        {
+            var service = await FindServiceAsync(id, token);
+            service.Activate();
+            await context.SaveChangesAsync(token);
+            return true;
+        }, cancellationToken);
+
+        return NoContent();
+    }
+
     /// <summary>Desativa um serviço, sem removê-lo do histórico.</summary>
     [HttpPost("services/{id:guid}/deactivate")]
     [RequirePermission(Permission.ManageServices)]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType<ErrorResponse>(StatusCodes.Status404NotFound)]
     [ProducesResponseType<ErrorResponse>(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> DeactivateServiceAsync(
         Guid id,
@@ -128,8 +187,7 @@ public sealed class CatalogController(
         // Desativação só pode reduzir ocupação, mas participa do isolamento dos demais escritores.
         await subscriptions.ExecuteSerializableAsync(async token =>
         {
-            var service = await context.Services.FirstOrDefaultAsync(item => item.Id == id, token)
-                ?? throw NotFoundException.For("Serviço", id);
+            var service = await FindServiceAsync(id, token);
             service.Deactivate();
             await context.SaveChangesAsync(token);
             return true;
@@ -218,6 +276,19 @@ public sealed class CatalogController(
             new ComboResponse(combo.Id, combo.Name, combo.ComboPrice.Amount, combo.Items.Count));
     }
 
+    private async Task<Service> FindServiceAsync(Guid id, CancellationToken cancellationToken) =>
+        await context.Services.FirstOrDefaultAsync(item => item.Id == id, cancellationToken)
+        ?? throw NotFoundException.For("Serviço", id);
+
+    private async Task EnsureCategoryExistsAsync(Guid? categoryId, CancellationToken cancellationToken)
+    {
+        if (categoryId is { } id
+            && !await context.ServiceCategories.AnyAsync(item => item.Id == id, cancellationToken))
+        {
+            throw NotFoundException.For("Categoria", id);
+        }
+    }
+
     private Guid RequireTenant() =>
         tenantContext.TenantId ?? throw new DomainRuleException("Estabelecimento não identificado.");
 }
@@ -227,14 +298,22 @@ public sealed class CatalogController(
 /// <summary>Corpo de criação de serviço.</summary>
 public sealed record CreateServiceRequest(
     [Required, MaxLength(150)] string Name,
-    [Range(0.01, 1_000_000)] decimal Price,
+    [property: JsonRequired] [Range(0, 1_000_000)] decimal Price,
+    [Range(1, 1440)] int DurationMinutes,
+    [MaxLength(1000)] string? Description = null,
+    Guid? CategoryId = null,
+    bool Highlight = false);
+
+/// <summary>Dados do serviço editáveis separadamente do preço e do estado.</summary>
+public sealed record UpdateServiceRequest(
+    [Required, MaxLength(150)] string Name,
     [Range(1, 1440)] int DurationMinutes,
     [MaxLength(1000)] string? Description = null,
     Guid? CategoryId = null,
     bool Highlight = false);
 
 /// <summary>Corpo de alteração de preço.</summary>
-public sealed record ChangePriceRequest([Range(0.01, 1_000_000)] decimal Price);
+public sealed record ChangePriceRequest([property: JsonRequired] [Range(0, 1_000_000)] decimal Price);
 
 /// <summary>Corpo de criação de categoria.</summary>
 public sealed record CreateCategoryRequest(

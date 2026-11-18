@@ -110,10 +110,11 @@ public class PlanSlotConcurrencyTests : IAsyncLifetime
         {
             var tenant = ContextFor(TenantId);
             await using var context = _database.CreateContext(tenant);
+            var subscriptions = new SubscriptionRepository(context);
             var planSlots = new PlanSlotService(
-                new SubscriptionRepository(context), new PlanRepository(context),
+                subscriptions, new PlanRepository(context),
                 new ProfessionalCountReader(context));
-            var controller = new Servia.Api.Controllers.TeamController(context, tenant, planSlots);
+            var controller = new TeamController(context, tenant, planSlots, subscriptions);
             try
             {
                 var response = await controller.LinkServiceAsync(professionalId, serviceId, default);
@@ -309,8 +310,9 @@ public class PlanSlotConcurrencyTests : IAsyncLifetime
 
         await using var linkingContext = _database.CreateContext(tenant);
         var counts = new PausedCountReader(new ProfessionalCountReader(linkingContext));
+        var linkingSubscriptions = new SubscriptionRepository(linkingContext);
         var team = new TeamController(linkingContext, tenant, new PlanSlotService(
-            new SubscriptionRepository(linkingContext), new PlanRepository(linkingContext), counts));
+            linkingSubscriptions, new PlanRepository(linkingContext), counts), linkingSubscriptions);
 
         await using var catalogContext = _database.CreateContext(tenant);
         var subscriptions = new SubscriptionRepository(catalogContext);

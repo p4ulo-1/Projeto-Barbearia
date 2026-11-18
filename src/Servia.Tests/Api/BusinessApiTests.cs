@@ -6,7 +6,11 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Servia.Api.Contracts;
 using Servia.Api.Controllers;
+using Servia.Domain.Appointments;
+using Servia.Domain.Catalog;
+using Servia.Domain.Common;
 using Servia.Domain.Identity;
+using Servia.Domain.Team;
 using Servia.Domain.Tenancy;
 using Servia.Infrastructure.Identity;
 using Servia.Infrastructure.Persistence;
@@ -122,6 +126,79 @@ public class BusinessApiTests : IClassFixture<IsolatedApiFactory>
     }
 
     [Fact]
+    public async Task Catalogo_Consulta_E_Edita_Servico_Gratuito_Pelo_Contrato()
+    {
+        var categoryResponse = await SendAsync(HttpMethod.Post, "/api/v1/catalog/categories",
+            new CreateCategoryRequest("Categoria para edição"));
+        Assert.Equal(HttpStatusCode.Created, categoryResponse.StatusCode);
+        var category = (await categoryResponse.Content.ReadFromJsonAsync<CategoryResponse>())!;
+
+        var created = await SendAsync(HttpMethod.Post, "/api/v1/catalog/services",
+            new CreateServiceRequest("Consulta gratuita", 0m, 30));
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        var route = created.Headers.Location!.OriginalString;
+
+        var edited = await SendAsync(HttpMethod.Put, route,
+            new UpdateServiceRequest("Consulta editada", 45, "Descrição", category.Id, true));
+        Assert.Equal(HttpStatusCode.OK, edited.StatusCode);
+        var detail = await SendAsync(HttpMethod.Get, route);
+        Assert.Equal(HttpStatusCode.OK, detail.StatusCode);
+        var updated = (await detail.Content.ReadFromJsonAsync<ServiceResponse>())!;
+        Assert.Equal(new ServiceResponse(updated.Id, "Consulta editada", "Descrição", 0m, 45, category.Id, true, true), updated);
+
+        Assert.Equal(HttpStatusCode.OK, (await SendAsync(HttpMethod.Patch, route + "/price",
+            new ChangePriceRequest(40m))).StatusCode);
+        var free = await SendAsync(HttpMethod.Patch, route + "/price", new ChangePriceRequest(0m));
+        Assert.Equal(HttpStatusCode.OK, free.StatusCode);
+        Assert.Equal(0m, (await free.Content.ReadFromJsonAsync<ServiceResponse>())!.Price);
+        Assert.Equal(HttpStatusCode.BadRequest, (await SendAsync(HttpMethod.Patch, route + "/price",
+            new { })).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await SendAsync(HttpMethod.Put, route,
+            new UpdateServiceRequest("Duração inválida", 0))).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await SendAsync(HttpMethod.Put, route,
+            new UpdateServiceRequest(" ", 30))).StatusCode);
+        var unchanged = await SendAsync(HttpMethod.Get, route);
+        Assert.Equal(updated, await unchanged.Content.ReadFromJsonAsync<ServiceResponse>());
+    }
+
+    [Theory]
+    [InlineData(-1, 30)]
+    [InlineData(0, 0)]
+    public async Task Catalogo_Rejeita_Cadastro_Com_Preco_Ou_Duracao_Invalidos(int price, int duration)
+    {
+        var response = await SendAsync(HttpMethod.Post, "/api/v1/catalog/services",
+            new CreateServiceRequest("Inválido", price, duration));
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Catalogo_Rejeita_Preco_Omitido_E_Recursos_De_Outro_Tenant()
+    {
+        var foreignTenant = Guid.NewGuid();
+        var foreignService = Service.Create(foreignTenant, "Serviço externo", Money.Zero(), 30);
+        var foreignCategory = ServiceCategory.Create(foreignTenant, "Categoria externa");
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        db.AddRange(foreignService, foreignCategory);
+        await db.SaveChangesAsync();
+
+        const string services = "/api/v1/catalog/services";
+        var foreignRoute = $"{services}/{foreignService.Id}";
+        Assert.Equal(HttpStatusCode.BadRequest, (await SendAsync(HttpMethod.Post, services,
+            new { name = "Sem preço", durationMinutes = 30 })).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await SendAsync(HttpMethod.Post, services,
+            new CreateServiceRequest("Categoria externa", 0m, 30, CategoryId: foreignCategory.Id))).StatusCode);
+        var own = await SendAsync(HttpMethod.Post, services, new CreateServiceRequest("Serviço local", 0m, 30));
+        Assert.Equal(HttpStatusCode.Created, own.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await SendAsync(HttpMethod.Put, own.Headers.Location!.OriginalString,
+            new UpdateServiceRequest("Categoria externa", 30, CategoryId: foreignCategory.Id))).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await SendAsync(HttpMethod.Get, foreignRoute)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await SendAsync(HttpMethod.Put, foreignRoute,
+            new UpdateServiceRequest("Nome indevido", 60))).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await SendAsync(HttpMethod.Post, foreignRoute + "/activate")).StatusCode);
+    }
+
+    [Fact]
     public async Task Catalogo_Desativa_Servico_E_Responde_A_Referencias_Inexistentes()
     {
         var created = await SendAsync(HttpMethod.Post, "/api/v1/catalog/services",
@@ -150,6 +227,86 @@ public class BusinessApiTests : IClassFixture<IsolatedApiFactory>
             new CreateCategoryRequest("Cortes", 1));
 
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Equipe_Consulta_E_Edita_Cadastro_Preservando_Jornada_E_Foto()
+    {
+        var created = await SendAsync(HttpMethod.Post, "/api/v1/team/professionals",
+            new CreateProfessionalRequest("Nome original", [DayOfWeek.Tuesday],
+                new TimeOnly(9, 0), new TimeOnly(17, 0), 20, "Título original", "Biografia original",
+                IsServiceProvider: false));
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        var route = created.Headers.Location!.OriginalString;
+        var professional = (await created.Content.ReadFromJsonAsync<ProfessionalResponse>())!;
+        const string photo = "/assets/foto-existente.png";
+        using var scope = _factory.Services.CreateScope();
+        scope.ServiceProvider.GetRequiredService<ITenantContext>().SetTenant(TenantId);
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var stored = await db.Professionals.SingleAsync(item => item.Id == professional.Id);
+        stored.UpdateProfile(stored.Name, stored.Title, stored.Bio, photo);
+        await db.SaveChangesAsync();
+
+        var initial = await SendAsync(HttpMethod.Get, route);
+        Assert.Equal(HttpStatusCode.OK, initial.StatusCode);
+        Assert.Equal("Biografia original", (await initial.Content.ReadFromJsonAsync<ProfessionalDetailResponse>())!.Bio);
+
+        var edited = await SendAsync(HttpMethod.Put, route,
+            new UpdateProfessionalRequest("Nome editado", "Especialista", "Biografia editada"));
+        Assert.Equal(HttpStatusCode.OK, edited.StatusCode);
+        var expected = new ProfessionalDetailResponse(
+            professional.Id, "Nome editado", "Especialista", "Biografia editada", true, false);
+        Assert.Equal(expected, await edited.Content.ReadFromJsonAsync<ProfessionalDetailResponse>());
+        Assert.Equal(HttpStatusCode.BadRequest, (await SendAsync(HttpMethod.Put, route,
+            new UpdateProfessionalRequest(" "))).StatusCode);
+        var confirmed = await SendAsync(HttpMethod.Get, route);
+        Assert.Equal(expected, await confirmed.Content.ReadFromJsonAsync<ProfessionalDetailResponse>());
+
+        var persisted = await db.Professionals.AsNoTracking().SingleAsync(item => item.Id == professional.Id);
+        Assert.Equal(photo, persisted.PhotoUrl);
+        Assert.Equal(DayOfWeek.Tuesday, Assert.Single(persisted.Schedule.WorkDays));
+        Assert.Equal(new TimeOnly(9, 0), persisted.Schedule.StartTime);
+        Assert.Equal(new TimeOnly(17, 0), persisted.Schedule.EndTime);
+        Assert.Equal(20, persisted.Schedule.SlotIntervalMinutes);
+
+        Assert.Equal(HttpStatusCode.NoContent, (await SendAsync(HttpMethod.Post, route + "/deactivate")).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await SendAsync(HttpMethod.Post, route + "/deactivate")).StatusCode);
+        const string listRoute = "/api/v1/team/professionals?page=1&pageSize=100";
+        var activeOnly = await SendAsync(HttpMethod.Get, listRoute);
+        var all = await SendAsync(HttpMethod.Get, listRoute + "&includeInactive=true");
+        Assert.Equal(HttpStatusCode.OK, activeOnly.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, all.StatusCode);
+        Assert.DoesNotContain((await activeOnly.Content.ReadFromJsonAsync<PagedResponse<ProfessionalResponse>>())!.Items,
+            item => item.Id == professional.Id);
+        Assert.Contains((await all.Content.ReadFromJsonAsync<PagedResponse<ProfessionalResponse>>())!.Items,
+            item => item.Id == professional.Id && !item.IsActive);
+    }
+
+    [Fact]
+    public async Task Equipe_Rejeita_Edicao_Ativacao_E_Vinculos_Entre_Tenants()
+    {
+        var foreignTenant = Guid.NewGuid();
+        var foreignProfessional = Professional.Create(foreignTenant, "Pessoa externa",
+            WorkSchedule.Create([DayOfWeek.Monday], new TimeOnly(9, 0), new TimeOnly(18, 0)));
+        var foreignService = Service.Create(foreignTenant, "Serviço externo", Money.Zero(), 30);
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        db.AddRange(foreignProfessional, foreignService);
+        await db.SaveChangesAsync();
+
+        const string team = "/api/v1/team/professionals";
+        var foreignRoute = $"{team}/{foreignProfessional.Id}";
+        var owned = await SendAsync(HttpMethod.Post, team,
+            new CreateProfessionalRequest("Pessoa local", [DayOfWeek.Monday], new TimeOnly(9, 0), new TimeOnly(18, 0)));
+        Assert.Equal(HttpStatusCode.Created, owned.StatusCode);
+        var foreignLink = $"{owned.Headers.Location!.OriginalString}/services/{foreignService.Id}";
+        Assert.Equal(HttpStatusCode.NotFound, (await SendAsync(HttpMethod.Get, foreignRoute)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await SendAsync(HttpMethod.Put, foreignRoute,
+            new UpdateProfessionalRequest("Nome indevido"))).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await SendAsync(HttpMethod.Post, foreignRoute + "/activate")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await SendAsync(HttpMethod.Post, foreignRoute + "/deactivate")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await SendAsync(HttpMethod.Post, foreignLink)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await SendAsync(HttpMethod.Delete, foreignLink)).StatusCode);
     }
 
     // ---------- F13.2: equipe ----------
