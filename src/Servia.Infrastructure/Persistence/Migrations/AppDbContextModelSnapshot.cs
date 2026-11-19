@@ -2125,11 +2125,18 @@ namespace Servia.Infrastructure.Persistence.Migrations
                     b.Property<DateOnly?>("CancellationRequestedOn")
                         .HasColumnType("date");
 
+                    b.Property<DateTimeOffset?>("CheckoutDispatchedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<DateOnly?>("CheckoutFailedOn")
                         .HasColumnType("date");
 
                     b.Property<Guid?>("CheckoutKey")
                         .HasColumnType("uuid");
+
+                    b.Property<string>("CheckoutUrl")
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
 
                     b.Property<string>("ContractCurrency")
                         .HasMaxLength(3)

@@ -155,8 +155,13 @@ internal sealed class FakeSubscriptionRepository : ISubscriptionRepository
             .FirstOrDefault());
 
     public Task<Subscription?> FindCheckoutAsync(Guid tenantId, Guid checkoutKey,
-        CancellationToken cancellationToken = default) =>
+        CancellationToken cancellationToken = default, bool readOnly = false) =>
         Task.FromResult(_subscriptions.SingleOrDefault(item => item.TenantId == tenantId && item.CheckoutKey == checkoutKey));
+
+    public Task<bool> HasPendingCheckoutAsync(Guid tenantId, CancellationToken cancellationToken = default) =>
+        Task.FromResult(_subscriptions.Any(item => item.TenantId == tenantId
+            && item.Status is SubscriptionStatus.PendingCheckout or SubscriptionStatus.PendingConfirmation
+                or SubscriptionStatus.AuthorizedAwaitingFirstPayment));
 
     public Task AddAsync(Subscription subscription, CancellationToken cancellationToken = default)
     {

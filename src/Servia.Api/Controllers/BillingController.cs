@@ -25,7 +25,8 @@ namespace Servia.Api.Controllers;
 public sealed class BillingController(
     AppDbContext context,
     ITenantContext tenantContext,
-    SubscriptionService subscriptions) : ControllerBase
+    SubscriptionService subscriptions,
+    SubscriptionCheckoutService checkout) : ControllerBase
 {
     /// <summary>Consulta a assinatura vigente.</summary>
     [HttpGet("subscription")]
@@ -147,6 +148,51 @@ public sealed class BillingController(
         return Created("/api/v1/billing/subscription", ToResponse(result));
     }
 
+    [HttpPost("subscription/checkout")]
+    [RequirePermission(Permission.ManageBilling)]
+    [ProducesResponseType<CheckoutResponse>(StatusCodes.Status202Accepted)]
+    [ProducesResponseType<CheckoutResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ErrorResponse>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType<ErrorResponse>(StatusCodes.Status404NotFound)]
+    [ProducesResponseType<ErrorResponse>(StatusCodes.Status409Conflict)]
+    [ProducesResponseType<ErrorResponse>(StatusCodes.Status503ServiceUnavailable)]
+    public async Task<IActionResult> StartCheckoutAsync([FromBody] StartCheckoutRequest request, CancellationToken cancellationToken)
+    {
+        if (!checkout.IsConfigured)
+        {
+            return CheckoutUnavailable();
+        }
+        var result = await checkout.StartAsync(RequireTenant(), RequireUserId(), request.CheckoutKey,
+            request.PlanCode, cancellationToken);
+        var response = CheckoutResponse.From(result);
+        return result.State is "Active" or "Failed" ? Ok(response) : Accepted(response);
+    }
+
+    [HttpGet("subscription/checkout/{key:guid}")]
+    [RequirePermission(Permission.ManageBilling)]
+    [ProducesResponseType<CheckoutResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ErrorResponse>(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetCheckoutAsync(Guid key, CancellationToken cancellationToken) =>
+        Ok(CheckoutResponse.From(await checkout.GetAsync(RequireTenant(), key, cancellationToken)));
+
+    [HttpPost("subscription/checkout/{key:guid}/verify")]
+    [RequirePermission(Permission.ManageBilling)]
+    [ProducesResponseType<CheckoutResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ErrorResponse>(StatusCodes.Status404NotFound)]
+    [ProducesResponseType<ErrorResponse>(StatusCodes.Status409Conflict)]
+    [ProducesResponseType<ErrorResponse>(StatusCodes.Status503ServiceUnavailable)]
+    public async Task<IActionResult> VerifyCheckoutAsync(Guid key, CancellationToken cancellationToken)
+    {
+        if (!checkout.IsConfigured)
+        {
+            return CheckoutUnavailable();
+        }
+        return Ok(CheckoutResponse.From(await checkout.VerifyAsync(RequireTenant(), RequireUserId(), key, cancellationToken)));
+    }
+
+    private ObjectResult CheckoutUnavailable() => StatusCode(StatusCodes.Status503ServiceUnavailable,
+        new ErrorResponse("A contratação recorrente está temporariamente indisponível."));
+
     /// <summary>Troca de plano indisponível até habilitar confirmação financeira.</summary>
     [HttpPatch("subscription")]
     [RequirePermission(Permission.ManageBilling)]
@@ -254,6 +300,16 @@ public sealed class BillingController(
 /// <summary>Corpo de contratação ou troca de plano.</summary>
 public sealed record SubscribePlanRequest(
     [Required, MaxLength(30)] string PlanCode);
+
+public sealed record StartCheckoutRequest(Guid CheckoutKey, [Required, MaxLength(30)] string PlanCode);
+
+public sealed record CheckoutResponse(Guid CheckoutKey, Guid AttemptId, string State,
+    string? CheckoutUrl, DateOnly? ResumeOn)
+{
+    public static CheckoutResponse From(CheckoutResult result) =>
+        new(result.Attempt.CheckoutKey!.Value, result.Attempt.Id, result.State,
+            result.State == "AwaitingAuthorization" ? result.Attempt.CheckoutUrl : null, result.ResumeOn);
+}
 
 /// <summary>Representação de mudança de plano.</summary>
 public sealed record PlanChangeResponse(

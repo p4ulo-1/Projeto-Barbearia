@@ -11,13 +11,11 @@ namespace Servia.Infrastructure.Integrations;
 /// Gateway de pagamento Mercado Pago (F12.1).
 ///
 /// Implementa <see cref="IPaymentGateway"/> sobre a API REST do provedor.
-/// Todas as operações enviam chave de idempotência: uma repetição não gera
-/// cobrança duplicada (F12.4).
 ///
 /// O token de acesso vem da configuração, nunca do código. Sem token, a
 /// construção falha — melhor falhar do que cobrar em ambiente errado.
 /// </summary>
-public sealed class MercadoPagoGateway : IPaymentGateway
+public sealed partial class MercadoPagoGateway : IPaymentGateway, IRecurringCheckoutGateway
 {
     private const string ApiBaseUrl = "https://api.mercadopago.com";
 
@@ -29,6 +27,7 @@ public sealed class MercadoPagoGateway : IPaymentGateway
 
     private readonly HttpClient _httpClient;
     private readonly RetryPolicy _retryPolicy;
+    private readonly string _returnUrl;
 
     public MercadoPagoGateway(
         HttpClient httpClient,
@@ -46,6 +45,7 @@ public sealed class MercadoPagoGateway : IPaymentGateway
 
         _httpClient = httpClient;
         _retryPolicy = retryPolicy ?? new RetryPolicy();
+        _returnUrl = options.ReturnUrl;
 
         _httpClient.BaseAddress ??= new Uri(ApiBaseUrl);
         _httpClient.DefaultRequestHeaders.Authorization =
@@ -122,12 +122,8 @@ public sealed class MercadoPagoGateway : IPaymentGateway
             Content = JsonContent.Create(payload, options: JsonOptions)
         };
 
-        request.Headers.Add("X-Idempotency-Key", idempotencyKey);
-
-        var response = await _retryPolicy.ExecuteAsync(
-            token => _httpClient.SendAsync(request, token),
-            result => RetryPolicy.IsTransient((int)result.StatusCode),
-            cancellationToken);
+        // O preapproval não oferece uma garantia documentada de idempotência remota.
+        using var response = await _httpClient.SendAsync(request, cancellationToken);
 
         await EnsureSuccessAsync(response, cancellationToken);
 
@@ -283,6 +279,12 @@ public sealed class MercadoPagoOptions
 {
     /// <summary>Token de acesso. Deve vir de variável de ambiente ou cofre.</summary>
     public string AccessToken { get; set; } = string.Empty;
+
+    public string ReturnUrl { get; set; } = string.Empty;
+
+    public bool HasCheckoutReturnUrl => Uri.TryCreate(ReturnUrl, UriKind.Absolute, out var uri)
+        && uri.Scheme == Uri.UriSchemeHttps && string.IsNullOrEmpty(uri.UserInfo)
+        && string.IsNullOrEmpty(uri.Query) && string.IsNullOrEmpty(uri.Fragment);
 
     /// <summary>Segredo do webhook, usado para validar a origem.</summary>
     public string WebhookSecret { get; set; } = string.Empty;

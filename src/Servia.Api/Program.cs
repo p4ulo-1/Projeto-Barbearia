@@ -103,6 +103,7 @@ builder.Services.AddScoped<ISubscriptionRepository, SubscriptionRepository>();
 builder.Services.AddScoped<IPlanRepository, PlanRepository>();
 builder.Services.AddScoped<IProfessionalCountReader, ProfessionalCountReader>();
 builder.Services.AddScoped<SubscriptionService>();
+builder.Services.AddScoped<SubscriptionCheckoutService>();
 
 // Limite de vagas do plano, verificado atomicamente (transação serializável).
 builder.Services.AddScoped<PlanSlotService>();
@@ -225,6 +226,12 @@ if (!string.IsNullOrWhiteSpace(mercadoPagoOptions?.AccessToken))
 {
     builder.Services.AddSingleton(mercadoPagoOptions);
     builder.Services.AddHttpClient<IPaymentGateway, MercadoPagoGateway>();
+    if (mercadoPagoOptions.HasCheckoutReturnUrl)
+    {
+        builder.Services.AddHttpClient<IRecurringCheckoutGateway, MercadoPagoGateway>()
+            .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false })
+            .RemoveAllLoggers();
+    }
 }
 
 if (!string.IsNullOrWhiteSpace(metaOptions?.AccessToken))

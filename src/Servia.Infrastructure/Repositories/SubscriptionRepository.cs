@@ -29,9 +29,18 @@ public sealed class SubscriptionRepository(AppDbContext context) : ISubscription
             .FirstOrDefaultAsync(cancellationToken);
 
     public Task<Subscription?> FindCheckoutAsync(Guid tenantId, Guid checkoutKey,
-        CancellationToken cancellationToken = default) =>
-        context.Subscriptions.FirstOrDefaultAsync(item => item.TenantId == tenantId
+        CancellationToken cancellationToken = default, bool readOnly = false)
+    {
+        var query = readOnly ? context.Subscriptions.AsNoTracking() : context.Subscriptions.AsQueryable();
+        return query.FirstOrDefaultAsync(item => item.TenantId == tenantId
             && item.CheckoutKey == checkoutKey, cancellationToken);
+    }
+
+    public Task<bool> HasPendingCheckoutAsync(Guid tenantId, CancellationToken cancellationToken = default) =>
+        context.Subscriptions.AnyAsync(item => item.TenantId == tenantId
+            && (item.Status == SubscriptionStatus.PendingCheckout
+                || item.Status == SubscriptionStatus.PendingConfirmation
+                || item.Status == SubscriptionStatus.AuthorizedAwaitingFirstPayment), cancellationToken);
 
     public async Task AddAsync(
         Subscription subscription,

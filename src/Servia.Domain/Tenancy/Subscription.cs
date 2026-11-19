@@ -68,6 +68,10 @@ public sealed class Subscription : ITenantScoped
 
     public Guid? CheckoutKey { get; private set; }
 
+    public DateTimeOffset? CheckoutDispatchedAt { get; private set; }
+
+    public string? CheckoutUrl { get; private set; }
+
     public decimal? ContractPriceAmount { get; private set; }
 
     public string? ContractCurrency { get; private set; }
@@ -143,7 +147,17 @@ public sealed class Subscription : ITenantScoped
         };
     }
 
-    public void BindCheckout(string gatewaySubscriptionId)
+    public void MarkCheckoutDispatched(DateTimeOffset now)
+    {
+        if (CheckoutKey is null || Status != SubscriptionStatus.PendingCheckout || CheckoutDispatchedAt.HasValue
+            || GatewaySubscriptionId is not null)
+        {
+            throw new DomainRuleException("A tentativa já foi encaminhada para contratação.");
+        }
+        CheckoutDispatchedAt = now.ToUniversalTime();
+    }
+
+    public void BindCheckout(string gatewaySubscriptionId, string? checkoutUrl = null)
     {
         var id = NormalizeExternalId(gatewaySubscriptionId);
         if (Status != SubscriptionStatus.PendingCheckout || (GatewaySubscriptionId is not null && GatewaySubscriptionId != id))
@@ -151,6 +165,7 @@ public sealed class Subscription : ITenantScoped
             throw new DomainRuleException("A tentativa não pode receber este identificador externo.");
         }
         GatewaySubscriptionId = id;
+        CheckoutUrl = checkoutUrl ?? CheckoutUrl;
     }
 
     public void AwaitConfirmation()
@@ -170,6 +185,7 @@ public sealed class Subscription : ITenantScoped
             throw new DomainRuleException("A autorização exige uma tentativa pendente.");
         }
         Status = SubscriptionStatus.AuthorizedAwaitingFirstPayment;
+        CheckoutUrl = null;
     }
 
     /// <summary>Consome evidência já verificada pelo backend. A capacidade deve ser lida na mesma transação.</summary>
@@ -198,6 +214,7 @@ public sealed class Subscription : ITenantScoped
             throw new DomainRuleException("Somente uma tentativa pendente pode ser encerrada por falha.");
         }
         CheckoutFailedOn = today;
+        CheckoutUrl = null;
         Status = SubscriptionStatus.Cancelled;
     }
 

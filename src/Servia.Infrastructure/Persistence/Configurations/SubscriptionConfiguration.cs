@@ -47,6 +47,7 @@ internal sealed class SubscriptionConfiguration : IEntityTypeConfiguration<Subsc
         builder.Property(subscription => subscription.FirstPaymentId).HasMaxLength(100);
         builder.Property(subscription => subscription.ContractPriceAmount).HasPrecision(18, 2);
         builder.Property(subscription => subscription.ContractCurrency).HasMaxLength(3);
+        builder.Property(subscription => subscription.CheckoutUrl).HasMaxLength(2048);
         builder.Property<uint>("Version").IsRowVersion();
 
         builder.HasIndex(subscription => new { subscription.TenantId, subscription.Status });

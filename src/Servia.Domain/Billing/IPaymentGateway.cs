@@ -9,8 +9,8 @@ namespace Servia.Domain.Billing;
 /// detalhes do Mercado Pago (ADR-005). Trocar de provedor é implementar este
 /// contrato, sem tocar na aplicação.
 ///
-/// Todas as operações são <b>idempotentes</b> por chave de idempotência: uma
-/// repetição de webhook ou de requisição não gera cobrança duplicada (F4.4).
+/// Operações de pagamentos usam a chave de idempotência quando suportada
+/// pelo provedor. A contratação recorrente coordena a idempotência localmente.
 /// </summary>
 public interface IPaymentGateway
 {
@@ -27,7 +27,8 @@ public interface IPaymentGateway
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Cria uma assinatura recorrente no gateway (F4.5).
+    /// Cria uma assinatura recorrente no gateway (F4.5). A assinatura legada
+    /// deste método não garante idempotência no endpoint de preapproval.
     /// </summary>
     Task<GatewaySubscription> CreateSubscriptionAsync(
         string gatewayCustomerId,

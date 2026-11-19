@@ -17,7 +17,9 @@ public interface ISubscriptionRepository
         CancellationToken cancellationToken = default);
 
     Task<Subscription?> FindCheckoutAsync(Guid tenantId, Guid checkoutKey,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default, bool readOnly = false);
+
+    Task<bool> HasPendingCheckoutAsync(Guid tenantId, CancellationToken cancellationToken = default);
 
     /// <summary>Registra uma nova assinatura.</summary>
     Task AddAsync(Subscription subscription, CancellationToken cancellationToken = default);
