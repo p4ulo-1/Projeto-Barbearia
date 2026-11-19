@@ -4,8 +4,8 @@ namespace Servia.Domain.Appointments;
 
 /// <summary>
 /// Jornada semanal de um profissional.
-/// Protege as invariantes de jornada: ao menos um dia de trabalho,
-/// início estritamente anterior ao fim e granularidade de horário válida.
+/// Mantém um intervalo de trabalho e uma granularidade válidos. Uma
+/// jornada configurada sem dias de trabalho representa uma semana fechada.
 /// </summary>
 public sealed class WorkSchedule
 {
@@ -55,13 +55,28 @@ public sealed class WorkSchedule
         TimeOnly endTime,
         int slotIntervalMinutes = 30)
     {
-        ArgumentNullException.ThrowIfNull(workDays);
-
-        var days = workDays.Distinct().ToArray();
-
-        if (days.Length == 0)
+        var schedule = Configure(workDays, startTime, endTime, slotIntervalMinutes);
+        if (schedule.WorkDays.Count == 0)
         {
             throw new DomainRuleException("A jornada deve possuir ao menos um dia de trabalho.");
+        }
+
+        return schedule;
+    }
+
+    /// <summary>Configura a jornada existente, incluindo a opção de fechar todos os dias.</summary>
+    public static WorkSchedule Configure(
+        IEnumerable<DayOfWeek> workDays,
+        TimeOnly startTime,
+        TimeOnly endTime,
+        int slotIntervalMinutes = 30)
+    {
+        ArgumentNullException.ThrowIfNull(workDays);
+
+        var days = workDays.ToHashSet();
+        if (days.Any(day => !Enum.IsDefined(day)))
+        {
+            throw new DomainRuleException("A jornada contém um dia da semana inválido.");
         }
 
         if (startTime >= endTime)
@@ -90,7 +105,7 @@ public sealed class WorkSchedule
     /// </summary>
     public bool FitsWithinSchedule(TimeOnly time, int durationMinutes)
     {
-        if (durationMinutes <= 0)
+        if (durationMinutes <= 0 || !IsConfiguredForBooking)
         {
             return false;
         }
@@ -105,7 +120,7 @@ public sealed class WorkSchedule
     /// </summary>
     public IEnumerable<TimeOnly> GenerateSlots(int durationMinutes)
     {
-        if (durationMinutes <= 0)
+        if (durationMinutes <= 0 || !IsConfiguredForBooking)
         {
             yield break;
         }

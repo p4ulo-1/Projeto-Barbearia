@@ -147,6 +147,69 @@ public class PlanLimitOnLinkTests : IClassFixture<IsolatedApiFactory>
             body: null);
 
     [Fact]
+    public async Task Jornada_Vazia_Libera_Vaga_E_Reabertura_Acima_Do_Limite_Faz_Rollback()
+    {
+        var first = await CreateProfessionalAsync("Primeiro");
+        var second = await CreateProfessionalAsync("Segundo");
+        var serviceId = await CreateServiceAsync("Serviço");
+        var route = $"/api/v1/team/professionals/{first}/schedule";
+        var closed = new UpdateProfessionalScheduleRequest([], new TimeOnly(9, 0), new TimeOnly(18, 0));
+        var reopened = new UpdateProfessionalScheduleRequest(
+            [DayOfWeek.Friday], new TimeOnly(10, 0), new TimeOnly(15, 0), 20);
+
+        Assert.Equal(HttpStatusCode.NoContent, (await LinkAsync(first, serviceId)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await SendAsync(HttpMethod.Put, route, closed)).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await LinkAsync(second, serviceId)).StatusCode);
+
+        var rejected = await SendAsync(HttpMethod.Put, route, reopened);
+        Assert.Equal(HttpStatusCode.BadRequest, rejected.StatusCode);
+        Assert.Contains("upgrade", (await rejected.Content.ReadFromJsonAsync<ErrorResponse>())!.Message);
+        var read = await SendAsync(HttpMethod.Get, route);
+        Assert.Equal(HttpStatusCode.OK, read.StatusCode);
+        var unchanged = (await read.Content.ReadFromJsonAsync<ProfessionalScheduleResponse>())!;
+        Assert.Empty(unchanged.WorkDays);
+        Assert.Equal(closed.StartTime, unchanged.StartTime);
+        Assert.Equal(closed.EndTime, unchanged.EndTime);
+        Assert.Equal(closed.SlotIntervalMinutes, unchanged.SlotIntervalMinutes);
+
+        var secondRoute = $"/api/v1/team/professionals/{second}/schedule";
+        Assert.Equal(HttpStatusCode.OK, (await SendAsync(HttpMethod.Put, secondRoute, closed)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await SendAsync(HttpMethod.Put, route, reopened)).StatusCode);
+        read = await SendAsync(HttpMethod.Get, route);
+        var restored = (await read.Content.ReadFromJsonAsync<ProfessionalScheduleResponse>())!;
+        Assert.Equal(DayOfWeek.Friday, Assert.Single(restored.WorkDays));
+        Assert.Equal(reopened.StartTime, restored.StartTime);
+        Assert.Equal(reopened.EndTime, restored.EndTime);
+        Assert.Equal(reopened.SlotIntervalMinutes, restored.SlotIntervalMinutes);
+    }
+
+    [Fact]
+    public async Task Jornada_Reaberta_E_Associacao_Concorrente_Disputam_A_Mesma_Vaga()
+    {
+        var first = await CreateProfessionalAsync("Primeiro");
+        var second = await CreateProfessionalAsync("Segundo");
+        var serviceId = await CreateServiceAsync("Serviço");
+        var route = $"/api/v1/team/professionals/{first}/schedule";
+        var start = new TimeOnly(9, 0);
+        var end = new TimeOnly(18, 0);
+        Assert.Equal(HttpStatusCode.OK, (await SendAsync(HttpMethod.Put, route,
+            new UpdateProfessionalScheduleRequest([], start, end))).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await LinkAsync(first, serviceId)).StatusCode);
+
+        var results = await Task.WhenAll(
+            SendAsync(HttpMethod.Put, route, new UpdateProfessionalScheduleRequest([DayOfWeek.Monday], start, end)),
+            LinkAsync(second, serviceId));
+        Assert.Single(results, result => result.IsSuccessStatusCode);
+        var rejected = Assert.Single(results, result => !result.IsSuccessStatusCode);
+        Assert.True(rejected.StatusCode is HttpStatusCode.BadRequest or HttpStatusCode.Conflict);
+
+        using var scope = _factory.Services.CreateScope();
+        scope.ServiceProvider.GetRequiredService<ITenantContext>().SetTenant(TenantId);
+        var counts = scope.ServiceProvider.GetRequiredService<IProfessionalCountReader>();
+        Assert.Equal(1, await counts.CountEligibleAsync(TenantId));
+    }
+
+    [Fact]
     public async Task Catalogo_Reativacao_Respeita_O_Limite_E_Preserva_O_Vinculo()
     {
         var first = await CreateProfessionalAsync("Primeiro");

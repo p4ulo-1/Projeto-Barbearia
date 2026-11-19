@@ -25,6 +25,8 @@ public sealed class AvailabilityRepository(AppDbContext context) : IAvailability
         Guid professionalId,
         CancellationToken cancellationToken = default) =>
         await context.Professionals
+            // A reserva pública pode ter carregado outra versão antes da transação.
+            .AsNoTracking()
             .Where(professional => professional.TenantId == tenantId && professional.Id == professionalId)
             .FirstOrDefaultAsync(cancellationToken);
 
@@ -33,6 +35,7 @@ public sealed class AvailabilityRepository(AppDbContext context) : IAvailability
         Guid serviceId,
         CancellationToken cancellationToken = default) =>
         await context.Services
+            .AsNoTracking()
             .Where(service => service.TenantId == tenantId && service.Id == serviceId)
             .FirstOrDefaultAsync(cancellationToken);
 

@@ -8,6 +8,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Servia.Api.Contracts;
 using Servia.Api.Controllers;
 using Servia.Api.Middleware;
+using Servia.Application.Appointments;
 using Servia.Domain.Appointments;
 using Servia.Domain.Catalog;
 using Servia.Domain.Common;
@@ -261,6 +262,41 @@ public class AppointmentsEndpointTests : IClassFixture<IsolatedApiFactory>
         message.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token ?? _accessToken);
         if (body is not null) message.Content = JsonContent.Create(body);
         return await _client.SendAsync(message);
+    }
+
+    [Fact]
+    public async Task Reserva_Revalida_Jornada_Alterada_Depois_Da_Leitura_Inicial()
+    {
+        await using var scope = _factory.Services.CreateAsyncScope();
+        scope.ServiceProvider.GetRequiredService<ITenantContext>().SetTenant(TenantId);
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        // A reserva pública carrega o profissional no contexto antes da transação.
+        var original = (await db.Professionals.SingleAsync(item => item.Id == _professionalId)).Schedule;
+        var scheduleRoute = $"/api/v1/team/professionals/{_professionalId}/schedule";
+        var date = new DateOnly(2027, 1, 4);
+        var time = new TimeOnly(10, 0);
+        var customer = Customer.Create(TenantId, "Cliente da tentativa", "21999998880", now: DateTimeOffset.UtcNow);
+
+        var closed = new UpdateProfessionalScheduleRequest([], original.StartTime, original.EndTime,
+            original.SlotIntervalMinutes);
+        Assert.Equal(HttpStatusCode.OK, (await AgendaAsync(HttpMethod.Put, scheduleRoute, closed)).StatusCode);
+        try
+        {
+            var appointments = scope.ServiceProvider.GetRequiredService<AppointmentService>();
+            var result = await appointments.CreateAsync(
+                new CreateAppointmentCommand(TenantId, customer.Id, _serviceId, _professionalId, date, time), customer);
+
+            Assert.False(result.IsSuccess, "A reserva usou a jornada antiga após o fechamento ter sido confirmado.");
+            Assert.Equal(AppointmentFailureKind.Invalid, result.Failure!.Kind);
+            Assert.False(await db.Appointments.AnyAsync(item => item.ProfessionalId == _professionalId && item.Date == date));
+            Assert.False(await db.Customers.AnyAsync(item => item.Id == customer.Id));
+        }
+        finally
+        {
+            var restore = new UpdateProfessionalScheduleRequest(original.WorkDays.ToArray(), original.StartTime,
+                original.EndTime, original.SlotIntervalMinutes);
+            Assert.Equal(HttpStatusCode.OK, (await AgendaAsync(HttpMethod.Put, scheduleRoute, restore)).StatusCode);
+        }
     }
 
     [Fact]

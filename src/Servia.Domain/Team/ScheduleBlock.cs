@@ -74,8 +74,8 @@ public sealed class ScheduleBlock : ITenantScoped
             Guid.NewGuid(),
             tenantId,
             professionalId,
-            start,
-            end,
+            start.ToUniversalTime(),
+            end.ToUniversalTime(),
             string.IsNullOrWhiteSpace(reason) ? null : reason.Trim());
     }
 

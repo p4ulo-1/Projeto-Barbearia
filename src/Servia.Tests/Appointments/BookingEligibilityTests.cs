@@ -56,22 +56,18 @@ public sealed class BookingEligibilityTests
     }
 
     [Fact]
-    public void Jornada_Sem_Dia_De_Trabalho_Nao_Eh_Construivel()
+    public void Jornada_Vazia_So_Eh_Permitida_Na_Configuracao_E_Nao_Ocupa_Vaga()
     {
-        // O cenário "profissional sem dia de trabalho" não é representável:
-        // WorkSchedule.Create rejeita jornada vazia. A invariante é garantida
-        // na construção, e o predicado de elegibilidade só precisa verificar
-        // que a jornada existe com ao menos um dia.
         var exception = Assert.Throws<DomainRuleException>(() =>
             WorkSchedule.Create([], new TimeOnly(9, 0), new TimeOnly(18, 0)));
 
         Assert.Contains("ao menos um dia", exception.Message);
 
-        // Um profissional construído tem sempre jornada válida e é elegível.
         var professional = ProfessionalOn();
-
-        Assert.NotEmpty(professional.Schedule.WorkDays);
-        Assert.True(BookingEligibility.IsOperationallyEligible(professional));
+        professional.UpdateSchedule(WorkSchedule.Configure([], new TimeOnly(9, 0), new TimeOnly(18, 0)));
+        Assert.False(BookingEligibility.IsOperationallyEligible(professional));
+        Assert.False(BookingEligibility.OccupiesPlanSlot(professional, hasBookableLinkedService: true));
+        Assert.Empty(professional.Schedule.GenerateSlots(30));
     }
 
     // ---------- Execução de serviço ----------

@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -282,10 +283,50 @@ public sealed class TeamController(
         return Ok(serviceIds);
     }
 
+    /// <summary>Consulta a jornada semanal do profissional.</summary>
+    [HttpGet("professionals/{id:guid}/schedule")]
+    [RequirePermission(Permission.ViewTeamAgenda)]
+    [ProducesResponseType<ProfessionalScheduleResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ErrorResponse>(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetScheduleAsync(Guid id, CancellationToken cancellationToken)
+    {
+        var professional = await FindProfessionalAsync(id, cancellationToken);
+        return Ok(ProfessionalScheduleResponse.From(professional.Schedule));
+    }
+
+    /// <summary>Substitui a jornada semanal do profissional.</summary>
+    [HttpPut("professionals/{id:guid}/schedule")]
+    [RequirePermission(Permission.ManageTeam)]
+    [ProducesResponseType<ProfessionalScheduleResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ErrorResponse>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType<ErrorResponse>(StatusCodes.Status404NotFound)]
+    [ProducesResponseType<ErrorResponse>(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> UpdateScheduleAsync(
+        Guid id,
+        [FromBody] UpdateProfessionalScheduleRequest request,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var schedule = WorkSchedule.Configure(
+            request.WorkDays, request.StartTime, request.EndTime, request.SlotIntervalMinutes);
+
+        await planSlots.ExecuteWithSlotCheckAsync(RequireTenant(), async token =>
+        {
+            var professional = await FindProfessionalAsync(id, token);
+            professional.UpdateSchedule(schedule);
+            await context.SaveChangesAsync(token);
+            return true;
+        }, cancellationToken);
+
+        return Ok(ProfessionalScheduleResponse.From(schedule));
+    }
+
     /// <summary>Bloqueia um período na agenda do profissional.</summary>
     [HttpPost("professionals/{id:guid}/blocks")]
     [RequirePermission(Permission.ManageTeam)]
     [ProducesResponseType<BlockResponse>(StatusCodes.Status201Created)]
+    [ProducesResponseType<ErrorResponse>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType<ErrorResponse>(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> CreateBlockAsync(
         Guid id,
         [FromBody] CreateBlockRequest request,
@@ -296,12 +337,50 @@ public sealed class TeamController(
         var block = ScheduleBlock.Create(
             RequireTenant(), id, request.Start, request.End, request.Reason);
 
+        if (!await context.Professionals.AnyAsync(item => item.Id == id, cancellationToken))
+        {
+            throw NotFoundException.For("Profissional", id);
+        }
+
         context.ScheduleBlocks.Add(block);
         await context.SaveChangesAsync(cancellationToken);
 
         return Created(
             $"/api/v1/team/professionals/{id}/blocks/{block.Id}",
             new BlockResponse(block.Id, block.Start, block.End, block.Reason));
+    }
+
+    /// <summary>Consulta um bloqueio do profissional.</summary>
+    [HttpGet("professionals/{id:guid}/blocks/{blockId:guid}")]
+    [RequirePermission(Permission.ViewTeamAgenda)]
+    [ProducesResponseType<BlockResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ErrorResponse>(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetBlockAsync(Guid id, Guid blockId, CancellationToken cancellationToken)
+    {
+        var block = await context.ScheduleBlocks.AsNoTracking()
+            .SingleOrDefaultAsync(item => item.ProfessionalId == id && item.Id == blockId, cancellationToken)
+            ?? throw NotFoundException.For("Bloqueio", blockId);
+
+        return Ok(new BlockResponse(block.Id, block.Start, block.End, block.Reason));
+    }
+
+    /// <summary>Remove um bloqueio do profissional.</summary>
+    [HttpDelete("professionals/{id:guid}/blocks/{blockId:guid}")]
+    [RequirePermission(Permission.ManageTeam)]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType<ErrorResponse>(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> DeleteBlockAsync(Guid id, Guid blockId, CancellationToken cancellationToken)
+    {
+        var deleted = await context.ScheduleBlocks
+            .Where(item => item.ProfessionalId == id && item.Id == blockId)
+            .ExecuteDeleteAsync(cancellationToken);
+
+        if (deleted == 0)
+        {
+            throw NotFoundException.For("Bloqueio", blockId);
+        }
+
+        return NoContent();
     }
 
     /// <summary>Lista os bloqueios de um profissional.</summary>
@@ -363,10 +442,25 @@ public sealed record UpdateProfessionalRequest(
 /// <summary>Corpo de definição da atuação profissional.</summary>
 public sealed record SetServiceProviderRequest(bool IsServiceProvider);
 
+/// <summary>Dias de trabalho, intervalo diário e granularidade da jornada.</summary>
+public sealed record UpdateProfessionalScheduleRequest(
+    [Required] IReadOnlyList<DayOfWeek> WorkDays,
+    [property: JsonRequired] TimeOnly StartTime,
+    [property: JsonRequired] TimeOnly EndTime,
+    [Range(WorkSchedule.MinSlotIntervalMinutes, WorkSchedule.MaxSlotIntervalMinutes)] int SlotIntervalMinutes = 30);
+
+/// <summary>Representação da jornada individual.</summary>
+public sealed record ProfessionalScheduleResponse(
+    IReadOnlyList<DayOfWeek> WorkDays, TimeOnly StartTime, TimeOnly EndTime, int SlotIntervalMinutes)
+{
+    public static ProfessionalScheduleResponse From(WorkSchedule schedule) =>
+        new(schedule.WorkDays.Order().ToArray(), schedule.StartTime, schedule.EndTime, schedule.SlotIntervalMinutes);
+}
+
 /// <summary>Corpo de criação de bloqueio.</summary>
 public sealed record CreateBlockRequest(
-    DateTimeOffset Start,
-    DateTimeOffset End,
+    [property: JsonRequired] DateTimeOffset Start,
+    [property: JsonRequired] DateTimeOffset End,
     [MaxLength(300)] string? Reason = null);
 
 /// <summary>Representação de profissional.</summary>

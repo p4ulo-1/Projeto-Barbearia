@@ -309,6 +309,98 @@ public class BusinessApiTests : IClassFixture<IsolatedApiFactory>
         Assert.Equal(HttpStatusCode.NotFound, (await SendAsync(HttpMethod.Delete, foreignLink)).StatusCode);
     }
 
+    [Fact]
+    public async Task Jornada_Valida_Dias_Intervalos_E_Tenant()
+    {
+        var created = await SendAsync(HttpMethod.Post, "/api/v1/team/professionals",
+            new CreateProfessionalRequest("Jornada", [DayOfWeek.Monday], new TimeOnly(8, 0), new TimeOnly(17, 0)));
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        var route = created.Headers.Location!.OriginalString + "/schedule";
+        var updated = new UpdateProfessionalScheduleRequest(
+            [DayOfWeek.Wednesday], new TimeOnly(9, 0), new TimeOnly(13, 0), 15);
+        Assert.Equal(HttpStatusCode.OK, (await SendAsync(HttpMethod.Put, route, updated)).StatusCode);
+
+        foreach (var invalid in new[]
+        {
+            updated with { WorkDays = [(DayOfWeek)8] },
+            updated with { EndTime = updated.StartTime },
+            updated with { SlotIntervalMinutes = 4 },
+            updated with { SlotIntervalMinutes = 121 }
+        })
+        {
+            Assert.Equal(HttpStatusCode.BadRequest, (await SendAsync(HttpMethod.Put, route, invalid)).StatusCode);
+        }
+        Assert.Equal(HttpStatusCode.BadRequest, (await SendAsync(HttpMethod.Put, route,
+            new { workDays = new[] { 1 }, endTime = "18:00:00" })).StatusCode);
+
+        var response = await SendAsync(HttpMethod.Get, route);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var schedule = (await response.Content.ReadFromJsonAsync<ProfessionalScheduleResponse>())!;
+        Assert.Equal(updated.WorkDays.ToArray(), schedule.WorkDays.ToArray());
+        Assert.Equal(updated.StartTime, schedule.StartTime);
+        Assert.Equal(updated.EndTime, schedule.EndTime);
+        Assert.Equal(updated.SlotIntervalMinutes, schedule.SlotIntervalMinutes);
+
+        var foreign = Professional.Create(Guid.NewGuid(), "Jornada externa",
+            WorkSchedule.Create([DayOfWeek.Monday], new TimeOnly(8, 0), new TimeOnly(17, 0)));
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        db.Professionals.Add(foreign);
+        await db.SaveChangesAsync();
+        var foreignRoute = $"/api/v1/team/professionals/{foreign.Id}/schedule";
+        Assert.Equal(HttpStatusCode.NotFound, (await SendAsync(HttpMethod.Get, foreignRoute)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await SendAsync(HttpMethod.Put, foreignRoute, updated)).StatusCode);
+    }
+
+    [Fact]
+    public async Task Bloqueios_Cadastra_Consulta_Remove_E_Restringe_Tenant_E_Profissional()
+    {
+        var created = await SendAsync(HttpMethod.Post, "/api/v1/team/professionals",
+            new CreateProfessionalRequest("Bloqueios", [DayOfWeek.Monday], new TimeOnly(8, 0), new TimeOnly(17, 0)));
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        var route = created.Headers.Location!.OriginalString + "/blocks";
+        var start = new DateTimeOffset(2026, 12, 7, 9, 0, 0, TimeSpan.FromHours(-3));
+        var request = new CreateBlockRequest(start, start.AddHours(1), "  Compromisso  ");
+        Assert.Equal(HttpStatusCode.BadRequest, (await SendAsync(HttpMethod.Post, route,
+            request with { End = start })).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await SendAsync(HttpMethod.Post, route,
+            new { end = request.End })).StatusCode);
+
+        var blockResponse = await SendAsync(HttpMethod.Post, route, request);
+        Assert.Equal(HttpStatusCode.Created, blockResponse.StatusCode);
+        var detailRoute = blockResponse.Headers.Location!.OriginalString;
+        var found = await SendAsync(HttpMethod.Get, detailRoute);
+        Assert.Equal(HttpStatusCode.OK, found.StatusCode);
+        var block = (await found.Content.ReadFromJsonAsync<BlockResponse>())!;
+        Assert.Equal(start, block.Start);
+        Assert.Equal(TimeSpan.Zero, block.Start.Offset);
+        Assert.Equal(request.End, block.End);
+        Assert.Equal("Compromisso", block.Reason);
+
+        var foreign = Professional.Create(Guid.NewGuid(), "Bloqueio externo",
+            WorkSchedule.Create([DayOfWeek.Monday], new TimeOnly(8, 0), new TimeOnly(17, 0)));
+        var foreignBlock = ScheduleBlock.Create(foreign.TenantId, foreign.Id, start, start.AddHours(1));
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        db.AddRange(foreign, foreignBlock);
+        await db.SaveChangesAsync();
+
+        var foreignRoute = $"/api/v1/team/professionals/{foreign.Id}/blocks";
+        Assert.Equal(HttpStatusCode.NotFound, (await SendAsync(HttpMethod.Post, foreignRoute, request)).StatusCode);
+        var foreignList = await SendAsync(HttpMethod.Get, foreignRoute);
+        Assert.Empty((await foreignList.Content.ReadFromJsonAsync<BlockResponse[]>())!);
+        Assert.Equal(HttpStatusCode.NotFound, (await SendAsync(HttpMethod.Get, $"{foreignRoute}/{foreignBlock.Id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await SendAsync(HttpMethod.Delete, $"{foreignRoute}/{foreignBlock.Id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await SendAsync(HttpMethod.Delete, $"{foreignRoute}/{block.Id}")).StatusCode);
+
+        var listed = await SendAsync(HttpMethod.Get, route);
+        Assert.Equal(block, Assert.Single((await listed.Content.ReadFromJsonAsync<BlockResponse[]>())!));
+        Assert.Equal(HttpStatusCode.NoContent, (await SendAsync(HttpMethod.Delete, detailRoute)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await SendAsync(HttpMethod.Get, detailRoute)).StatusCode);
+        listed = await SendAsync(HttpMethod.Get, route);
+        Assert.Empty((await listed.Content.ReadFromJsonAsync<BlockResponse[]>())!);
+    }
+
     // ---------- F13.2: equipe ----------
 
     [Fact]
