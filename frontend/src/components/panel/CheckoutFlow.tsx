@@ -78,6 +78,10 @@ export function CheckoutFlow({
   const attempt = result && current.data?.checkoutKey === result.checkoutKey
     ? { ...result, planCode: current.data.planCode ?? result.planCode }
     : result ?? current.data;
+  const financialState = subscription?.firstPaymentStatus;
+  const displayState = attempt && ["Trialing", "AwaitingFinancialConfirmation", "FirstPaymentRejected", "Active"].includes(attempt.state)
+    ? ({ Scheduled: "Trialing", Pending: "AwaitingFinancialConfirmation", Rejected: "FirstPaymentRejected", Paid: "Active" } as Record<string, string>)[financialState ?? ""] ?? attempt.state
+    : attempt?.state;
   const startAllowed =
     !attempt &&
     !uncertain &&
@@ -116,11 +120,11 @@ export function CheckoutFlow({
             {attempt && (
               <>
                 <p>
-                  {messages[attempt.state] ??
+                  {messages[displayState ?? attempt.state] ??
                     "A contratação está em verificação. Consulte novamente o estado."}
                 </p>
                 {attempt.planCode && <p>Plano da tentativa: {attempt.planCode}.</p>}
-                {attempt.state === "Trialing" && attempt.trialStartsAt && attempt.trialEndsAt && (
+                {displayState === "Trialing" && attempt.trialStartsAt && attempt.trialEndsAt && (
                   <p>
                     Trial confirmado: {fmtDateTime(attempt.trialStartsAt)} até{" "}
                     {fmtDateTime(attempt.trialEndsAt)}. Primeira cobrança prevista para o

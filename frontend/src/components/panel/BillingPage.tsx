@@ -109,6 +109,16 @@ function BillingDetails() {
                     {data.nextChargeAtUtc && (
                       <p>Próxima cobrança prevista: {fmtDateTime(data.nextChargeAtUtc)}.</p>
                     )}
+                    {data.firstPaymentStatus && (
+                      <p>
+                        {({
+                          Scheduled: "Primeira cobrança programada para o fim do trial.",
+                          Pending: "Primeira cobrança aguardando confirmação.",
+                          Rejected: "A primeira cobrança foi recusada. Aguardando regularização.",
+                          Paid: "Primeira cobrança paga e confirmada.",
+                        })[data.firstPaymentStatus]}
+                      </p>
+                    )}
                     {(data.status === "PastDue" ||
                       data.billingAccess === "NoNewBookings" ||
                       (data.status === "Active" && data.billingAccess === "OwnerReadOnly")) && (

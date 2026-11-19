@@ -103,12 +103,14 @@ public sealed class SubscriptionReconciliationIntegrationTests(CheckoutApiFactor
         gateway.Now = gateway.CycleDue = firstDue;
         gateway.Rejected = true;
         var rejected = await VerifyAsync(id, "FirstPaymentRejected");
+        Assert.Equal("Rejected", (await ReadSubscriptionAsync(tenant)).FirstPaymentStatus);
         gateway.Now = rejected.NextCheckAt;
         gateway.Rejected = false;
         gateway.Approved = true;
         await VerifyAsync(id, "Active");
         var paid = await ReadSubscriptionAsync(tenant);
         Assert.Equal("PRO", paid.PlanCode);
+        Assert.Equal("Paid", paid.FirstPaymentStatus);
         var renewalDue = paid.NextChargeAtUtc!.Value;
 
         gateway.Now = gateway.CycleDue = renewalDue;

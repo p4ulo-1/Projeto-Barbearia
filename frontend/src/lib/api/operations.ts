@@ -117,6 +117,7 @@ export interface Subscription {
   pastDueSince?: string | null;
   cancellationRequested?: boolean;
   billingAccess?: string | null;
+  firstPaymentStatus?: "Scheduled" | "Pending" | "Rejected" | "Paid" | null;
 }
 export interface Checkout {
   checkoutKey: string;

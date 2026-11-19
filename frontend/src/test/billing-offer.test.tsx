@@ -137,6 +137,64 @@ describe("oferta e seleção de planos", () => {
 });
 
 describe("contratação e acompanhamento", () => {
+  it("recupera cobrança programada, pendente, recusada e paga em novas consultas e sessões", async () => {
+    const base = {
+      planCode: "PRO", planName: "Pro", status: "AuthorizedAwaitingFirstPayment",
+      periodStart: "2026-11-01", periodEnd: "2026-11-15", trialEndsAt: "2026-11-15",
+    };
+    mocks.subscription.mockResolvedValue({ ...base, firstPaymentStatus: "Scheduled" });
+    let view = show(<BillingPage />);
+    expect(await screen.findByText(/Primeira cobrança programada/)).toBeInTheDocument();
+    view.unmount();
+
+    mocks.subscription.mockResolvedValue({ ...base, firstPaymentStatus: "Pending" });
+    view = show(<BillingPage />);
+    expect(await screen.findByText(/Primeira cobrança aguardando confirmação/)).toBeInTheDocument();
+    expect(screen.queryByText(/primeira cobrança foi recusada/i)).not.toBeInTheDocument();
+    view.unmount();
+
+    mocks.subscription.mockResolvedValue({ ...base, firstPaymentStatus: "Rejected" });
+    view = show(<BillingPage />);
+    expect(await screen.findByText(/primeira cobrança foi recusada/i)).toBeInTheDocument();
+    view.unmount();
+    // Uma nova árvore e um novo QueryClient simulam recarga e nova sessão.
+    view = show(<BillingPage />);
+    expect(await screen.findByText(/primeira cobrança foi recusada/i)).toBeInTheDocument();
+    expect(screen.queryByText(/cobrança paga e confirmada/i)).not.toBeInTheDocument();
+    view.unmount();
+
+    mocks.subscription.mockResolvedValue({ ...base, status: "Active", firstPaymentStatus: "Paid" });
+    show(<BillingPage />);
+    expect(await screen.findByText(/Primeira cobrança paga e confirmada/)).toBeInTheDocument();
+    expect(screen.queryByText(/primeira cobrança foi recusada/i)).not.toBeInTheDocument();
+  });
+
+  it("não inventa situação financeira se a consulta falhar", async () => {
+    mocks.subscription.mockRejectedValue(new Error("Consulta indisponível"));
+    show(<BillingPage />);
+    expect(await screen.findByText(/Consulta indisponível/)).toBeInTheDocument();
+    expect(screen.queryByText(/cobrança paga e confirmada/i)).not.toBeInTheDocument();
+  });
+
+  it("atualiza a recusa após regularização confirmada na API", async () => {
+    const subscription = {
+      planCode: "PRO", planName: "Pro", status: "AuthorizedAwaitingFirstPayment",
+      periodStart: "2026-11-01", periodEnd: "2026-11-15", trialEndsAt: "2026-11-15",
+      firstPaymentStatus: "Rejected",
+    };
+    mocks.subscription.mockResolvedValue(subscription);
+    mocks.currentCheckout.mockResolvedValue({ checkoutKey: "key", attemptId: "attempt", state: "FirstPaymentRejected" });
+    mocks.verifySubscription.mockImplementation(async () => {
+      mocks.subscription.mockResolvedValue({ ...subscription, status: "Active", firstPaymentStatus: "Paid" });
+      return { state: "Renewed", status: "Active" };
+    });
+    show(<BillingPage />);
+    expect((await screen.findAllByText(/primeira cobrança foi recusada/i)).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: "Atualizar situação financeira" }));
+    expect(await screen.findByText(/Primeira cobrança paga e confirmada/)).toBeInTheDocument();
+    expect(screen.queryByText(/primeira cobrança foi recusada/i)).not.toBeInTheDocument();
+  });
+
   const attempt = {
     checkoutKey: "key-1",
     attemptId: "attempt-1",

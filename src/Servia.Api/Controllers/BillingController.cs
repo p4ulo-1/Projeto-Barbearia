@@ -28,7 +28,8 @@ public sealed class BillingController(
     SubscriptionService subscriptions,
     SubscriptionCheckoutService checkout,
     SubscriptionLifecycleService lifecycle,
-    SubscriptionAccessService subscriptionAccess) : ControllerBase
+    SubscriptionAccessService subscriptionAccess,
+    TimeProvider clock) : ControllerBase
 {
     /// <summary>Consulta a assinatura vigente.</summary>
     [HttpGet("subscription")]
@@ -48,6 +49,26 @@ public sealed class BillingController(
         var plan = await context.Plans
             .FirstOrDefaultAsync(item => item.Id == subscription.EffectivePlanId, cancellationToken);
 
+        string? firstPaymentStatus = null;
+        if (subscription.TrialStartedAtUtc.HasValue && subscription.TrialEndsAtUtc is { } firstDue
+            && (subscription.Status != SubscriptionStatus.Cancelled || subscription.FirstPaymentId is not null))
+        {
+            if (subscription.FirstPaymentId is not null)
+            {
+                firstPaymentStatus = "Paid";
+            }
+            else
+            {
+                var invoiceStatus = await context.PlatformInvoices.AsNoTracking()
+                    .Where(invoice => invoice.TenantId == tenantId && invoice.SubscriptionId == subscription.Id
+                        && invoice.RecurringDueAtUtc == firstDue)
+                    .Select(invoice => (InvoiceStatus?)invoice.Status)
+                    .FirstOrDefaultAsync(cancellationToken);
+                firstPaymentStatus = invoiceStatus == InvoiceStatus.Failed ? "Rejected"
+                    : clock.GetUtcNow() < firstDue ? "Scheduled" : "Pending";
+            }
+        }
+
         return Ok(new SubscriptionResponse(
             subscription.Id,
             plan?.Code ?? "desconhecido",
@@ -58,7 +79,7 @@ public sealed class BillingController(
             subscription.TrialEndsAt, subscription.TrialStartedAtUtc, subscription.TrialDeadline,
             subscription.ChargeDeadline, subscription.CancellationDeadline,
             subscription.PastDueSince, subscription.CancellationRequestedOn.HasValue,
-            (await subscriptionAccess.GetAsync(tenantId, cancellationToken)).ToString()));
+            (await subscriptionAccess.GetAsync(tenantId, cancellationToken)).ToString(), firstPaymentStatus));
     }
 
     /// <summary>Lista as faturas da plataforma, com paginação.</summary>
@@ -377,7 +398,8 @@ public sealed record SubscriptionResponse(
     DateOnly PeriodStart, DateOnly PeriodEnd, DateOnly? TrialEndsAt,
     DateTimeOffset? TrialStartedAtUtc = null, DateTimeOffset? TrialEndsAtUtc = null,
     DateTimeOffset? NextChargeAtUtc = null, DateTimeOffset? CancellationEffectiveAtUtc = null,
-    DateTimeOffset? PastDueSince = null, bool CancellationRequested = false, string? BillingAccess = null);
+    DateTimeOffset? PastDueSince = null, bool CancellationRequested = false, string? BillingAccess = null,
+    string? FirstPaymentStatus = null);
 
 /// <summary>Representação de fatura.</summary>
 public sealed record InvoiceResponse(

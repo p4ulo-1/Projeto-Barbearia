@@ -133,6 +133,7 @@ public sealed class SubscriptionCheckoutIntegrationTests(CheckoutApiFactory fact
             Assert.Equal("Trialing", (await ProcessNotificationAsync(authId)).Result);
             var trial = (await tenant.Client.GetFromJsonAsync<SubscriptionResponse>(Billing))!;
             Assert.Equal("Trialing", trial.Status);
+            Assert.Equal("Scheduled", trial.FirstPaymentStatus);
             Assert.Equal("ESSENCIAL", trial.PlanCode);
             var first = trial.TrialEndsAtUtc!.Value;
             Assert.Equal(trial.TrialStartedAtUtc!.Value.AddDays(14), first);
@@ -140,9 +141,21 @@ public sealed class SubscriptionCheckoutIntegrationTests(CheckoutApiFactory fact
             gateway.Now = gateway.CycleDue = first;
             var pending = await EnqueueAsync(client, MercadoPagoNotification.AuthorizedPayment, gateway.InvoiceId);
             Assert.Equal("AwaitingFinancialConfirmation", (await ProcessNotificationAsync(pending)).Result);
+            Assert.Equal("Pending", (await tenant.Client.GetFromJsonAsync<SubscriptionResponse>(Billing))!.FirstPaymentStatus);
             gateway.Rejected = true;
             var rejected = await EnqueueAsync(client, MercadoPagoNotification.Payment, gateway.PaymentId);
             Assert.Equal("FirstPaymentRejected", (await ProcessNotificationAsync(rejected)).Result);
+            var refused = (await tenant.Client.GetFromJsonAsync<SubscriptionResponse>(Billing))!;
+            Assert.Equal("Rejected", refused.FirstPaymentStatus);
+            Assert.Equal(first, refused.PastDueSince);
+            Assert.Equal("OwnerReadOnly", refused.BillingAccess);
+            gateway.Now = null; // A emissão do JWT usa o relógio real; o vencimento financeiro é simulado.
+            using (var newSession = await SignInAsync(tenant.Id, tenant.Email))
+            {
+                gateway.Now = first;
+                Assert.Equal("Rejected", (await newSession.GetFromJsonAsync<SubscriptionResponse>(Billing))!.FirstPaymentStatus);
+            }
+            Assert.Null((await other.Client.GetFromJsonAsync<SubscriptionResponse>(Billing))!.FirstPaymentStatus);
 
             gateway.Rejected = false;
             gateway.Approved = true;
@@ -159,6 +172,7 @@ public sealed class SubscriptionCheckoutIntegrationTests(CheckoutApiFactory fact
             Assert.Equal("PreviousCycle", (await ProcessNotificationAsync(approved)).Result);
             var paid = (await tenant.Client.GetFromJsonAsync<SubscriptionResponse>(Billing))!;
             Assert.Equal("PRO", paid.PlanCode);
+            Assert.Equal("Paid", paid.FirstPaymentStatus);
             Assert.Equal("AwaitingTrialAuthorization", (await other.Client.GetFromJsonAsync<SubscriptionResponse>(Billing))!.Status);
 
             gateway.Now = gateway.CycleDue = paid.NextChargeAtUtc!.Value;
@@ -179,6 +193,7 @@ public sealed class SubscriptionCheckoutIntegrationTests(CheckoutApiFactory fact
             gateway.Rejected = true;
             var stale = await EnqueueAsync(client, MercadoPagoNotification.AuthorizedPayment, gateway.InvoiceId);
             Assert.Equal("PreviousCycle", (await ProcessNotificationAsync(stale)).Result);
+            Assert.Equal("Paid", (await tenant.Client.GetFromJsonAsync<SubscriptionResponse>(Billing))!.FirstPaymentStatus);
 
             gateway.Cancelled = true;
             var cancellation = await EnqueueAsync(client, MercadoPagoNotification.Subscription, externalId);
@@ -361,6 +376,7 @@ public sealed class SubscriptionCheckoutIntegrationTests(CheckoutApiFactory fact
             new CreateServiceRequest("Bloqueado", 10, 30))).StatusCode);
         gateway.Cancelled = true;
         Assert.Equal("Cancelled", (await VerifyCycleAsync(tenant.Client)).State);
+        Assert.Null((await tenant.Client.GetFromJsonAsync<SubscriptionResponse>(Billing))!.FirstPaymentStatus);
         Assert.Equal(HttpStatusCode.BadRequest, (await tenant.Client.PostAsJsonAsync(Checkout,
             new StartCheckoutRequest(Guid.NewGuid(), "PRO", "opaque-test-token"))).StatusCode);
         Assert.Equal(1, gateway.Posts);
@@ -730,7 +746,7 @@ public sealed class SubscriptionCheckoutIntegrationTests(CheckoutApiFactory fact
         Assert.Equal(HttpStatusCode.Created, signUp.StatusCode);
         var data = await signUp.Content.ReadFromJsonAsync<JsonElement>();
         var id = data.GetProperty("tenantId").GetGuid();
-        return new TestTenant(id, await SignInAsync(id, email));
+        return new TestTenant(id, await SignInAsync(id, email), email);
     }
 
     private async Task<HttpClient> SignInReceptionistAsync(Guid tenantId)
@@ -764,7 +780,7 @@ public sealed class SubscriptionCheckoutIntegrationTests(CheckoutApiFactory fact
         await action(scope.ServiceProvider.GetRequiredService<AppDbContext>());
     }
 
-    private sealed record TestTenant(Guid Id, HttpClient Client) : IDisposable
+    private sealed record TestTenant(Guid Id, HttpClient Client, string Email) : IDisposable
     {
         public void Dispose() => Client.Dispose();
     }
