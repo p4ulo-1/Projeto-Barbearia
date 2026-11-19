@@ -1,4 +1,5 @@
 using Servia.Application.Billing;
+using Servia.Domain.Billing;
 using Servia.Domain.Common;
 using Servia.Domain.Tenancy;
 using Servia.Tests.Common;
@@ -144,11 +145,18 @@ public class SubscriptionServiceTests
 /// <summary>Repositório de assinaturas em memória.</summary>
 internal sealed class FakeSubscriptionRepository : ISubscriptionRepository
 {
+    public Task<PlatformInvoice?> FindRecurringInvoiceAsync(Guid tenantId, Guid subscriptionId, DateTimeOffset dueAt,
+        CancellationToken cancellationToken) => Task.FromResult<PlatformInvoice?>(null);
+
+    public Task AddRecurringInvoiceAsync(PlatformInvoice invoice, CancellationToken cancellationToken) => Task.CompletedTask;
+
+    public Task<bool> IsRecurringPaymentUsedAsync(string paymentId, CancellationToken cancellationToken) =>
+        Task.FromResult(_subscriptions.Any(item => item.FirstPaymentId == paymentId));
     private readonly List<Subscription> _subscriptions = [];
     private readonly List<PlanChange> _changes = [];
 
     public Task<Subscription?> FindCurrentAsync(
-        Guid tenantId, CancellationToken cancellationToken = default) =>
+        Guid tenantId, CancellationToken cancellationToken = default, bool readOnly = false) =>
         Task.FromResult(_subscriptions
             .Where(subscription => subscription.TenantId == tenantId)
             .OrderByDescending(subscription => subscription.CurrentPeriodStart)

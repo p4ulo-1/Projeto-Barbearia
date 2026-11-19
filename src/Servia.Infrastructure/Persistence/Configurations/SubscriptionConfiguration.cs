@@ -20,6 +20,7 @@ internal sealed class SubscriptionConfiguration : IEntityTypeConfiguration<Subsc
         builder.ToTable("Subscriptions", table => table.HasCheckConstraint(
             "CK_Subscriptions_CheckoutState",
             "\"CheckoutKey\" IS NULL OR (\"Status\" IN ('PendingCheckout', 'PendingConfirmation', 'AuthorizedAwaitingFirstPayment', 'Cancelled', 'Expired')"
+            + " OR (\"Status\" = 'Trialing' AND \"TrialStartedAtUtc\" IS NOT NULL AND \"TrialEndsAtUtc\" IS NOT NULL AND \"GatewayTrialPlanId\" IS NOT NULL AND \"GatewaySubscriptionId\" IS NOT NULL)"
             + " OR (\"Status\" IN ('Active', 'PastDue') AND \"FirstPaymentId\" IS NOT NULL AND \"GatewaySubscriptionId\" IS NOT NULL))"));
 
         builder.HasKey(subscription => subscription.Id);
@@ -48,6 +49,7 @@ internal sealed class SubscriptionConfiguration : IEntityTypeConfiguration<Subsc
         builder.Property(subscription => subscription.ContractPriceAmount).HasPrecision(18, 2);
         builder.Property(subscription => subscription.ContractCurrency).HasMaxLength(3);
         builder.Property(subscription => subscription.CheckoutUrl).HasMaxLength(2048);
+        builder.Property(subscription => subscription.GatewayTrialPlanId).HasMaxLength(100);
         builder.Property<uint>("Version").IsRowVersion();
 
         builder.HasIndex(subscription => new { subscription.TenantId, subscription.Status });

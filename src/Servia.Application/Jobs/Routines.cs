@@ -119,23 +119,28 @@ public sealed class DelinquencyJob(
     public async Task ExecuteAsync(CancellationToken cancellationToken = default)
     {
         var now = timeProvider.GetUtcNow();
-        var today = DateOnly.FromDateTime(now.UtcDateTime);
-
-        var expiredTrials = await repository.GetExpiredTrialsAsync(today, BatchSize, cancellationToken);
-
-        foreach (var subscription in expiredTrials)
+        var transitions = await repository.GetBillingTransitionsAsync(now, BatchSize, cancellationToken);
+        foreach (var subscription in transitions)
         {
-            try
+            if (subscription.IsOnTrial)
             {
-                subscription.ExpireTrial(today);
+                subscription.ExpireTrial(now);
+                if (subscription.TrialEndsAtUtc is { } deadline)
+                {
+                    subscription.RecordFirstPaymentOutstanding(deadline);
+                }
             }
-            catch (DomainRuleException)
+            else if (subscription.CancellationDeadline <= now)
             {
-                // O registro não representa mais um trial expirável.
+                subscription.EndCancellation(now);
+            }
+            else if (subscription.IsActive && subscription.ChargeDeadline is { } due && due <= now)
+            {
+                subscription.MarkPastDue(due);
             }
         }
 
-        if (expiredTrials.Count > 0)
+        if (transitions.Count > 0)
         {
             await repository.SaveChangesAsync(cancellationToken);
         }

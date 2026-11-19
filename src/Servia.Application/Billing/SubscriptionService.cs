@@ -65,7 +65,7 @@ public sealed class SubscriptionService(
 
         await subscriptions.SaveChangesAsync(cancellationToken);
 
-        var plan = await plans.FindByIdAsync(subscription.PlanId, cancellationToken);
+        var plan = await plans.FindByIdAsync(subscription.EffectivePlanId, cancellationToken);
 
         return SubscriptionResult.Succeeded(subscription, plan, null);
     }
@@ -85,7 +85,7 @@ public sealed class SubscriptionService(
             return null;
         }
 
-        var currentPlan = await plans.FindByIdAsync(subscription.PlanId, cancellationToken);
+        var currentPlan = await plans.FindByIdAsync(subscription.EffectivePlanId, cancellationToken);
 
         if (currentPlan is null)
         {

@@ -32,9 +32,9 @@ public interface IJobRepository
         int limit,
         CancellationToken cancellationToken = default);
 
-    /// <summary>Assinaturas cujo trial expirou (F19.4).</summary>
-    Task<IReadOnlyList<Domain.Tenancy.Subscription>> GetExpiredTrialsAsync(
-        DateOnly today,
+    /// <summary>Assinaturas com transição local de vigência ou vencimento de cobrança.</summary>
+    Task<IReadOnlyList<Domain.Tenancy.Subscription>> GetBillingTransitionsAsync(
+        DateTimeOffset now,
         int limit,
         CancellationToken cancellationToken = default);
 

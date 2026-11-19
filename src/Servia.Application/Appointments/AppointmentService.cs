@@ -1,4 +1,5 @@
 using Servia.Domain.Appointments;
+using Servia.Application.Billing;
 using Servia.Domain.Common;
 using Servia.Domain.Team;
 
@@ -30,7 +31,8 @@ namespace Servia.Application.Appointments;
 public sealed class AppointmentService(
     IAppointmentRepository repository,
     AvailabilityService availability,
-    TimeProvider timeProvider)
+    TimeProvider timeProvider,
+    SubscriptionAccessService? billing = null)
 {
     /// <summary>
     /// Cria um agendamento, rejeitando conflito de horário.
@@ -65,6 +67,10 @@ public sealed class AppointmentService(
             return await repository.ExecuteSerializableAsync(
                 async token =>
                 {
+                    if (billing is not null && await billing.GetAsync(command.TenantId, token) != BillingAccess.Operational)
+                    {
+                        throw new BillingAccessDeniedException();
+                    }
                     var evaluation = await availability.EvaluateAsync(
                         command.TenantId,
                         command.ProfessionalId,

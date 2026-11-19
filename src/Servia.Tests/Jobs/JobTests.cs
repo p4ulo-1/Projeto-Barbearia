@@ -323,12 +323,11 @@ internal sealed class FakeJobRepository : IJobRepository
         Task.FromResult<IReadOnlyList<Subscription>>(
             _subscriptions.Where(s => s.Status == SubscriptionStatus.PastDue).Take(limit).ToList());
 
-    public Task<IReadOnlyList<Subscription>> GetExpiredTrialsAsync(
-        DateOnly today, int limit, CancellationToken cancellationToken = default) =>
+    public Task<IReadOnlyList<Subscription>> GetBillingTransitionsAsync(
+        DateTimeOffset now, int limit, CancellationToken cancellationToken = default) =>
         Task.FromResult<IReadOnlyList<Subscription>>(
-            _subscriptions.Where(s => s.Status == SubscriptionStatus.Trialing
-                                      && s.TrialEndsAt.HasValue
-                                      && s.TrialEndsAt.Value < today)
+            _subscriptions.Where(s => (s.IsOnTrial && s.TrialDeadline <= now)
+                || (s.IsActive && s.ChargeDeadline <= now) || s.CancellationDeadline <= now)
                 .Take(limit).ToList());
 
     public Task<IReadOnlyList<ScheduleLock>> GetExpiredLocksAsync(

@@ -28,6 +28,10 @@ internal sealed class PlanChangeConfiguration : IEntityTypeConfiguration<PlanCha
         builder.Property(change => change.ChangedAt).IsRequired();
         builder.Property(change => change.Status).HasConversion<string>().HasMaxLength(20)
             .HasDefaultValue(PlanChangeStatus.Effective);
+        builder.Property(change => change.RequestedPrice).HasPrecision(18, 2);
+        builder.Property(change => change.RequestedCurrency).HasMaxLength(3);
+        builder.HasIndex(change => new { change.TenantId, change.SubscriptionId }, "UX_PlanChanges_RequestedSubscription")
+            .IsUnique().HasFilter("\"Status\" = 'Requested'");
 
         // Consulta do histórico: por tenant, mais recente primeiro.
         builder.HasIndex(change => new { change.TenantId, change.ChangedAt });

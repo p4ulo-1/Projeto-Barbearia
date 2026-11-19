@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Servia.Application.Billing;
 using Servia.Api.Contracts;
 using Servia.Domain.Common;
 
@@ -31,6 +32,10 @@ public sealed class ExceptionHandlingMiddleware(
         catch (ConcurrencyConflictException exception)
         {
             await WriteAsync(context, StatusCodes.Status409Conflict, new ErrorResponse(exception.Message));
+        }
+        catch (BillingAccessDeniedException exception)
+        {
+            await WriteAsync(context, StatusCodes.Status403Forbidden, new ErrorResponse(exception.Message));
         }
         catch (DomainRuleException exception)
         {

@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
+using Servia.Domain.Billing;
 using Servia.Domain.Common;
 using Servia.Domain.Tenancy;
 using Servia.Infrastructure.Persistence;
@@ -16,15 +17,16 @@ public sealed class SubscriptionRepository(AppDbContext context) : ISubscription
 {
     public async Task<Subscription?> FindCurrentAsync(
         Guid tenantId,
-        CancellationToken cancellationToken = default) =>
-        await context.Subscriptions
+        CancellationToken cancellationToken = default, bool readOnly = false) =>
+        await (readOnly ? context.Subscriptions.AsNoTracking() : context.Subscriptions.AsQueryable())
             .Where(subscription => subscription.TenantId == tenantId
-                && (subscription.CheckoutKey == null || subscription.FirstPaymentId != null))
+                && (subscription.CheckoutKey == null || subscription.FirstPaymentId != null || subscription.TrialStartedAtUtc != null))
             .OrderByDescending(subscription => subscription.Status == SubscriptionStatus.Trialing
                 || subscription.Status == SubscriptionStatus.Active
                 || (subscription.Status == SubscriptionStatus.PastDue && subscription.TrialEndsAt == null))
             .ThenByDescending(subscription => subscription.CurrentPeriodStart)
             .ThenByDescending(subscription => subscription.FirstPaymentId != null)
+            .ThenByDescending(subscription => subscription.TrialStartedAtUtc != null)
             .ThenByDescending(subscription => subscription.Id)
             .FirstOrDefaultAsync(cancellationToken);
 
@@ -41,6 +43,19 @@ public sealed class SubscriptionRepository(AppDbContext context) : ISubscription
             && (item.Status == SubscriptionStatus.PendingCheckout
                 || item.Status == SubscriptionStatus.PendingConfirmation
                 || item.Status == SubscriptionStatus.AuthorizedAwaitingFirstPayment), cancellationToken);
+
+    public Task<PlatformInvoice?> FindRecurringInvoiceAsync(Guid tenantId, Guid subscriptionId, DateTimeOffset dueAt,
+        CancellationToken cancellationToken) =>
+        context.PlatformInvoices.FirstOrDefaultAsync(invoice => invoice.TenantId == tenantId
+            && invoice.SubscriptionId == subscriptionId && invoice.RecurringDueAtUtc == dueAt, cancellationToken);
+
+    public async Task AddRecurringInvoiceAsync(PlatformInvoice invoice, CancellationToken cancellationToken) =>
+        await context.PlatformInvoices.AddAsync(invoice, cancellationToken);
+
+    public async Task<bool> IsRecurringPaymentUsedAsync(string paymentId, CancellationToken cancellationToken) =>
+        await context.Subscriptions.IgnoreQueryFilters().AnyAsync(s => s.FirstPaymentId == paymentId, cancellationToken)
+        || await context.PlatformInvoices.IgnoreQueryFilters()
+            .AnyAsync(invoice => invoice.RecurringDueAtUtc != null && invoice.GatewayPaymentId == paymentId, cancellationToken);
 
     public async Task AddAsync(
         Subscription subscription,
@@ -113,7 +128,8 @@ public sealed class SubscriptionRepository(AppDbContext context) : ISubscription
                     && postgres.ConstraintName is "PK_ProfessionalServices"
                         or "UX_Subscriptions_EffectiveTenant" or "UX_Subscriptions_PendingTenant"
                         or "IX_Subscriptions_TenantId_CheckoutKey" or "IX_Subscriptions_GatewaySubscriptionId"
-                        or "IX_Subscriptions_FirstPaymentId"))
+                        or "IX_Subscriptions_FirstPaymentId" or "UX_PlatformInvoices_RecurringPayment"
+                        or "UX_PlatformInvoices_RecurringCycle" or "UX_PlanChanges_RequestedSubscription"))
                 throw new ConcurrencyConflictException(
                     "Outra alteração que afeta a capacidade do plano ocorreu ao mesmo tempo. Tente novamente.", exception);
             throw;

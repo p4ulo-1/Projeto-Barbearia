@@ -104,6 +104,8 @@ builder.Services.AddScoped<IPlanRepository, PlanRepository>();
 builder.Services.AddScoped<IProfessionalCountReader, ProfessionalCountReader>();
 builder.Services.AddScoped<SubscriptionService>();
 builder.Services.AddScoped<SubscriptionCheckoutService>();
+builder.Services.AddScoped<SubscriptionAccessService>();
+builder.Services.AddScoped<SubscriptionLifecycleService>();
 
 // Limite de vagas do plano, verificado atomicamente (transação serializável).
 builder.Services.AddScoped<PlanSlotService>();
@@ -346,6 +348,7 @@ app.UseAuthorization();
 
 // Resolve o tenant no servidor, antes de qualquer acesso a dados.
 app.UseTenantResolution();
+app.UseMiddleware<SubscriptionAccessMiddleware>();
 
 if (app.Environment.IsDevelopment())
 {

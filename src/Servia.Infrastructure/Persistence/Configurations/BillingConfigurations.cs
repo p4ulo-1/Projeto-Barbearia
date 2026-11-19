@@ -22,6 +22,8 @@ internal sealed class PlatformInvoiceConfiguration : IEntityTypeConfiguration<Pl
         builder.Property(invoice => invoice.Status).HasConversion<string>().HasMaxLength(20).IsRequired();
         builder.Property(invoice => invoice.PaidAt);
         builder.Property(invoice => invoice.GatewayPaymentId).HasMaxLength(100);
+        builder.Property(invoice => invoice.RecurringAmount).HasPrecision(18, 2);
+        builder.Property(invoice => invoice.RecurringCurrency).HasMaxLength(3);
 
         // Linhas da fatura: entidade propria, com FK para a fatura.
         // Mapeadas como owned collection com chave sintetica.
@@ -47,6 +49,10 @@ internal sealed class PlatformInvoiceConfiguration : IEntityTypeConfiguration<Pl
         builder.Ignore(invoice => invoice.IsPaid);
 
         builder.HasIndex(invoice => new { invoice.TenantId, invoice.Status });
+        builder.HasIndex(invoice => new { invoice.TenantId, invoice.SubscriptionId, invoice.RecurringDueAtUtc })
+            .IsUnique().HasDatabaseName("UX_PlatformInvoices_RecurringCycle").HasFilter("\"RecurringDueAtUtc\" IS NOT NULL");
+        builder.HasIndex(invoice => invoice.GatewayPaymentId, "UX_PlatformInvoices_RecurringPayment")
+            .IsUnique().HasFilter("\"RecurringDueAtUtc\" IS NOT NULL AND \"GatewayPaymentId\" IS NOT NULL");
     }
 }
 

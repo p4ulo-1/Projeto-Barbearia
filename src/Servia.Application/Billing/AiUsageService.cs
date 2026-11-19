@@ -199,7 +199,7 @@ public sealed class AiUsageService(
             return null;
         }
 
-        var plan = await plans.FindByIdAsync(subscription.PlanId, cancellationToken);
+        var plan = await plans.FindByIdAsync(subscription.EffectivePlanId, cancellationToken);
 
         if (plan is null)
         {

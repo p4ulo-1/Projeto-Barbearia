@@ -112,8 +112,8 @@ public class PlatformProvisioningTests : IClassFixture<IsolatedApiFactory>
         Assert.NotNull(body);
         Assert.Equal("barbearia-real", body!.Slug);
         Assert.Equal("Trial", body.TenantStatus);
-        Assert.Equal("Trialing", body.SubscriptionStatus);
-        Assert.NotNull(body.TrialEndsAt);
+        Assert.Equal("AwaitingTrialAuthorization", body.SubscriptionStatus);
+        Assert.Null(body.TrialEndsAt);
     }
 
     [Fact]

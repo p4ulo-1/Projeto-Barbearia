@@ -39,7 +39,8 @@ public sealed class JobRepository(AppDbContext context) : IJobRepository
         CancellationToken cancellationToken = default) =>
         await context.PlatformInvoices
             .IgnoreQueryFilters()
-            .Where(invoice => invoice.Status == InvoiceStatus.Pending && invoice.DueDate < today)
+            .Where(invoice => invoice.Status == InvoiceStatus.Pending && invoice.DueDate < today
+                && invoice.RecurringDueAtUtc == null)
             .OrderBy(invoice => invoice.DueDate)
             .Take(limit)
             .ToListAsync(cancellationToken);
@@ -53,17 +54,23 @@ public sealed class JobRepository(AppDbContext context) : IJobRepository
             .Take(limit)
             .ToListAsync(cancellationToken);
 
-    public async Task<IReadOnlyList<Subscription>> GetExpiredTrialsAsync(
-        DateOnly today,
+    public async Task<IReadOnlyList<Subscription>> GetBillingTransitionsAsync(
+        DateTimeOffset now,
         int limit,
-        CancellationToken cancellationToken = default) =>
-        await context.Subscriptions
+        CancellationToken cancellationToken = default)
+    {
+        var today = DateOnly.FromDateTime(now.UtcDateTime);
+        return await context.Subscriptions
             .IgnoreQueryFilters()
-            .Where(subscription => subscription.Status == SubscriptionStatus.Trialing
-                                   && subscription.TrialEndsAt != null
-                                   && subscription.TrialEndsAt <= today)
+            .Where(s => (s.Status == SubscriptionStatus.Trialing
+                        && (s.TrialEndsAtUtc <= now || (s.TrialEndsAtUtc == null && s.TrialEndsAt <= today)))
+                || (s.Status == SubscriptionStatus.Active
+                    && (s.NextChargeAtUtc <= now || (s.NextChargeAtUtc == null && s.CurrentPeriodEnd <= today)))
+                || (s.Status == SubscriptionStatus.PastDue && s.CancellationEffectiveOn != null
+                    && (s.NextChargeAtUtc <= now || (s.NextChargeAtUtc == null && s.CancellationEffectiveOn <= today))))
             .Take(limit)
             .ToListAsync(cancellationToken);
+    }
 
     public async Task<IReadOnlyList<ScheduleLock>> GetExpiredLocksAsync(
         DateTimeOffset now,

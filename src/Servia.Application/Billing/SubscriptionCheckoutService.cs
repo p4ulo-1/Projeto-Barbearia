@@ -18,7 +18,7 @@ public sealed class SubscriptionCheckoutService(
     public bool IsConfigured => _gateway is not null;
 
     public async Task<CheckoutResult> StartAsync(Guid tenantId, Guid userId, Guid key, string planCode,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, string? cardToken = null)
     {
         if (tenantId == Guid.Empty || key == Guid.Empty)
         {
@@ -34,6 +34,26 @@ public sealed class SubscriptionCheckoutService(
 
         var plan = await plans.FindByCodeAsync(planCode, cancellationToken)
             ?? throw NotFoundException.For("Plano", planCode);
+        var saved = await subscriptions.FindCheckoutAsync(tenantId, key, cancellationToken, readOnly: true);
+        if (saved is not null && (saved.CheckoutDispatchedAt.HasValue || saved.GatewaySubscriptionId is not null
+            || saved.Status != SubscriptionStatus.PendingCheckout))
+        {
+            CheckReplayPlan(saved, plan);
+            return await DescribeAsync(saved, cancellationToken);
+        }
+        string? trialPlan = null;
+        if (!string.IsNullOrWhiteSpace(cardToken))
+        {
+            // A consulta de configuração não abre transação ou consome o token do cartão.
+            try
+            {
+                trialPlan = await gateway.VerifyTrialPlanAsync(plan.Code, plan.MonthlyPrice, cancellationToken);
+            }
+            catch (RecurringCheckoutGatewayException)
+            {
+                throw new DomainRuleException("O plano de trial não está disponível para autorização.");
+            }
+        }
         Subscription attempt;
         bool dispatch;
         try
@@ -56,7 +76,7 @@ public sealed class SubscriptionCheckoutService(
                 }
 
                 var current = await subscriptions.FindCurrentAsync(tenantId, token);
-                if (IsPaidCurrent(current))
+                if (IsPaidCurrent(current) || current is { IsOnTrial: true, GatewayTrialPlanId: not null })
                 {
                     throw new DomainRuleException("O estabelecimento já possui assinatura paga vigente.");
                 }
@@ -71,12 +91,23 @@ public sealed class SubscriptionCheckoutService(
                 var checkout = existing ?? Subscription.StartCheckout(tenantId, plan, key, today);
                 if (existing is null)
                 {
+                    if (current?.Status == SubscriptionStatus.AwaitingTrialAuthorization)
+                    {
+                        if (trialPlan is null)
+                        {
+                            throw new DomainRuleException("Autorize um cartão para iniciar o trial.");
+                        }
+                        checkout.UseAuthorizedTrial(trialPlan, current.PlanId);
+                    }
+                    else if (trialPlan is not null)
+                    {
+                        throw new DomainRuleException("O estabelecimento já teve acesso a um trial.");
+                    }
                     await subscriptions.AddAsync(checkout, token);
                 }
 
-                // O início futuro do preapproval ainda precisa ser homologado. O trial
-                // conserva sua validade original e nenhuma cobrança pode começar nele.
-                var mayDispatch = TrialEndStillAhead(current, today) is null;
+                // Trials legados sem cartão conservam o vencimento original.
+                var mayDispatch = TrialEndStillAhead(current, now) is null;
                 if (mayDispatch)
                 {
                     checkout.MarkCheckoutDispatched(now);
@@ -107,7 +138,8 @@ public sealed class SubscriptionCheckoutService(
         try
         {
             authorization = await gateway.CreateAsync(new RecurringCheckoutRequest(
-                key, Reference(attempt), user.Email, Amount(attempt), attempt.BillingIntervalMonths!.Value), cancellationToken);
+                key, Reference(attempt), user.Email, Amount(attempt), attempt.BillingIntervalMonths!.Value,
+                attempt.GatewayTrialPlanId, attempt.GatewayTrialPlanId is null ? null : cardToken), cancellationToken);
         }
         catch (RecurringCheckoutGatewayException error)
         {
@@ -175,13 +207,36 @@ public sealed class SubscriptionCheckoutService(
             return new CheckoutResult(attempt, "RequiresReconciliation");
         }
 
+        var observedAt = clock.GetUtcNow();
+        var startingTrial = attempt.GatewayTrialPlanId is not null && attempt.TrialStartedAtUtc is null;
+        if (attempt.CancellationRequestedOn.HasValue)
+        {
+            return new CheckoutResult(attempt, "RequiresReconciliation");
+        }
+        if (attempt.IsOnTrial && attempt.TrialDeadline > observedAt)
+        {
+            return authorization.Status == "authorized"
+                ? await DescribeAsync(attempt, cancellationToken)
+                : new CheckoutResult(attempt, "RequiresReconciliation");
+        }
+
         ApprovedRecurringPayment? payment = null;
+        var rejected = false;
         var paymentLookupFailed = false;
-        if (authorization.Status == "authorized")
+        if (authorization.Status == "authorized" && !startingTrial)
         {
             try
             {
-                payment = await gateway.FindFirstApprovedPaymentAsync(externalId, Amount(attempt), cancellationToken);
+                if (attempt.TrialEndsAtUtc is { } deadline)
+                {
+                    var evidence = await gateway.FindCyclePaymentAsync(externalId, deadline, Amount(attempt), cancellationToken);
+                    payment = evidence.Payment;
+                    rejected = evidence.Rejected;
+                }
+                else
+                {
+                    payment = await gateway.FindFirstApprovedPaymentAsync(externalId, Amount(attempt), cancellationToken);
+                }
             }
             catch (RecurringCheckoutGatewayException)
             {
@@ -198,6 +253,18 @@ public sealed class SubscriptionCheckoutService(
                 {
                     return await DescribeAsync(stored, token);
                 }
+                if (stored.CancellationRequestedOn.HasValue)
+                {
+                    return new CheckoutResult(stored, "RequiresReconciliation");
+                }
+                if (stored.IsOnTrial)
+                {
+                    if (stored.TrialDeadline > clock.GetUtcNow())
+                    {
+                        return await DescribeAsync(stored, token);
+                    }
+                    stored.ExpireTrial(clock.GetUtcNow());
+                }
                 if (authorization.Status is "cancelled" or "canceled")
                 {
                     stored.FailCheckout(UtcDay(clock.GetUtcNow()));
@@ -212,6 +279,24 @@ public sealed class SubscriptionCheckoutService(
                 }
                 else
                 {
+                    if (startingTrial && stored.TrialStartedAtUtc is null)
+                    {
+                        if (authorization.CreatedAt is not { } authorizedAt || authorization.NextChargeAt is not { } due
+                            || authorizedAt > observedAt || authorizedAt < stored.CheckoutDispatchedAt
+                            || due != authorizedAt.AddDays(Subscription.TrialDays) || observedAt >= due)
+                        {
+                            return new CheckoutResult(stored, "RequiresReconciliation");
+                        }
+                        var current = await subscriptions.FindCurrentAsync(tenantId, token);
+                        if (current?.Status != SubscriptionStatus.AwaitingTrialAuthorization)
+                        {
+                            return new CheckoutResult(stored, "RequiresReconciliation");
+                        }
+                        stored.ConfirmAuthorization(externalId);
+                        stored.BeginAuthorizedTrial(externalId, authorizedAt, due);
+                        await subscriptions.SaveChangesAsync(token);
+                        return await DescribeAsync(stored, token);
+                    }
                     if (stored.Status != SubscriptionStatus.AuthorizedAwaitingFirstPayment)
                     {
                         stored.ConfirmAuthorization(externalId);
@@ -225,10 +310,17 @@ public sealed class SubscriptionCheckoutService(
                             return new CheckoutResult(stored, issue);
                         }
                     }
+                    else if (stored.TrialEndsAtUtc is { } deadline && deadline <= observedAt)
+                    {
+                        stored.RecordFirstPaymentOutstanding(deadline);
+                        var invoice = await GetInvoiceAsync(stored, deadline, token);
+                        if (rejected) invoice.RecordRecurringFailure(deadline);
+                    }
                 }
                 await subscriptions.SaveChangesAsync(token);
                 return paymentLookupFailed
                     ? new CheckoutResult(stored, "RequiresReconciliation")
+                    : rejected ? new CheckoutResult(stored, "FirstPaymentRejected")
                     : await DescribeAsync(stored, token);
             }, cancellationToken);
         }
@@ -255,9 +347,14 @@ public sealed class SubscriptionCheckoutService(
         {
             return "RequiresReconciliation";
         }
+        if (attempt.TrialEndsAtUtc is { } trialEnd
+            && (payment.DueAt != trialEnd || payment.ApprovedAt < trialEnd))
+        {
+            return "RequiresReconciliation";
+        }
 
         var current = await subscriptions.FindCurrentAsync(attempt.TenantId, cancellationToken);
-        if (IsPaidCurrent(current) || TrialEndStillAhead(current, today).HasValue)
+        if (IsPaidCurrent(current) || TrialEndStillAhead(current, now).HasValue)
         {
             return "RequiresReconciliation";
         }
@@ -269,6 +366,10 @@ public sealed class SubscriptionCheckoutService(
         }
         var history = PlanChange.Record(attempt.TenantId, attempt.Id, null, attempt.PlanId,
             PlanChangeReason.Initial, userId, now);
+        if (await subscriptions.IsRecurringPaymentUsedAsync(payment.Id, cancellationToken))
+        {
+            throw new ConcurrencyConflictException("O pagamento já está associado a uma assinatura.");
+        }
 
         if (current?.IsOnTrial == true)
         {
@@ -278,8 +379,24 @@ public sealed class SubscriptionCheckoutService(
             await subscriptions.SaveChangesAsync(cancellationToken);
         }
         attempt.ConfirmFirstPayment(attempt.GatewaySubscriptionId!, payment.Id, plan, count, start, end);
+        attempt.SetFirstCycleDeadline(payment.DueAt.ToUniversalTime().AddMonths(attempt.BillingIntervalMonths!.Value));
+        var invoice = await GetInvoiceAsync(attempt, payment.DueAt, cancellationToken);
+        invoice.MarkPaid(payment.Id, payment.ApprovedAt.ToUniversalTime());
         await subscriptions.AddChangeAsync(history, cancellationToken);
         return null;
+    }
+
+    private async Task<PlatformInvoice> GetInvoiceAsync(Subscription attempt, DateTimeOffset due,
+        CancellationToken cancellationToken)
+    {
+        var invoice = await subscriptions.FindRecurringInvoiceAsync(attempt.TenantId, attempt.Id, due, cancellationToken);
+        if (invoice is null)
+        {
+            invoice = PlatformInvoice.CreateRecurring(attempt.TenantId, attempt.Id, due,
+                due.ToUniversalTime().AddMonths(attempt.BillingIntervalMonths!.Value), Amount(attempt));
+            await subscriptions.AddRecurringInvoiceAsync(invoice, cancellationToken);
+        }
+        return invoice;
     }
 
     private async Task<CheckoutResult> DescribeAsync(Subscription attempt, CancellationToken cancellationToken)
@@ -287,12 +404,13 @@ public sealed class SubscriptionCheckoutService(
         if (attempt.Status == SubscriptionStatus.PendingCheckout && attempt.CheckoutDispatchedAt is null)
         {
             var current = await subscriptions.FindCurrentAsync(attempt.TenantId, cancellationToken);
-            var end = TrialEndStillAhead(current, UtcDay(clock.GetUtcNow()));
+            var end = TrialEndStillAhead(current, clock.GetUtcNow());
             return new CheckoutResult(attempt, end.HasValue ? "WaitingForTrialEnd" : "ReadyToResume", end);
         }
         var state = attempt.Status switch
         {
             SubscriptionStatus.Active => "Active",
+            SubscriptionStatus.Trialing => "Trialing",
             SubscriptionStatus.Cancelled or SubscriptionStatus.Expired => "Failed",
             SubscriptionStatus.AuthorizedAwaitingFirstPayment => "AwaitingFinancialConfirmation",
             _ when attempt.CheckoutUrl is not null => "AwaitingAuthorization",
@@ -310,8 +428,8 @@ public sealed class SubscriptionCheckoutService(
         _gateway ?? throw new InvalidOperationException("A contratação recorrente está indisponível.");
 
     private static DateOnly UtcDay(DateTimeOffset now) => DateOnly.FromDateTime(now.UtcDateTime);
-    private static DateOnly? TrialEndStillAhead(Subscription? current, DateOnly today) =>
-        current is { IsOnTrial: true, TrialEndsAt: { } end } && today < end ? end : null;
+    private static DateOnly? TrialEndStillAhead(Subscription? current, DateTimeOffset now) =>
+        current is { FirstPaymentId: null, TrialDeadline: { } end } && now < end ? UtcDay(end) : null;
     private static bool IsPaidCurrent(Subscription? current) => current is { Status: SubscriptionStatus.Active }
         or { Status: SubscriptionStatus.PastDue, TrialEndsAt: null };
     private static string Reference(Subscription attempt) => attempt.Id.ToString("N");
@@ -322,7 +440,8 @@ public sealed class SubscriptionCheckoutService(
         && authorization.Amount == attempt.ContractPriceAmount
         && authorization.Currency == attempt.ContractCurrency
         && authorization.Frequency == attempt.BillingIntervalMonths
-        && authorization.FrequencyType == "months";
+        && authorization.FrequencyType == "months"
+        && authorization.TrialPlanId == attempt.GatewayTrialPlanId;
 
     private static void CheckReplayPlan(Subscription attempt, Plan plan)
     {

@@ -65,6 +65,10 @@ public sealed class PlanChange : ITenantScoped
     public PlanChangeStatus Status { get; private set; } = PlanChangeStatus.Effective;
 
     public DateOnly? EffectiveOn { get; private set; }
+    public DateTimeOffset? EffectiveAtUtc { get; private set; }
+    public DateTimeOffset? AppliedAtUtc { get; private set; }
+    public decimal? RequestedPrice { get; private set; }
+    public string? RequestedCurrency { get; private set; }
 
     /// <summary>Registra uma solicitação sem trocar o plano vigente.</summary>
     public static PlanChange Request(Subscription subscription, Plan current, Plan target,
@@ -82,7 +86,20 @@ public sealed class PlanChange : ITenantScoped
             isDowngrade ? PlanChangeReason.Downgrade : PlanChangeReason.Upgrade, requestedBy, now);
         change.Status = PlanChangeStatus.Requested;
         change.EffectiveOn = isDowngrade ? subscription.CurrentPeriodEnd : null;
+        change.EffectiveAtUtc = isDowngrade ? subscription.ChargeDeadline : null;
+        change.RequestedPrice = target.MonthlyPrice.Amount;
+        change.RequestedCurrency = target.MonthlyPrice.Currency;
         return change;
+    }
+
+    public void ConfirmScheduledDowngrade(DateTimeOffset dueAt, DateTimeOffset observedAt)
+    {
+        if (Status != PlanChangeStatus.Requested || Reason != PlanChangeReason.Downgrade || EffectiveAtUtc != dueAt)
+        {
+            throw new DomainRuleException("A cobrança não corresponde ao ciclo do downgrade.");
+        }
+        AppliedAtUtc = observedAt.ToUniversalTime();
+        Status = PlanChangeStatus.Effective;
     }
 
     /// <summary>

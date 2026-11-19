@@ -66,7 +66,7 @@ public class TenantProvisionerTests : IAsyncLifetime
 
         Assert.Equal("barbearia-xyz", result.Tenant.Slug);
         Assert.Equal(TenantStatus.Trial, result.Tenant.Status);
-        Assert.Equal(SubscriptionStatus.Trialing, result.Subscription.Status);
+        Assert.Equal(SubscriptionStatus.AwaitingTrialAuthorization, result.Subscription.Status);
         Assert.Equal(Role.Owner, result.Owner.Role);
         Assert.Equal(result.Tenant.Id, result.Owner.TenantId);
         Assert.Equal(result.Tenant.Id, result.Subscription.TenantId);

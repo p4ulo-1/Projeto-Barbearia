@@ -32,7 +32,7 @@ public sealed class PlanSlotService(
                 var subscription = await subscriptions.FindCurrentAsync(tenantId, token);
                 if (subscription is not null)
                 {
-                    var plan = await plans.FindByIdAsync(subscription.PlanId, token);
+                    var plan = await plans.FindByIdAsync(subscription.EffectivePlanId, token);
                     if (plan is not null && !plan.AllowsProfessionals(after))
                         throw new DomainRuleException(
                             $"O plano {plan.Name} comporta até {plan.IncludedProfessionals} profissionais. "

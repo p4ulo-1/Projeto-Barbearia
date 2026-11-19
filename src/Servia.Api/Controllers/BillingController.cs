@@ -26,7 +26,8 @@ public sealed class BillingController(
     AppDbContext context,
     ITenantContext tenantContext,
     SubscriptionService subscriptions,
-    SubscriptionCheckoutService checkout) : ControllerBase
+    SubscriptionCheckoutService checkout,
+    SubscriptionLifecycleService lifecycle) : ControllerBase
 {
     /// <summary>Consulta a assinatura vigente.</summary>
     [HttpGet("subscription")]
@@ -44,7 +45,7 @@ public sealed class BillingController(
             ?? throw NotFoundException.For("Assinatura", tenantId);
 
         var plan = await context.Plans
-            .FirstOrDefaultAsync(item => item.Id == subscription.PlanId, cancellationToken);
+            .FirstOrDefaultAsync(item => item.Id == subscription.EffectivePlanId, cancellationToken);
 
         return Ok(new SubscriptionResponse(
             subscription.Id,
@@ -53,7 +54,8 @@ public sealed class BillingController(
             subscription.Status.ToString(),
             subscription.CurrentPeriodStart,
             subscription.CurrentPeriodEnd,
-            subscription.TrialEndsAt));
+            subscription.TrialEndsAt, subscription.TrialStartedAtUtc, subscription.TrialDeadline,
+            subscription.ChargeDeadline, subscription.CancellationDeadline));
     }
 
     /// <summary>Lista as faturas da plataforma, com paginação.</summary>
@@ -163,9 +165,9 @@ public sealed class BillingController(
             return CheckoutUnavailable();
         }
         var result = await checkout.StartAsync(RequireTenant(), RequireUserId(), request.CheckoutKey,
-            request.PlanCode, cancellationToken);
+            request.PlanCode, cancellationToken, request.CardToken);
         var response = CheckoutResponse.From(result);
-        return result.State is "Active" or "Failed" ? Ok(response) : Accepted(response);
+        return result.State is "Active" or "Failed" or "Trialing" ? Ok(response) : Accepted(response);
     }
 
     [HttpGet("subscription/checkout/{key:guid}")]
@@ -214,22 +216,36 @@ public sealed class BillingController(
         return Ok(ToResponse(result));
     }
 
-    /// <summary>Encerra o trial local.</summary>
+    /// <summary>Solicita encerramento da recorrência ou cancela um trial legado.</summary>
     [HttpPost("subscription/cancel")]
     [RequirePermission(Permission.ManageBilling)]
-    [ProducesResponseType<SubscriptionResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType<LifecycleResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType<LifecycleResponse>(StatusCodes.Status202Accepted)]
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status409Conflict)]
     public async Task<IActionResult> CancelAsync(CancellationToken cancellationToken)
     {
-        var result = await subscriptions.CancelAsync(RequireTenant(), cancellationToken);
+        var result = await lifecycle.CancelAsync(RequireTenant(), cancellationToken);
+        var response = LifecycleResponse.From(result);
+        return result.State is "Cancelled" or "CancellationScheduled" ? Ok(response) : Accepted(response);
+    }
 
-        if (!result.Success)
-        {
-            return BadRequest(new ErrorResponse(result.FailureReason!));
-        }
+    [HttpPost("subscription/verify")]
+    [RequirePermission(Permission.ManageBilling)]
+    [ProducesResponseType<LifecycleResponse>(StatusCodes.Status200OK)]
+    public async Task<IActionResult> VerifySubscriptionAsync(CancellationToken cancellationToken) =>
+        Ok(LifecycleResponse.From(await lifecycle.VerifyAsync(RequireTenant(), cancellationToken)));
 
-        return Ok(ToResponse(result));
+    [HttpPost("subscription/plan-change")]
+    [RequirePermission(Permission.ManageBilling)]
+    [ProducesResponseType<PlanChangeRequestResponse>(StatusCodes.Status202Accepted)]
+    public async Task<IActionResult> RequestPlanChangeAsync([FromBody] SubscribePlanRequest request,
+        CancellationToken cancellationToken)
+    {
+        var change = await lifecycle.RequestChangeAsync(RequireTenant(), RequireUserId(), request.PlanCode, cancellationToken);
+        return Accepted(new PlanChangeRequestResponse(change.Id, change.ToPlanId, change.Reason.ToString(),
+            change.Reason == PlanChangeReason.Upgrade ? "AwaitingFinancialTerms" : "AwaitingCycleConfirmation",
+            change.EffectiveAtUtc));
     }
 
     /// <summary>Histórico de mudanças de plano (F16.5).</summary>
@@ -301,15 +317,28 @@ public sealed class BillingController(
 public sealed record SubscribePlanRequest(
     [Required, MaxLength(30)] string PlanCode);
 
-public sealed record StartCheckoutRequest(Guid CheckoutKey, [Required, MaxLength(30)] string PlanCode);
+public sealed record StartCheckoutRequest(Guid CheckoutKey, [Required, MaxLength(30)] string PlanCode,
+    [MaxLength(200)] string? CardToken = null);
 
 public sealed record CheckoutResponse(Guid CheckoutKey, Guid AttemptId, string State,
-    string? CheckoutUrl, DateOnly? ResumeOn)
+    string? CheckoutUrl, DateOnly? ResumeOn, DateTimeOffset? TrialStartsAt = null, DateTimeOffset? TrialEndsAt = null)
 {
     public static CheckoutResponse From(CheckoutResult result) =>
         new(result.Attempt.CheckoutKey!.Value, result.Attempt.Id, result.State,
-            result.State == "AwaitingAuthorization" ? result.Attempt.CheckoutUrl : null, result.ResumeOn);
+            result.State == "AwaitingAuthorization" ? result.Attempt.CheckoutUrl : null, result.ResumeOn,
+            result.Attempt.TrialStartedAtUtc, result.Attempt.TrialDeadline);
 }
+
+public sealed record LifecycleResponse(Guid SubscriptionId, string State, string Status,
+    DateTimeOffset? NextChargeAt, DateTimeOffset? PastDueSince, DateTimeOffset? CancellationEffectiveAt)
+{
+    public static LifecycleResponse From(LifecycleResult result) => new(result.Subscription.Id, result.State,
+        result.Subscription.Status.ToString(), result.Subscription.ChargeDeadline, result.Subscription.PastDueSince,
+        result.Subscription.CancellationDeadline);
+}
+
+public sealed record PlanChangeRequestResponse(Guid Id, Guid TargetPlanId, string Reason, string State,
+    DateTimeOffset? EffectiveAt);
 
 /// <summary>Representação de mudança de plano.</summary>
 public sealed record PlanChangeResponse(
@@ -322,7 +351,9 @@ public sealed record UpgradeSuggestionResponse(
 /// <summary>Representação de assinatura.</summary>
 public sealed record SubscriptionResponse(
     Guid Id, string PlanCode, string PlanName, string Status,
-    DateOnly PeriodStart, DateOnly PeriodEnd, DateOnly? TrialEndsAt);
+    DateOnly PeriodStart, DateOnly PeriodEnd, DateOnly? TrialEndsAt,
+    DateTimeOffset? TrialStartedAtUtc = null, DateTimeOffset? TrialEndsAtUtc = null,
+    DateTimeOffset? NextChargeAtUtc = null, DateTimeOffset? CancellationEffectiveAtUtc = null);
 
 /// <summary>Representação de fatura.</summary>
 public sealed record InvoiceResponse(

@@ -28,6 +28,7 @@ public sealed partial class MercadoPagoGateway : IPaymentGateway, IRecurringChec
     private readonly HttpClient _httpClient;
     private readonly RetryPolicy _retryPolicy;
     private readonly string _returnUrl;
+    private readonly IReadOnlyDictionary<string, string> _trialPlanIds;
 
     public MercadoPagoGateway(
         HttpClient httpClient,
@@ -46,6 +47,7 @@ public sealed partial class MercadoPagoGateway : IPaymentGateway, IRecurringChec
         _httpClient = httpClient;
         _retryPolicy = retryPolicy ?? new RetryPolicy();
         _returnUrl = options.ReturnUrl;
+        _trialPlanIds = options.TrialPlanIds;
 
         _httpClient.BaseAddress ??= new Uri(ApiBaseUrl);
         _httpClient.DefaultRequestHeaders.Authorization =
@@ -281,6 +283,7 @@ public sealed class MercadoPagoOptions
     public string AccessToken { get; set; } = string.Empty;
 
     public string ReturnUrl { get; set; } = string.Empty;
+    public Dictionary<string, string> TrialPlanIds { get; set; } = [];
 
     public bool HasCheckoutReturnUrl => Uri.TryCreate(ReturnUrl, UriKind.Absolute, out var uri)
         && uri.Scheme == Uri.UriSchemeHttps && string.IsNullOrEmpty(uri.UserInfo)

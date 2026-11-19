@@ -1,3 +1,5 @@
+using Servia.Domain.Billing;
+
 namespace Servia.Domain.Tenancy;
 
 /// <summary>
@@ -14,12 +16,19 @@ public interface ISubscriptionRepository
     /// </summary>
     Task<Subscription?> FindCurrentAsync(
         Guid tenantId,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default, bool readOnly = false);
 
     Task<Subscription?> FindCheckoutAsync(Guid tenantId, Guid checkoutKey,
         CancellationToken cancellationToken = default, bool readOnly = false);
 
     Task<bool> HasPendingCheckoutAsync(Guid tenantId, CancellationToken cancellationToken = default);
+
+    Task<PlatformInvoice?> FindRecurringInvoiceAsync(Guid tenantId, Guid subscriptionId, DateTimeOffset dueAt,
+        CancellationToken cancellationToken);
+
+    Task AddRecurringInvoiceAsync(PlatformInvoice invoice, CancellationToken cancellationToken);
+
+    Task<bool> IsRecurringPaymentUsedAsync(string paymentId, CancellationToken cancellationToken);
 
     /// <summary>Registra uma nova assinatura.</summary>
     Task AddAsync(Subscription subscription, CancellationToken cancellationToken = default);

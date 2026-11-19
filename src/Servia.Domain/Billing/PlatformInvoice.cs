@@ -54,6 +54,10 @@ public sealed class PlatformInvoice : ITenantScoped
     public DateOnly PeriodEnd { get; private set; }
 
     public DateOnly DueDate { get; private set; }
+    public DateTimeOffset? RecurringDueAtUtc { get; private set; }
+    public DateTimeOffset? RecurringFailureAtUtc { get; private set; }
+    public decimal? RecurringAmount { get; private set; }
+    public string? RecurringCurrency { get; private set; }
 
     public InvoiceStatus Status { get; private set; }
 
@@ -64,7 +68,8 @@ public sealed class PlatformInvoice : ITenantScoped
     public IReadOnlyCollection<InvoiceLine> Lines => _lines;
 
     /// <summary>Total da fatura: soma das linhas.</summary>
-    public Money Total => _lines.Count == 0
+    public Money Total => RecurringAmount is { } amount ? Money.From(amount, RecurringCurrency!)
+        : _lines.Count == 0
         ? Money.Zero()
         : _lines.Select(line => line.Amount).Aggregate((first, second) => first.Add(second));
 
@@ -105,6 +110,30 @@ public sealed class PlatformInvoice : ITenantScoped
         return new PlatformInvoice(
             Guid.NewGuid(), tenantId, subscriptionId, periodStart, periodEnd, dueDate,
             InvoiceStatus.Pending);
+    }
+
+    public static PlatformInvoice CreateRecurring(Guid tenantId, Guid subscriptionId, DateTimeOffset dueAt,
+        DateTimeOffset end, Money amount)
+    {
+        var day = DateOnly.FromDateTime(dueAt.UtcDateTime);
+        var invoice = new PlatformInvoice(Guid.NewGuid(), tenantId, subscriptionId, day,
+            DateOnly.FromDateTime(end.UtcDateTime), day, InvoiceStatus.Pending)
+        {
+            RecurringDueAtUtc = dueAt.ToUniversalTime(),
+            RecurringAmount = amount.Amount,
+            RecurringCurrency = amount.Currency
+        };
+        invoice.AddLine(InvoiceLineType.Subscription, "Mensalidade Servia", amount);
+        return invoice;
+    }
+
+    public void RecordRecurringFailure(DateTimeOffset dueAt)
+    {
+        if (!IsPaid && RecurringDueAtUtc.HasValue)
+        {
+            RecurringFailureAtUtc ??= dueAt.ToUniversalTime();
+            MarkFailed();
+        }
     }
 
     /// <summary>

@@ -45,8 +45,8 @@ public class PublicSignupTests : IClassFixture<IsolatedApiFactory>
 
         Assert.NotNull(body);
         Assert.Equal(slug.ToLowerInvariant(), body!.Slug);
-        Assert.Equal("Trialing", body.SubscriptionStatus);
-        Assert.NotNull(body.TrialEndsAt);
+        Assert.Equal("AwaitingTrialAuthorization", body.SubscriptionStatus);
+        Assert.Null(body.TrialEndsAt);
     }
 
     [Fact]

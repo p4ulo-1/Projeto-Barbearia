@@ -9,7 +9,7 @@ namespace Servia.Infrastructure.Provisioning;
 /// <summary>
 /// Provisiona um novo estabelecimento (F1.4).
 ///
-/// Cria o tenant, a assinatura em trial e o usuário proprietário em uma única
+/// Cria o tenant, a assinatura aguardando autorização e o proprietário em uma única
 /// operação. O tenant é criado <b>do zero</b>, com dados próprios — não há
 /// reaproveitamento de dados de outro estabelecimento (ADR-001).
 ///
@@ -60,7 +60,7 @@ public sealed class TenantProvisioner(AppDbContext context, TimeProvider timePro
             tenant.UpdateSchedule(request.Schedule);
         }
 
-        var subscription = Subscription.StartTrial(tenant.Id, plan.Id, today);
+        var subscription = Subscription.AwaitTrialAuthorization(tenant.Id, plan.Id, today);
 
         var owner = User.CreateForTenant(
             tenant.Id,
