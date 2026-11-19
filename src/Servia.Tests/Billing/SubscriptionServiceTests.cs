@@ -3,6 +3,7 @@ using Servia.Domain.Common;
 using Servia.Domain.Tenancy;
 using Servia.Tests.Common;
 
+
 namespace Servia.Tests.Billing;
 
 /// <summary>
@@ -34,161 +35,38 @@ public class SubscriptionServiceTests
             SiteCustomizationLevel.Full, 5000));
     }
 
-    // ---------- F16.1: contratar ----------
-
-    [Fact]
-    public async Task Contratar_Plano_Cria_Assinatura_Em_Trial()
+    private async Task<Subscription> SeedTrialAsync(string planCode)
     {
-        SeedPlans();
-
-        var result = await NewService().SubscribeAsync(TenantId, "ESSENCIAL", UserId);
-
-        Assert.True(result.Success);
-        Assert.Equal(SubscriptionStatus.Trialing, result.Subscription!.Status);
-        Assert.Equal("ESSENCIAL", result.Plan!.Code);
+        var plan = (await _plans.FindByCodeAsync(planCode))!;
+        var trial = Subscription.StartTrial(TenantId, plan.Id, DateOnly.FromDateTime(Now.UtcDateTime));
+        await _subscriptions.AddAsync(trial);
+        return trial;
     }
 
     [Fact]
-    public async Task Contratar_Registra_Mudanca_Inicial()
-    {
-        SeedPlans();
-
-        var result = await NewService().SubscribeAsync(TenantId, "ESSENCIAL", UserId);
-
-        Assert.NotNull(result.Change);
-        Assert.Equal(PlanChangeReason.Initial, result.Change!.Reason);
-        Assert.Null(result.Change.FromPlanId);
-    }
-
-    [Fact]
-    public async Task Contratar_Plano_Inexistente_Falha()
-    {
-        SeedPlans();
-
-        var result = await NewService().SubscribeAsync(TenantId, "INEXISTENTE", UserId);
-
-        Assert.False(result.Success);
-        Assert.Contains("não encontrado", result.FailureReason);
-    }
-
-    [Fact]
-    public async Task Contratar_Duas_Vezes_Falha()
+    public async Task Contratacao_E_Troca_Locais_Nao_Gravam_Assinatura_Ou_Historico()
     {
         SeedPlans();
         var service = NewService();
+        var subscribe = await service.SubscribeAsync(TenantId, "PRO", UserId);
+        Assert.False(subscribe.Success);
+        Assert.Contains("confirmação financeira", subscribe.FailureReason);
+        Assert.Null(await _subscriptions.FindCurrentAsync(TenantId));
 
-        await service.SubscribeAsync(TenantId, "ESSENCIAL", UserId);
-        var second = await service.SubscribeAsync(TenantId, "PRO", UserId);
-
-        Assert.False(second.Success);
-        Assert.Contains("já possui assinatura", second.FailureReason);
+        var trial = await SeedTrialAsync("ESSENCIAL");
+        var change = await service.ChangePlanAsync(TenantId, "PRO", UserId);
+        Assert.False(change.Success);
+        Assert.Contains("confirmação financeira", change.FailureReason);
+        Assert.Equal((await _plans.FindByCodeAsync("ESSENCIAL"))!.Id, trial.PlanId);
+        Assert.Equal(SubscriptionStatus.Trialing, trial.Status);
+        Assert.Empty(await _subscriptions.ListChangesAsync(TenantId));
     }
-
-    // ---------- F16.2: trocar ----------
-
-    [Fact]
-    public async Task Trocar_Para_Plano_Maior_Eh_Upgrade()
-    {
-        SeedPlans();
-        var service = NewService();
-        await service.SubscribeAsync(TenantId, "ESSENCIAL", UserId);
-
-        var result = await service.ChangePlanAsync(TenantId, "PRO", UserId);
-
-        Assert.True(result.Success);
-        Assert.Equal(PlanChangeReason.Upgrade, result.Change!.Reason);
-        Assert.Equal("PRO", result.Plan!.Code);
-    }
-
-    [Fact]
-    public async Task Trocar_Para_Plano_Menor_Eh_Downgrade()
-    {
-        SeedPlans();
-        var service = NewService();
-        await service.SubscribeAsync(TenantId, "PRO", UserId);
-
-        var result = await service.ChangePlanAsync(TenantId, "ESSENCIAL", UserId);
-
-        Assert.True(result.Success);
-        Assert.Equal(PlanChangeReason.Downgrade, result.Change!.Reason);
-    }
-
-    [Fact]
-    public async Task Trocar_Para_O_Mesmo_Plano_Falha()
-    {
-        SeedPlans();
-        var service = NewService();
-        await service.SubscribeAsync(TenantId, "ESSENCIAL", UserId);
-
-        var result = await service.ChangePlanAsync(TenantId, "ESSENCIAL", UserId);
-
-        Assert.False(result.Success);
-        Assert.Contains("é o atual", result.FailureReason);
-    }
-
-    [Fact]
-    public async Task Trocar_Sem_Assinatura_Falha()
-    {
-        SeedPlans();
-
-        var result = await NewService().ChangePlanAsync(TenantId, "PRO", UserId);
-
-        Assert.False(result.Success);
-        Assert.Contains("não possui assinatura", result.FailureReason);
-    }
-
-    // ---------- F16.4: regra de faixa ----------
-
-    [Fact]
-    public async Task Downgrade_Com_Equipe_Acima_Da_Faixa_Falha()
-    {
-        SeedPlans();
-        var service = NewService();
-        await service.SubscribeAsync(TenantId, "PRO", UserId);
-
-        // 5 profissionais: cabe no Pro (7), nao cabe no Essencial (3).
-        _counts.Set(TenantId, 5);
-
-        var result = await service.ChangePlanAsync(TenantId, "ESSENCIAL", UserId);
-
-        Assert.False(result.Success);
-        Assert.Contains("comporta até 3", result.FailureReason);
-    }
-
-    [Fact]
-    public async Task Downgrade_Com_Equipe_Dentro_Da_Faixa_Eh_Aceito()
-    {
-        SeedPlans();
-        var service = NewService();
-        await service.SubscribeAsync(TenantId, "PRO", UserId);
-
-        _counts.Set(TenantId, 3);
-
-        var result = await service.ChangePlanAsync(TenantId, "ESSENCIAL", UserId);
-
-        Assert.True(result.Success);
-    }
-
-    [Fact]
-    public async Task Plano_Ilimitado_Comporta_Qualquer_Equipe()
-    {
-        SeedPlans();
-        var service = NewService();
-        await service.SubscribeAsync(TenantId, "ESSENCIAL", UserId);
-
-        _counts.Set(TenantId, 200);
-
-        var result = await service.ChangePlanAsync(TenantId, "BUSINESS", UserId);
-
-        Assert.True(result.Success);
-    }
-
     [Fact]
     public async Task Sugestao_De_Upgrade_Indica_O_Plano_Necessario()
     {
         SeedPlans();
         var service = NewService();
-        await service.SubscribeAsync(TenantId, "ESSENCIAL", UserId);
+        await SeedTrialAsync("ESSENCIAL");
 
         // 10 profissionais: Essencial (3) nao cabe, Pro (7) nao cabe,
         // Business (ilimitado) cabe.
@@ -207,7 +85,7 @@ public class SubscriptionServiceTests
     {
         SeedPlans();
         var service = NewService();
-        await service.SubscribeAsync(TenantId, "PRO", UserId);
+        await SeedTrialAsync("PRO");
 
         _counts.Set(TenantId, 5);
 
@@ -221,12 +99,34 @@ public class SubscriptionServiceTests
     {
         SeedPlans();
         var service = NewService();
-        await service.SubscribeAsync(TenantId, "ESSENCIAL", UserId);
+        await SeedTrialAsync("ESSENCIAL");
 
         var result = await service.CancelAsync(TenantId);
 
         Assert.True(result.Success);
         Assert.Equal(SubscriptionStatus.Cancelled, result.Subscription!.Status);
+        Assert.Equal(DateOnly.FromDateTime(Now.UtcDateTime), result.Subscription.CancellationEffectiveOn);
+    }
+
+    [Fact]
+    public async Task Cancelamento_Pago_Local_Nao_Altera_Periodo_Ou_Estado()
+    {
+        SeedPlans();
+        var plan = (await _plans.FindByCodeAsync("ESSENCIAL"))!;
+        var today = DateOnly.FromDateTime(Now.UtcDateTime);
+        var paid = Subscription.StartCheckout(TenantId, plan, Guid.NewGuid(), today);
+        paid.BindCheckout("subscription");
+        paid.ConfirmAuthorization("subscription");
+        paid.ConfirmFirstPayment("subscription", "paid", plan, 0, today, today.AddMonths(1));
+        await _subscriptions.AddAsync(paid);
+
+        var result = await NewService().CancelAsync(TenantId);
+
+        Assert.False(result.Success);
+        Assert.Contains("confirmação financeira", result.FailureReason);
+        Assert.Equal(SubscriptionStatus.Active, paid.Status);
+        Assert.Equal(today.AddMonths(1), paid.CurrentPeriodEnd);
+        Assert.Null(paid.CancellationRequestedOn);
     }
 
     [Fact]
@@ -239,39 +139,6 @@ public class SubscriptionServiceTests
         Assert.False(result.Success);
     }
 
-    [Fact]
-    public async Task Assinatura_Cancelada_Nao_Troca_De_Plano()
-    {
-        SeedPlans();
-        var service = NewService();
-        await service.SubscribeAsync(TenantId, "ESSENCIAL", UserId);
-        await service.CancelAsync(TenantId);
-
-        var result = await service.ChangePlanAsync(TenantId, "PRO", UserId);
-
-        Assert.False(result.Success);
-        Assert.Contains("cancelada", result.FailureReason);
-    }
-
-    // ---------- F16.5: historico ----------
-
-    [Fact]
-    public async Task Historico_Registra_Todas_As_Mudancas()
-    {
-        SeedPlans();
-        var service = NewService();
-
-        await service.SubscribeAsync(TenantId, "ESSENCIAL", UserId);
-        await service.ChangePlanAsync(TenantId, "PRO", UserId);
-        await service.ChangePlanAsync(TenantId, "ESSENCIAL", UserId);
-
-        var history = await _subscriptions.ListChangesAsync(TenantId);
-
-        Assert.Equal(3, history.Count);
-        Assert.Contains(history, change => change.Reason == PlanChangeReason.Initial);
-        Assert.Contains(history, change => change.Reason == PlanChangeReason.Upgrade);
-        Assert.Contains(history, change => change.Reason == PlanChangeReason.Downgrade);
-    }
 }
 
 /// <summary>Repositório de assinaturas em memória.</summary>
@@ -286,6 +153,10 @@ internal sealed class FakeSubscriptionRepository : ISubscriptionRepository
             .Where(subscription => subscription.TenantId == tenantId)
             .OrderByDescending(subscription => subscription.CurrentPeriodStart)
             .FirstOrDefault());
+
+    public Task<Subscription?> FindCheckoutAsync(Guid tenantId, Guid checkoutKey,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult(_subscriptions.SingleOrDefault(item => item.TenantId == tenantId && item.CheckoutKey == checkoutKey));
 
     public Task AddAsync(Subscription subscription, CancellationToken cancellationToken = default)
     {

@@ -11,7 +11,7 @@ namespace Servia.Infrastructure.Repositories;
 ///
 /// O filtro global restringe as consultas ao tenant corrente.
 /// </summary>
-public sealed class AiUsageRepository(AppDbContext context) : IAiUsageRepository
+public sealed class AiUsageRepository(AppDbContext context, ISubscriptionRepository subscriptions) : IAiUsageRepository
 {
     public async Task<UsageQuota?> FindAsync(
         Guid tenantId,
@@ -22,13 +22,10 @@ public sealed class AiUsageRepository(AppDbContext context) : IAiUsageRepository
             .OrderByDescending(quota => quota.PeriodStart)
             .FirstOrDefaultAsync(cancellationToken);
 
-    public async Task<Subscription?> FindCurrentSubscriptionAsync(
+    public Task<Subscription?> FindCurrentSubscriptionAsync(
         Guid tenantId,
         CancellationToken cancellationToken = default) =>
-        await context.Subscriptions
-            .Where(subscription => subscription.TenantId == tenantId)
-            .OrderByDescending(subscription => subscription.CurrentPeriodStart)
-            .FirstOrDefaultAsync(cancellationToken);
+        subscriptions.FindCurrentAsync(tenantId, cancellationToken);
 
     public async Task AddAsync(UsageQuota quota, CancellationToken cancellationToken = default)
     {

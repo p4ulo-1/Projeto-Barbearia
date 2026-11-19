@@ -17,7 +17,10 @@ internal sealed class SubscriptionConfiguration : IEntityTypeConfiguration<Subsc
     {
         ArgumentNullException.ThrowIfNull(builder);
 
-        builder.ToTable("Subscriptions");
+        builder.ToTable("Subscriptions", table => table.HasCheckConstraint(
+            "CK_Subscriptions_CheckoutState",
+            "\"CheckoutKey\" IS NULL OR (\"Status\" IN ('PendingCheckout', 'PendingConfirmation', 'AuthorizedAwaitingFirstPayment', 'Cancelled', 'Expired')"
+            + " OR (\"Status\" IN ('Active', 'PastDue') AND \"FirstPaymentId\" IS NOT NULL AND \"GatewaySubscriptionId\" IS NOT NULL))"));
 
         builder.HasKey(subscription => subscription.Id);
 
@@ -29,7 +32,7 @@ internal sealed class SubscriptionConfiguration : IEntityTypeConfiguration<Subsc
 
         builder.Property(subscription => subscription.Status)
             .HasConversion<string>()
-            .HasMaxLength(20)
+            .HasMaxLength(40)
             .IsRequired();
 
         builder.Property(subscription => subscription.CurrentPeriodStart).IsRequired();
@@ -41,8 +44,22 @@ internal sealed class SubscriptionConfiguration : IEntityTypeConfiguration<Subsc
         builder.Property(subscription => subscription.GatewayCustomerId).HasMaxLength(100);
 
         builder.Property(subscription => subscription.GatewaySubscriptionId).HasMaxLength(100);
+        builder.Property(subscription => subscription.FirstPaymentId).HasMaxLength(100);
+        builder.Property(subscription => subscription.ContractPriceAmount).HasPrecision(18, 2);
+        builder.Property(subscription => subscription.ContractCurrency).HasMaxLength(3);
+        builder.Property<uint>("Version").IsRowVersion();
 
         builder.HasIndex(subscription => new { subscription.TenantId, subscription.Status });
+        builder.HasIndex(subscription => subscription.TenantId, "UX_Subscriptions_EffectiveTenant")
+            .IsUnique().HasFilter("\"Status\" IN ('Trialing', 'Active') OR (\"Status\" = 'PastDue' AND \"TrialEndsAt\" IS NULL)");
+        builder.HasIndex(subscription => subscription.TenantId, "UX_Subscriptions_PendingTenant")
+            .IsUnique().HasFilter("\"Status\" IN ('PendingCheckout', 'PendingConfirmation', 'AuthorizedAwaitingFirstPayment')");
+        builder.HasIndex(subscription => new { subscription.TenantId, subscription.CheckoutKey })
+            .IsUnique().HasFilter("\"CheckoutKey\" IS NOT NULL");
+        builder.HasIndex(subscription => subscription.GatewaySubscriptionId)
+            .IsUnique().HasFilter("\"GatewaySubscriptionId\" IS NOT NULL");
+        builder.HasIndex(subscription => subscription.FirstPaymentId)
+            .IsUnique().HasFilter("\"FirstPaymentId\" IS NOT NULL");
 
         builder.Ignore(subscription => subscription.IsOnTrial);
         builder.Ignore(subscription => subscription.IsActive);

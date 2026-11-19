@@ -104,11 +104,7 @@ public sealed class InvoiceOverdueJob(
 }
 
 /// <summary>
-/// Aplica a régua de inadimplência (F19.4).
-///
-/// Trial expirado vira atraso; assinatura em atraso é marcada como tal.
-/// O bloqueio de escrita é consequência do status, aplicado na
-/// autorização — não aqui.
+/// Encerra a vigência de trials expirados.
 /// </summary>
 public sealed class DelinquencyJob(
     IJobRepository repository,
@@ -131,11 +127,11 @@ public sealed class DelinquencyJob(
         {
             try
             {
-                subscription.MarkPastDue();
+                subscription.ExpireTrial(today);
             }
             catch (DomainRuleException)
             {
-                // Assinatura ja cancelada: nada a fazer.
+                // O registro não representa mais um trial expirável.
             }
         }
 

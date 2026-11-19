@@ -335,7 +335,7 @@ public class PlanLimitOnLinkTests : IClassFixture<IsolatedApiFactory>
     }
 
     [Fact]
-    public async Task Troca_Local_De_Plano_Aplica_Novo_Limite()
+    public async Task Troca_Local_De_Plano_Nao_Libera_Vaga_Nem_Altera_Historico()
     {
         var code = $"LIM2-{TenantId.ToString("N")[..12]}";
         using (var scope = _factory.Services.CreateScope())
@@ -351,16 +351,15 @@ public class PlanLimitOnLinkTests : IClassFixture<IsolatedApiFactory>
         var second = await CreateProfessionalAsync("Segundo");
         Assert.Equal(HttpStatusCode.NoContent, (await LinkAsync(first, service)).StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, (await LinkAsync(second, service)).StatusCode);
-        Assert.Equal(HttpStatusCode.OK, (await SendAsync(HttpMethod.Patch,
-            "/api/v1/billing/subscription", new SubscribePlanRequest(code))).StatusCode);
-        Assert.Equal(HttpStatusCode.NoContent, (await LinkAsync(second, service)).StatusCode);
-        var originalCode = $"LIM1-{TenantId.ToString("N")[..12]}";
-        Assert.Equal(HttpStatusCode.BadRequest, (await SendAsync(HttpMethod.Patch,
-            "/api/v1/billing/subscription", new SubscribePlanRequest(originalCode))).StatusCode);
-        Assert.Equal(HttpStatusCode.NoContent, (await SendAsync(HttpMethod.Post,
-            $"/api/v1/catalog/services/{service}/deactivate")).StatusCode);
-        Assert.Equal(HttpStatusCode.OK, (await SendAsync(HttpMethod.Patch,
-            "/api/v1/billing/subscription", new SubscribePlanRequest(originalCode))).StatusCode);
+        var rejected = await SendAsync(HttpMethod.Patch, "/api/v1/billing/subscription", new SubscribePlanRequest(code));
+        Assert.Equal(HttpStatusCode.BadRequest, rejected.StatusCode);
+        Assert.Contains("confirmação financeira", (await rejected.Content.ReadFromJsonAsync<ErrorResponse>())!.Message);
+        Assert.Equal(HttpStatusCode.BadRequest, (await LinkAsync(second, service)).StatusCode);
+        var current = await SendAsync(HttpMethod.Get, "/api/v1/billing/subscription");
+        Assert.Equal($"LIM1-{TenantId.ToString("N")[..12]}".ToUpperInvariant(),
+            (await current.Content.ReadFromJsonAsync<SubscriptionResponse>())!.PlanCode);
+        var history = await SendAsync(HttpMethod.Get, "/api/v1/billing/subscription/history");
+        Assert.Empty((await history.Content.ReadFromJsonAsync<PlanChangeResponse[]>())!);
     }
 
     [Fact]

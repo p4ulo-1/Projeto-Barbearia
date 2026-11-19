@@ -18,9 +18,20 @@ public sealed class SubscriptionRepository(AppDbContext context) : ISubscription
         Guid tenantId,
         CancellationToken cancellationToken = default) =>
         await context.Subscriptions
-            .Where(subscription => subscription.TenantId == tenantId)
-            .OrderByDescending(subscription => subscription.CurrentPeriodStart)
+            .Where(subscription => subscription.TenantId == tenantId
+                && (subscription.CheckoutKey == null || subscription.FirstPaymentId != null))
+            .OrderByDescending(subscription => subscription.Status == SubscriptionStatus.Trialing
+                || subscription.Status == SubscriptionStatus.Active
+                || (subscription.Status == SubscriptionStatus.PastDue && subscription.TrialEndsAt == null))
+            .ThenByDescending(subscription => subscription.CurrentPeriodStart)
+            .ThenByDescending(subscription => subscription.FirstPaymentId != null)
+            .ThenByDescending(subscription => subscription.Id)
             .FirstOrDefaultAsync(cancellationToken);
+
+    public Task<Subscription?> FindCheckoutAsync(Guid tenantId, Guid checkoutKey,
+        CancellationToken cancellationToken = default) =>
+        context.Subscriptions.FirstOrDefaultAsync(item => item.TenantId == tenantId
+            && item.CheckoutKey == checkoutKey, cancellationToken);
 
     public async Task AddAsync(
         Subscription subscription,
@@ -86,10 +97,14 @@ public sealed class SubscriptionRepository(AppDbContext context) : ISubscription
                     break;
                 }
             }
-            if (postgres?.SqlState == PostgresErrorCodes.SerializationFailure
+            if (exception is DbUpdateConcurrencyException
+                || postgres?.SqlState == PostgresErrorCodes.SerializationFailure
                 || postgres?.SqlState == PostgresErrorCodes.DeadlockDetected
                 || (postgres?.SqlState == PostgresErrorCodes.UniqueViolation
-                    && postgres.ConstraintName == "PK_ProfessionalServices"))
+                    && postgres.ConstraintName is "PK_ProfessionalServices"
+                        or "UX_Subscriptions_EffectiveTenant" or "UX_Subscriptions_PendingTenant"
+                        or "IX_Subscriptions_TenantId_CheckoutKey" or "IX_Subscriptions_GatewaySubscriptionId"
+                        or "IX_Subscriptions_FirstPaymentId"))
                 throw new ConcurrencyConflictException(
                     "Outra alteração que afeta a capacidade do plano ocorreu ao mesmo tempo. Tente novamente.", exception);
             throw;

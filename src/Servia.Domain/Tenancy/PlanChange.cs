@@ -62,6 +62,29 @@ public sealed class PlanChange : ITenantScoped
 
     public DateTimeOffset ChangedAt { get; private set; }
 
+    public PlanChangeStatus Status { get; private set; } = PlanChangeStatus.Effective;
+
+    public DateOnly? EffectiveOn { get; private set; }
+
+    /// <summary>Registra uma solicitação sem trocar o plano vigente.</summary>
+    public static PlanChange Request(Subscription subscription, Plan current, Plan target,
+        int eligibleProfessionals, Guid requestedBy, DateTimeOffset now)
+    {
+        if (!subscription.IsActive || current.Id != subscription.PlanId || !target.IsActive
+            || !target.AllowsProfessionals(eligibleProfessionals))
+        {
+            throw new DomainRuleException("A assinatura ou a capacidade do plano de destino não permite a mudança.");
+        }
+
+        var isDowngrade = target.IncludedProfessionals > 0 && (current.IncludedProfessionals == 0
+            || target.IncludedProfessionals < current.IncludedProfessionals);
+        var change = Record(subscription.TenantId, subscription.Id, current.Id, target.Id,
+            isDowngrade ? PlanChangeReason.Downgrade : PlanChangeReason.Upgrade, requestedBy, now);
+        change.Status = PlanChangeStatus.Requested;
+        change.EffectiveOn = isDowngrade ? subscription.CurrentPeriodEnd : null;
+        return change;
+    }
+
     /// <summary>
     /// Registra uma mudança de plano.
     /// </summary>
@@ -117,6 +140,12 @@ public sealed class PlanChange : ITenantScoped
             Guid.NewGuid(), tenantId, subscriptionId, fromPlanId, toPlanId,
             reason, changedBy, now);
     }
+}
+
+public enum PlanChangeStatus
+{
+    Effective = 0,
+    Requested = 1
 }
 
 /// <summary>Motivo da mudança de plano.</summary>

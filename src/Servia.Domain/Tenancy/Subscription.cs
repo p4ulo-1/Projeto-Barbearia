@@ -66,6 +66,24 @@ public sealed class Subscription : ITenantScoped
     /// <summary>Identificador da assinatura no gateway de pagamento.</summary>
     public string? GatewaySubscriptionId { get; private set; }
 
+    public Guid? CheckoutKey { get; private set; }
+
+    public decimal? ContractPriceAmount { get; private set; }
+
+    public string? ContractCurrency { get; private set; }
+
+    public int? BillingIntervalMonths { get; private set; }
+
+    public string? FirstPaymentId { get; private set; }
+
+    public DateOnly? CheckoutFailedOn { get; private set; }
+
+    public DateTimeOffset? PastDueSince { get; private set; }
+
+    public DateOnly? CancellationRequestedOn { get; private set; }
+
+    public DateOnly? CancellationEffectiveOn { get; private set; }
+
     /// <summary>Indica se a assinatura está em período de teste.</summary>
     public bool IsOnTrial => Status == SubscriptionStatus.Trialing;
 
@@ -73,7 +91,7 @@ public sealed class Subscription : ITenantScoped
     public bool IsActive => Status == SubscriptionStatus.Active;
 
     /// <summary>
-    /// Inicia o trial de 14 dias com cartão cadastrado.
+    /// Inicia o trial de 14 dias pelo provisionamento do estabelecimento.
     /// </summary>
     public static Subscription StartTrial(
         Guid tenantId,
@@ -106,85 +124,174 @@ public sealed class Subscription : ITenantScoped
         };
     }
 
-    /// <summary>
-    /// Converte o trial em assinatura ativa após o débito do cartão.
-    /// </summary>
-    public void ActivateAfterTrial(DateOnly today, string? gatewaySubscriptionId = null)
+    /// <summary>Registra uma tentativa separada do plano efetivo.</summary>
+    public static Subscription StartCheckout(Guid tenantId, Plan plan, Guid checkoutKey, DateOnly today)
     {
-        if (Status != SubscriptionStatus.Trialing)
+        ArgumentNullException.ThrowIfNull(plan);
+        if (tenantId == Guid.Empty || checkoutKey == Guid.Empty || !plan.IsActive)
         {
-            throw new DomainRuleException("Somente assinaturas em trial podem ser ativadas.");
+            throw new DomainRuleException("Estabelecimento, plano ativo e chave da contratação são obrigatórios.");
         }
 
+        return new Subscription(Guid.NewGuid(), tenantId, plan.Id, SubscriptionStatus.PendingCheckout,
+            today, today, null)
+        {
+            CheckoutKey = checkoutKey,
+            ContractPriceAmount = plan.MonthlyPrice.Amount,
+            ContractCurrency = plan.MonthlyPrice.Currency,
+            BillingIntervalMonths = 1
+        };
+    }
+
+    public void BindCheckout(string gatewaySubscriptionId)
+    {
+        var id = NormalizeExternalId(gatewaySubscriptionId);
+        if (Status != SubscriptionStatus.PendingCheckout || (GatewaySubscriptionId is not null && GatewaySubscriptionId != id))
+        {
+            throw new DomainRuleException("A tentativa não pode receber este identificador externo.");
+        }
+        GatewaySubscriptionId = id;
+    }
+
+    public void AwaitConfirmation()
+    {
+        if (Status != SubscriptionStatus.PendingCheckout || GatewaySubscriptionId is null)
+        {
+            throw new DomainRuleException("A confirmação exige um checkout pendente com assinatura externa.");
+        }
+        Status = SubscriptionStatus.PendingConfirmation;
+    }
+
+    public void ConfirmAuthorization(string gatewaySubscriptionId)
+    {
+        RequireGatewaySubscription(gatewaySubscriptionId);
+        if (Status is not (SubscriptionStatus.PendingCheckout or SubscriptionStatus.PendingConfirmation))
+        {
+            throw new DomainRuleException("A autorização exige uma tentativa pendente.");
+        }
+        Status = SubscriptionStatus.AuthorizedAwaitingFirstPayment;
+    }
+
+    /// <summary>Consome evidência já verificada pelo backend. A capacidade deve ser lida na mesma transação.</summary>
+    public void ConfirmFirstPayment(string gatewaySubscriptionId, string approvedPaymentId,
+        Plan plan, int eligibleProfessionals, DateOnly periodStart, DateOnly periodEnd)
+    {
+        RequireGatewaySubscription(gatewaySubscriptionId);
+        var paymentId = NormalizeExternalId(approvedPaymentId);
+        if (Status != SubscriptionStatus.AuthorizedAwaitingFirstPayment || plan.Id != PlanId
+            || !plan.AllowsProfessionals(eligibleProfessionals) || periodStart < CurrentPeriodStart || periodEnd <= periodStart)
+        {
+            throw new DomainRuleException("O primeiro pagamento não pode efetivar esta assinatura ou capacidade.");
+        }
+
+        FirstPaymentId = paymentId;
+        CurrentPeriodStart = periodStart;
+        CurrentPeriodEnd = periodEnd;
         Status = SubscriptionStatus.Active;
-        CurrentPeriodStart = today;
-        CurrentPeriodEnd = today.AddMonths(1);
-        TrialEndsAt = null;
-        GatewaySubscriptionId = gatewaySubscriptionId;
     }
 
-    /// <summary>Renova a assinatura por mais um período mensal.</summary>
-    public void Renew(DateOnly today)
+    public void FailCheckout(DateOnly today)
     {
-        if (Status is SubscriptionStatus.Cancelled)
+        if (Status is not (SubscriptionStatus.PendingCheckout or SubscriptionStatus.PendingConfirmation
+            or SubscriptionStatus.AuthorizedAwaitingFirstPayment) || today < CurrentPeriodStart)
         {
-            throw new DomainRuleException("Uma assinatura cancelada não pode ser renovada.");
+            throw new DomainRuleException("Somente uma tentativa pendente pode ser encerrada por falha.");
         }
-
-        Status = SubscriptionStatus.Active;
-        CurrentPeriodStart = today;
-        CurrentPeriodEnd = today.AddMonths(1);
-    }
-
-    /// <summary>Marca a assinatura como inadimplente.</summary>
-    public void MarkPastDue()
-    {
-        if (Status is SubscriptionStatus.Cancelled)
-        {
-            throw new DomainRuleException("Uma assinatura cancelada não pode ficar inadimplente.");
-        }
-
-        Status = SubscriptionStatus.PastDue;
-    }
-
-    /// <summary>
-    /// Cancela a assinatura. O acesso permanece até o fim do período pago.
-    /// </summary>
-    public void Cancel()
-    {
-        if (Status is SubscriptionStatus.Cancelled)
-        {
-            throw new DomainRuleException("A assinatura já está cancelada.");
-        }
-
+        CheckoutFailedOn = today;
         Status = SubscriptionStatus.Cancelled;
     }
 
-    /// <summary>
-    /// Troca o plano da assinatura (F16.2).
-    ///
-    /// O efeito e imediato no cadastro; a cobranca proporcional e tratada
-    /// pelo billing. Assinatura cancelada nao troca de plano.
-    /// </summary>
-    public void ChangePlan(Guid newPlanId)
+    public void ExpireTrial(DateOnly today)
     {
-        if (newPlanId == Guid.Empty)
+        if (!IsTrialExpired(today))
         {
-            throw new DomainRuleException("O plano de destino e obrigatorio.");
+            throw new DomainRuleException("A vigência do trial ainda não terminou.");
         }
+        Status = SubscriptionStatus.Expired;
+    }
 
-        if (Status == SubscriptionStatus.Cancelled)
+    public void MarkPastDue(DateTimeOffset now)
+    {
+        if (Status is not (SubscriptionStatus.Active or SubscriptionStatus.PastDue))
         {
-            throw new DomainRuleException(
-                "Uma assinatura cancelada nao pode trocar de plano.");
+            throw new DomainRuleException("Somente uma assinatura paga pode ficar inadimplente.");
         }
+        PastDueSince ??= now.ToUniversalTime();
+        Status = SubscriptionStatus.PastDue;
+    }
 
-        if (newPlanId == PlanId)
+    public void ConfirmRegularization(string gatewaySubscriptionId, string approvedPaymentId,
+        DateOnly periodStart, DateOnly periodEnd)
+    {
+        RequireGatewaySubscription(gatewaySubscriptionId);
+        var paymentId = NormalizeExternalId(approvedPaymentId);
+        if (Status != SubscriptionStatus.PastDue || paymentId == FirstPaymentId
+            || periodStart < CurrentPeriodEnd || periodEnd <= periodStart
+            || CancellationEffectiveOn.HasValue)
         {
-            throw new DomainRuleException("O plano de destino e igual ao atual.");
+            throw new DomainRuleException("O pagamento não regulariza o período da assinatura.");
         }
+        CurrentPeriodStart = periodStart;
+        CurrentPeriodEnd = periodEnd;
+        PastDueSince = null;
+        Status = SubscriptionStatus.Active;
+    }
 
-        PlanId = newPlanId;
+    public void CancelTrial(DateOnly today)
+    {
+        if (!IsOnTrial || today < CurrentPeriodStart)
+        {
+            throw new DomainRuleException("Apenas um trial vigente pode ser cancelado localmente.");
+        }
+        CancellationRequestedOn = today;
+        CancellationEffectiveOn = today;
+        Status = SubscriptionStatus.Cancelled;
+    }
+
+    public void RequestCancellation(DateOnly today)
+    {
+        if (Status is not (SubscriptionStatus.Active or SubscriptionStatus.PastDue))
+        {
+            throw new DomainRuleException("Somente uma assinatura paga vigente pode solicitar cancelamento.");
+        }
+        CancellationRequestedOn ??= today;
+    }
+
+    public void ConfirmCancellation(string gatewaySubscriptionId)
+    {
+        RequireGatewaySubscription(gatewaySubscriptionId);
+        if (CancellationRequestedOn is null || Status is not (SubscriptionStatus.Active or SubscriptionStatus.PastDue))
+        {
+            throw new DomainRuleException("O cancelamento precisa ter sido solicitado.");
+        }
+        CancellationEffectiveOn ??= CurrentPeriodEnd;
+    }
+
+    public void EndCancellation(DateOnly today)
+    {
+        if (CancellationEffectiveOn is not { } effective || today < effective
+            || Status is not (SubscriptionStatus.Active or SubscriptionStatus.PastDue))
+        {
+            throw new DomainRuleException("O encerramento exige cancelamento confirmado e fim do período pago.");
+        }
+        Status = SubscriptionStatus.Cancelled;
+    }
+
+    private void RequireGatewaySubscription(string gatewaySubscriptionId)
+    {
+        if (GatewaySubscriptionId is null || GatewaySubscriptionId != NormalizeExternalId(gatewaySubscriptionId))
+        {
+            throw new DomainRuleException("A confirmação pertence a outra assinatura externa.");
+        }
+    }
+
+    private static string NormalizeExternalId(string id)
+    {
+        if (string.IsNullOrWhiteSpace(id) || id.Trim().Length > 100)
+        {
+            throw new DomainRuleException("Identificador externo inválido.");
+        }
+        return id.Trim();
     }
 
     /// <summary>Indica se o trial expirou na data informada.</summary>
@@ -208,5 +315,10 @@ public enum SubscriptionStatus
     PastDue = 3,
 
     /// <summary>Cancelada. Estado terminal.</summary>
-    Cancelled = 4
+    Cancelled = 4,
+
+    PendingCheckout = 5,
+    PendingConfirmation = 6,
+    AuthorizedAwaitingFirstPayment = 7,
+    Expired = 8
 }

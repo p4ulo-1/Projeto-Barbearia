@@ -62,113 +62,117 @@ public class SubscriptionTests
         Assert.True(subscription.IsTrialExpired(Today.AddDays(20)));
     }
 
-    // ---------- Ativacao ----------
+    private static Plan NewPlan(int capacity = 3) =>
+        Plan.Create("PLAN", "Plano", Money.From(99m), capacity, SiteCustomizationLevel.Basic, 100);
 
-    [Fact]
-    public void Ativar_Apos_Trial_Converte_Em_Ativa()
+    private static Subscription Authorized(Plan plan)
     {
-        var subscription = NewTrial();
-        var activationDate = Today.AddDays(14);
+        var checkout = Subscription.StartCheckout(TenantId, plan, Guid.NewGuid(), Today);
+        checkout.BindCheckout("sub_456");
+        checkout.AwaitConfirmation();
+        checkout.ConfirmAuthorization("sub_456");
+        return checkout;
+    }
 
-        subscription.ActivateAfterTrial(activationDate, "sub_456");
-
-        Assert.Equal(SubscriptionStatus.Active, subscription.Status);
-        Assert.True(subscription.IsActive);
-        Assert.Null(subscription.TrialEndsAt);
-        Assert.Equal("sub_456", subscription.GatewaySubscriptionId);
-        Assert.Equal(activationDate.AddMonths(1), subscription.CurrentPeriodEnd);
+    private static Subscription Paid(Plan plan)
+    {
+        var checkout = Authorized(plan);
+        checkout.ConfirmFirstPayment("sub_456", "pay_1", plan, 0, Today, Today.AddMonths(1));
+        return checkout;
     }
 
     [Fact]
-    public void Ativar_Assinatura_Ja_Ativa_Lanca_Excecao()
+    public void Checkout_Exige_Autorizacao_E_Pagamento_Da_Mesma_Assinatura_E_Valida_Capacidade()
     {
-        var subscription = NewTrial();
-        subscription.ActivateAfterTrial(Today.AddDays(14));
-
+        var plan = NewPlan();
+        var checkout = Subscription.StartCheckout(TenantId, plan, Guid.NewGuid(), Today);
+        Assert.Equal(SubscriptionStatus.PendingCheckout, checkout.Status);
+        Assert.Equal(plan.MonthlyPrice.Amount, checkout.ContractPriceAmount);
+        Assert.Equal("BRL", checkout.ContractCurrency);
+        Assert.Equal(1, checkout.BillingIntervalMonths);
+        checkout.BindCheckout("sub_456");
+        Assert.Throws<DomainRuleException>(() => checkout.BindCheckout("outra"));
+        checkout.AwaitConfirmation();
         Assert.Throws<DomainRuleException>(() =>
-            subscription.ActivateAfterTrial(Today.AddDays(45)));
-    }
-
-    // ---------- Renovacao ----------
-
-    [Fact]
-    public void Renovar_Estende_Periodo_Por_Um_Mes()
-    {
-        var subscription = NewTrial();
-        subscription.ActivateAfterTrial(Today.AddDays(14));
-
-        var renewalDate = Today.AddDays(44);
-        subscription.Renew(renewalDate);
-
-        Assert.Equal(SubscriptionStatus.Active, subscription.Status);
-        Assert.Equal(renewalDate, subscription.CurrentPeriodStart);
-        Assert.Equal(renewalDate.AddMonths(1), subscription.CurrentPeriodEnd);
+            checkout.ConfirmFirstPayment("sub_456", "pay_1", plan, 0, Today, Today.AddMonths(1)));
+        Assert.Throws<DomainRuleException>(() => checkout.ConfirmAuthorization("outra"));
+        checkout.ConfirmAuthorization("sub_456");
+        Assert.False(checkout.IsActive);
+        Assert.Throws<DomainRuleException>(() =>
+            checkout.ConfirmFirstPayment("sub_456", "pay_1", plan, 4, Today, Today.AddMonths(1)));
+        Assert.Equal(SubscriptionStatus.AuthorizedAwaitingFirstPayment, checkout.Status);
+        Assert.Null(checkout.FirstPaymentId);
+        checkout.ConfirmFirstPayment("sub_456", "pay_1", plan, 3, Today, Today.AddMonths(1));
+        Assert.True(checkout.IsActive);
+        Assert.Equal("pay_1", checkout.FirstPaymentId);
+        Assert.Throws<DomainRuleException>(() =>
+            checkout.ConfirmFirstPayment("sub_456", "pay_2", plan, 3, Today, Today.AddMonths(1)));
     }
 
     [Fact]
-    public void Renovar_Assinatura_Cancelada_Lanca_Excecao()
+    public void Falha_Encerra_A_Tentativa_Sem_Ativar_O_Plano()
     {
-        var subscription = NewTrial();
-        subscription.Cancel();
-
-        Assert.Throws<DomainRuleException>(() => subscription.Renew(Today.AddDays(30)));
-    }
-
-    // ---------- Inadimplencia ----------
-
-    [Fact]
-    public void Marcar_Inadimplente_Altera_Status()
-    {
-        var subscription = NewTrial();
-        subscription.ActivateAfterTrial(Today.AddDays(14));
-
-        subscription.MarkPastDue();
-
-        Assert.Equal(SubscriptionStatus.PastDue, subscription.Status);
-        Assert.False(subscription.IsActive);
+        var plan = NewPlan();
+        var checkout = Authorized(plan);
+        checkout.FailCheckout(Today);
+        Assert.Equal(SubscriptionStatus.Cancelled, checkout.Status);
+        Assert.Equal(Today, checkout.CheckoutFailedOn);
+        Assert.Equal("sub_456", checkout.GatewaySubscriptionId);
+        Assert.Null(checkout.FirstPaymentId);
+        Assert.Throws<DomainRuleException>(() =>
+            checkout.ConfirmFirstPayment("sub_456", "pay_1", plan, 0, Today, Today.AddMonths(1)));
     }
 
     [Fact]
-    public void Assinatura_Cancelada_Nao_Pode_Ficar_Inadimplente()
+    public void Inadimplencia_Preserva_O_Inicio_E_Regularizacao_Exige_Pagamento_Novo()
     {
-        var subscription = NewTrial();
-        subscription.Cancel();
-
-        Assert.Throws<DomainRuleException>(() => subscription.MarkPastDue());
-    }
-
-    // ---------- Cancelamento ----------
-
-    [Fact]
-    public void Cancelar_Altera_Status_Para_Cancelada()
-    {
-        var subscription = NewTrial();
-
-        subscription.Cancel();
-
-        Assert.Equal(SubscriptionStatus.Cancelled, subscription.Status);
+        var trial = NewTrial();
+        var now = new DateTimeOffset(Today.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);
+        Assert.Throws<DomainRuleException>(() => trial.MarkPastDue(now));
+        var paid = Paid(NewPlan());
+        var currentEnd = paid.CurrentPeriodEnd;
+        paid.MarkPastDue(now);
+        paid.MarkPastDue(now.AddHours(10));
+        Assert.Equal(now, paid.PastDueSince);
+        Assert.Equal(SubscriptionStatus.PastDue, paid.Status);
+        Assert.Throws<DomainRuleException>(() => paid.ConfirmRegularization("sub_456", "pay_1", currentEnd, currentEnd.AddMonths(1)));
+        paid.ConfirmRegularization("sub_456", "pay_2", currentEnd, currentEnd.AddMonths(1));
+        Assert.True(paid.IsActive);
+        Assert.Null(paid.PastDueSince);
     }
 
     [Fact]
-    public void Cancelar_Duas_Vezes_Lanca_Excecao()
+    public void Trial_Cancela_Imediatamente_E_Pago_Encerra_Apenas_Ao_Fim_Do_Periodo_Confirmado()
     {
-        var subscription = NewTrial();
-        subscription.Cancel();
-
-        Assert.Throws<DomainRuleException>(() => subscription.Cancel());
+        var trial = NewTrial();
+        trial.CancelTrial(Today);
+        Assert.Equal(SubscriptionStatus.Cancelled, trial.Status);
+        Assert.Equal(Today, trial.CancellationEffectiveOn);
+        var paid = Paid(NewPlan());
+        Assert.Throws<DomainRuleException>(() => paid.CancelTrial(Today));
+        paid.RequestCancellation(Today);
+        Assert.True(paid.IsActive);
+        Assert.Null(paid.CancellationEffectiveOn);
+        paid.ConfirmCancellation("sub_456");
+        Assert.Equal(paid.CurrentPeriodEnd, paid.CancellationEffectiveOn);
+        Assert.Throws<DomainRuleException>(() => paid.EndCancellation(paid.CurrentPeriodEnd.AddDays(-1)));
+        paid.EndCancellation(paid.CurrentPeriodEnd);
+        Assert.Equal(SubscriptionStatus.Cancelled, paid.Status);
     }
 
-    // ---------- Expiracao do periodo ----------
-
     [Fact]
-    public void Periodo_Expira_Apos_Data_De_Fim()
+    public void Downgrade_Solicitado_Valida_Capacidade_E_Preserva_O_Plano_Efetivo()
     {
-        var subscription = NewTrial();
-        subscription.ActivateAfterTrial(Today.AddDays(14));
-
-        var periodEnd = subscription.CurrentPeriodEnd;
-
-        Assert.False(subscription.IsPeriodExpired(periodEnd));
-        Assert.True(subscription.IsPeriodExpired(periodEnd.AddDays(1)));
+        var unlimited = NewPlan(0);
+        var target = NewPlan();
+        var paid = Paid(unlimited);
+        var userId = Guid.NewGuid();
+        var now = new DateTimeOffset(Today.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);
+        Assert.Throws<DomainRuleException>(() => PlanChange.Request(paid, unlimited, target, 4, userId, now));
+        var change = PlanChange.Request(paid, unlimited, target, 3, userId, now);
+        Assert.Equal(PlanChangeStatus.Requested, change.Status);
+        Assert.Equal(PlanChangeReason.Downgrade, change.Reason);
+        Assert.Equal(paid.CurrentPeriodEnd, change.EffectiveOn);
+        Assert.Equal(unlimited.Id, paid.PlanId);
     }
 }

@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using Microsoft.EntityFrameworkCore;
 using Servia.Api.Contracts;
 using Servia.Tests.Api;
 using Servia.Api.Controllers;
@@ -29,6 +30,11 @@ public class BillingIsolationIntegrationTests : MultiTenantIntegrationTestBase
     {
         return await WithTenantAsync(tenantId, async context =>
         {
+            var existing = await context.Subscriptions.SingleOrDefaultAsync();
+            if (existing is not null)
+            {
+                return existing.Id;
+            }
             var plan = await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions
                 .FirstAsync(context.Plans, item => item.Code == "ESSENCIAL");
 
@@ -65,7 +71,7 @@ public class BillingIsolationIntegrationTests : MultiTenantIntegrationTestBase
     }
 
     [Fact]
-    public async Task Tenant_Sem_Assinatura_Recebe_404()
+    public async Task Owner_Sem_Assinatura_Nao_Consegue_Contratar_Localmente()
     {
         // O container e compartilhado entre testes da classe: remove
         // qualquer assinatura previa do tenant B para isolar o cenario.
@@ -84,11 +90,18 @@ public class BillingIsolationIntegrationTests : MultiTenantIntegrationTestBase
         await CreateSubscriptionAsync(TenantA);
 
         var tokenB = await SignInAsTenantBAsync();
+        var rejected = await SendAsync(HttpMethod.Post, "/api/v1/billing/subscription", tokenB,
+            new SubscribePlanRequest("PRO"));
+        Assert.Equal(HttpStatusCode.BadRequest, rejected.StatusCode);
+        Assert.Contains("confirmação financeira", (await rejected.Content.ReadFromJsonAsync<ErrorResponse>())!.Message);
 
         var response = await SendAsync(HttpMethod.Get, "/api/v1/billing/subscription", tokenB);
 
         // O tenant B nao herda a assinatura do A.
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        var history = await SendAsync(HttpMethod.Get, "/api/v1/billing/subscription/history", tokenB);
+        Assert.Equal(HttpStatusCode.OK, history.StatusCode);
+        Assert.Empty((await history.Content.ReadFromJsonAsync<PlanChangeResponse[]>())!);
     }
 
     [Fact]

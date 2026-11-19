@@ -148,7 +148,7 @@ public class JobTests
     // ---------- F19.4: inadimplência ----------
 
     [Fact]
-    public async Task Trial_Expirado_Vira_Atraso()
+    public async Task Trial_Expirado_Encerra_Vigencia()
     {
         var subscription = Subscription.StartTrial(
             TenantId, Guid.NewGuid(), Today.AddDays(-20));
@@ -157,7 +157,7 @@ public class JobTests
 
         await new DelinquencyJob(_repository, new FixedTimeProvider(Now)).ExecuteAsync();
 
-        Assert.Equal(SubscriptionStatus.PastDue, subscription.Status);
+        Assert.Equal(SubscriptionStatus.Expired, subscription.Status);
     }
 
     [Fact]

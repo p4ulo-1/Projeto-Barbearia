@@ -9,11 +9,14 @@ namespace Servia.Domain.Tenancy;
 public interface ISubscriptionRepository
 {
     /// <summary>
-    /// Retorna a assinatura vigente do tenant.
-    /// Retorna nulo quando o tenant ainda não contratou.
+    /// Retorna a assinatura vigente ou, na sua ausência, a última assinatura que concedeu acesso.
+    /// Tentativas sem pagamento confirmado ficam fora da consulta de plano efetivo.
     /// </summary>
     Task<Subscription?> FindCurrentAsync(
         Guid tenantId,
+        CancellationToken cancellationToken = default);
+
+    Task<Subscription?> FindCheckoutAsync(Guid tenantId, Guid checkoutKey,
         CancellationToken cancellationToken = default);
 
     /// <summary>Registra uma nova assinatura.</summary>

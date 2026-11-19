@@ -39,10 +39,7 @@ public sealed class BillingController(
         // intencao e protege caso o filtro global seja desativado.
         var tenantId = RequireTenant();
 
-        var subscription = await context.Subscriptions
-            .Where(item => item.TenantId == tenantId)
-            .OrderByDescending(item => item.CurrentPeriodStart)
-            .FirstOrDefaultAsync(cancellationToken)
+        var subscription = await subscriptions.FindCurrentAsync(tenantId, cancellationToken)
             ?? throw NotFoundException.For("Assinatura", tenantId);
 
         var plan = await context.Plans
@@ -129,10 +126,9 @@ public sealed class BillingController(
         return Ok(plans);
     }
 
-    /// <summary>Contrata um plano para o estabelecimento (F16.1).</summary>
+    /// <summary>Contratação indisponível até habilitar confirmação financeira.</summary>
     [HttpPost("subscription")]
     [RequirePermission(Permission.ManageBilling)]
-    [ProducesResponseType<SubscriptionResponse>(StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> SubscribeAsync(
         [FromBody] SubscribePlanRequest request,
@@ -151,12 +147,10 @@ public sealed class BillingController(
         return Created("/api/v1/billing/subscription", ToResponse(result));
     }
 
-    /// <summary>Troca o plano da assinatura (F16.2).</summary>
+    /// <summary>Troca de plano indisponível até habilitar confirmação financeira.</summary>
     [HttpPatch("subscription")]
     [RequirePermission(Permission.ManageBilling)]
-    [ProducesResponseType<SubscriptionResponse>(StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status409Conflict)]
     public async Task<IActionResult> ChangePlanAsync(
         [FromBody] SubscribePlanRequest request,
         CancellationToken cancellationToken)
@@ -174,11 +168,12 @@ public sealed class BillingController(
         return Ok(ToResponse(result));
     }
 
-    /// <summary>Cancela a assinatura (F16.3).</summary>
+    /// <summary>Encerra o trial local.</summary>
     [HttpPost("subscription/cancel")]
     [RequirePermission(Permission.ManageBilling)]
     [ProducesResponseType<SubscriptionResponse>(StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status409Conflict)]
     public async Task<IActionResult> CancelAsync(CancellationToken cancellationToken)
     {
         var result = await subscriptions.CancelAsync(RequireTenant(), cancellationToken);
@@ -198,7 +193,7 @@ public sealed class BillingController(
     public async Task<IActionResult> GetHistoryAsync(CancellationToken cancellationToken)
     {
         var changes = await context.PlanChanges
-            .Where(change => change.TenantId == RequireTenant())
+            .Where(change => change.TenantId == RequireTenant() && change.Status == PlanChangeStatus.Effective)
             .OrderByDescending(change => change.ChangedAt)
             .Select(change => new PlanChangeResponse(
                 change.Id,

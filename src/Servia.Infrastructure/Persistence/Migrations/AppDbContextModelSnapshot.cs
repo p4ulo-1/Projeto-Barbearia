@@ -2077,6 +2077,9 @@ namespace Servia.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("ChangedBy")
                         .HasColumnType("uuid");
 
+                    b.Property<DateOnly?>("EffectiveOn")
+                        .HasColumnType("date");
+
                     b.Property<Guid?>("FromPlanId")
                         .HasColumnType("uuid");
 
@@ -2084,6 +2087,13 @@ namespace Servia.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasDefaultValue("Effective");
 
                     b.Property<Guid>("SubscriptionId")
                         .HasColumnType("uuid");
@@ -2106,11 +2116,38 @@ namespace Servia.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid");
 
+                    b.Property<int?>("BillingIntervalMonths")
+                        .HasColumnType("integer");
+
+                    b.Property<DateOnly?>("CancellationEffectiveOn")
+                        .HasColumnType("date");
+
+                    b.Property<DateOnly?>("CancellationRequestedOn")
+                        .HasColumnType("date");
+
+                    b.Property<DateOnly?>("CheckoutFailedOn")
+                        .HasColumnType("date");
+
+                    b.Property<Guid?>("CheckoutKey")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ContractCurrency")
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)");
+
+                    b.Property<decimal?>("ContractPriceAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
                     b.Property<DateOnly>("CurrentPeriodEnd")
                         .HasColumnType("date");
 
                     b.Property<DateOnly>("CurrentPeriodStart")
                         .HasColumnType("date");
+
+                    b.Property<string>("FirstPaymentId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
 
                     b.Property<string>("GatewayCustomerId")
                         .HasMaxLength(100)
@@ -2120,13 +2157,16 @@ namespace Servia.Infrastructure.Persistence.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
+                    b.Property<DateTimeOffset?>("PastDueSince")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<Guid>("PlanId")
                         .HasColumnType("uuid");
 
                     b.Property<string>("Status")
                         .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
 
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uuid");
@@ -2134,11 +2174,40 @@ namespace Servia.Infrastructure.Persistence.Migrations
                     b.Property<DateOnly?>("TrialEndsAt")
                         .HasColumnType("date");
 
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
                     b.HasKey("Id");
+
+                    b.HasIndex("FirstPaymentId")
+                        .IsUnique()
+                        .HasFilter("\"FirstPaymentId\" IS NOT NULL");
+
+                    b.HasIndex("GatewaySubscriptionId")
+                        .IsUnique()
+                        .HasFilter("\"GatewaySubscriptionId\" IS NOT NULL");
+
+                    b.HasIndex("TenantId", "CheckoutKey")
+                        .IsUnique()
+                        .HasFilter("\"CheckoutKey\" IS NOT NULL");
 
                     b.HasIndex("TenantId", "Status");
 
-                    b.ToTable("Subscriptions", (string)null);
+                    b.HasIndex(new[] { "TenantId" }, "UX_Subscriptions_EffectiveTenant")
+                        .IsUnique()
+                        .HasFilter("\"Status\" IN ('Trialing', 'Active') OR (\"Status\" = 'PastDue' AND \"TrialEndsAt\" IS NULL)");
+
+                    b.HasIndex(new[] { "TenantId" }, "UX_Subscriptions_PendingTenant")
+                        .IsUnique()
+                        .HasFilter("\"Status\" IN ('PendingCheckout', 'PendingConfirmation', 'AuthorizedAwaitingFirstPayment')");
+
+                    b.ToTable("Subscriptions", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_Subscriptions_CheckoutState", "\"CheckoutKey\" IS NULL OR (\"Status\" IN ('PendingCheckout', 'PendingConfirmation', 'AuthorizedAwaitingFirstPayment', 'Cancelled', 'Expired') OR (\"Status\" IN ('Active', 'PastDue') AND \"FirstPaymentId\" IS NOT NULL AND \"GatewaySubscriptionId\" IS NOT NULL))");
+                        });
                 });
 
             modelBuilder.Entity("Servia.Domain.Tenancy.Tenant", b =>

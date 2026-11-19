@@ -26,6 +26,8 @@ internal sealed class PlanChangeConfiguration : IEntityTypeConfiguration<PlanCha
         builder.Property(change => change.Reason).HasConversion<string>().HasMaxLength(20).IsRequired();
         builder.Property(change => change.ChangedBy).IsRequired();
         builder.Property(change => change.ChangedAt).IsRequired();
+        builder.Property(change => change.Status).HasConversion<string>().HasMaxLength(20)
+            .HasDefaultValue(PlanChangeStatus.Effective);
 
         // Consulta do histórico: por tenant, mais recente primeiro.
         builder.HasIndex(change => new { change.TenantId, change.ChangedAt });

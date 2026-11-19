@@ -210,57 +210,6 @@ public class PlanSlotConcurrencyTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Downgrade_Com_Contagem_Desatualizada_Reverte_Plano_E_Historico()
-    {
-        var first = await SeedIneligibleAsync("Ocupante");
-        var second = await SeedIneligibleAsync("Novo ocupante");
-        var original = Plan.Create("DUAS-VAGAS", "Duas vagas", Money.From(149m), 2,
-            SiteCustomizationLevel.Basic, includedAiUnits: 0);
-        string destinationCode;
-        await using (var setup = _database.CreateContext(ContextFor(TenantId)))
-        {
-            destinationCode = await setup.Plans.Where(plan => plan.Id == _planId)
-                .Select(plan => plan.Code).SingleAsync();
-            setup.Plans.Add(original);
-            (await setup.Subscriptions.SingleAsync()).ChangePlan(original.Id);
-            await setup.SaveChangesAsync();
-        }
-        Assert.True(await TryLinkAsync(first.ProfessionalId, first.ServiceId));
-
-        await using var context = _database.CreateContext(ContextFor(TenantId));
-        var counts = new PausedCountReader(new ProfessionalCountReader(context));
-        var service = new SubscriptionService(
-            new SubscriptionRepository(context), new PlanRepository(context), counts, TimeProvider.System);
-        var request = Record.ExceptionAsync(() =>
-            service.ChangePlanAsync(TenantId, destinationCode, Guid.NewGuid()));
-        try
-        {
-            Assert.Equal(1, await counts.WaitForFirstCountAsync());
-            Assert.True(await TryLinkAsync(second.ProfessionalId, second.ServiceId));
-        }
-        finally
-        {
-            counts.Resume();
-        }
-
-        var exception = await request;
-        await using var verification = _database.CreateContext(ContextFor(TenantId));
-        var effective = await verification.Subscriptions.SingleAsync();
-        var occupancy = await CountEligibleAsync();
-        Assert.Equal(2, occupancy);
-        Assert.True(effective.PlanId == original.Id,
-            $"O downgrade efetivou com {occupancy} profissionais para um plano de uma vaga.");
-        Assert.IsType<ConcurrencyConflictException>(exception);
-        Assert.Empty(await verification.PlanChanges.ToListAsync());
-
-        var retry = new SubscriptionService(new SubscriptionRepository(verification),
-            new PlanRepository(verification), new ProfessionalCountReader(verification), TimeProvider.System);
-        var result = await retry.ChangePlanAsync(TenantId, destinationCode, Guid.NewGuid());
-        Assert.False(result.Success);
-        Assert.Empty(await verification.PlanChanges.ToListAsync());
-    }
-
-    [Fact]
     public async Task Associacao_Concorrente_Com_Correcao_De_Preco_Grava_Apenas_Uma_Ocupacao()
     {
         var legacy = await SeedIneligibleAsync("Serviço com preço inválido");
@@ -380,7 +329,7 @@ public class PlanSlotConcurrencyTests : IAsyncLifetime
                 .IgnoreQueryFilters()
                 .FirstAsync(item => item.TenantId == TenantId);
 
-            subscription.ChangePlan(unlimited.Id);
+            context.Entry(subscription).Property(item => item.PlanId).CurrentValue = unlimited.Id;
 
             await context.SaveChangesAsync();
         }

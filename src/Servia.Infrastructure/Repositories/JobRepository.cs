@@ -61,7 +61,7 @@ public sealed class JobRepository(AppDbContext context) : IJobRepository
             .IgnoreQueryFilters()
             .Where(subscription => subscription.Status == SubscriptionStatus.Trialing
                                    && subscription.TrialEndsAt != null
-                                   && subscription.TrialEndsAt < today)
+                                   && subscription.TrialEndsAt <= today)
             .Take(limit)
             .ToListAsync(cancellationToken);
 
