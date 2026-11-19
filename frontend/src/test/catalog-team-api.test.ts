@@ -3,7 +3,11 @@ import { realOperations } from "@/lib/api/operations";
 import { tokenStore } from "@/lib/auth/token";
 
 it("envia os contratos reais de catálogo e equipe", async () => {
-  tokenStore.setSession({ accessToken: "token", refreshToken: "refresh", expiresAt: new Date(Date.now() + 900_000).toISOString() });
+  tokenStore.setSession({
+    accessToken: "token",
+    refreshToken: "refresh",
+    expiresAt: new Date(Date.now() + 900_000).toISOString(),
+  });
   const calls: { path: string; method: string; body: unknown }[] = [];
   vi.stubGlobal(
     "fetch",
@@ -39,16 +43,68 @@ it("envia os contratos reais de catálogo e equipe", async () => {
   expect(calls[1]?.body).toEqual({ name: "Corte", durationMinutes: 30, highlight: false });
   expect(calls[5]?.body).toEqual({ name: "Ana", title: null, bio: null });
 });
-afterEach(() => { vi.unstubAllGlobals(); tokenStore.clear(); });
+afterEach(() => {
+  vi.unstubAllGlobals();
+  tokenStore.clear();
+});
 
 it("envia os dias da jornada como valores numéricos de DayOfWeek", async () => {
-  tokenStore.setSession({ accessToken: "token", refreshToken: "refresh", expiresAt: new Date(Date.now() + 900_000).toISOString() });
-  const fetchMock = vi.fn(async (_path: string, _options: RequestInit) => Response.json({ id: "p" }));
+  tokenStore.setSession({
+    accessToken: "token",
+    refreshToken: "refresh",
+    expiresAt: new Date(Date.now() + 900_000).toISOString(),
+  });
+  const fetchMock = vi.fn(async (_path: string, _options: RequestInit) =>
+    Response.json({ id: "p" }),
+  );
   vi.stubGlobal("fetch", fetchMock);
   await realOperations.createPro({
-    name: "Ana", workDays: ["Sunday", "Monday", "Friday", "Saturday"],
-    startTime: "09:00:00", endTime: "18:00:00", slotIntervalMinutes: 30,
+    name: "Ana",
+    workDays: ["Sunday", "Monday", "Friday", "Saturday"],
+    startTime: "09:00:00",
+    endTime: "18:00:00",
+    slotIntervalMinutes: 30,
     isServiceProvider: true,
   });
   expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1].body)).workDays).toEqual([0, 1, 5, 6]);
+});
+
+it("converte jornadas e usa os contratos de detalhe e remoção de bloqueio", async () => {
+  tokenStore.setSession({
+    accessToken: "token",
+    refreshToken: "refresh",
+    expiresAt: new Date(Date.now() + 900_000).toISOString(),
+  });
+  const requests: { path: string; method: string; body?: unknown }[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (path: string, options: RequestInit) => {
+      requests.push({
+        path,
+        method: options.method ?? "GET",
+        ...(options.body ? { body: JSON.parse(String(options.body)) } : {}),
+      });
+      return Response.json({
+        workDays: [0, 2, 6],
+        startTime: "09:00:00",
+        endTime: "18:00:00",
+        slotIntervalMinutes: 30,
+      });
+    }),
+  );
+  const schedule = await realOperations.professionalSchedule("p1");
+  expect(schedule.workDays).toEqual(["Sunday", "Tuesday", "Saturday"]);
+  await realOperations.updateSchedule("p1", { ...schedule, workDays: [] });
+  await realOperations.updateSchedule("p1", schedule);
+  await realOperations.blockDetail("p1", "b1");
+  await realOperations.deleteBlock("p1", "b1");
+  expect(requests.map(({ path, method }) => [method, path])).toEqual([
+    ["GET", "/api/v1/team/professionals/p1/schedule"],
+    ["PUT", "/api/v1/team/professionals/p1/schedule"],
+    ["PUT", "/api/v1/team/professionals/p1/schedule"],
+    ["GET", "/api/v1/team/professionals/p1/blocks/b1"],
+    ["DELETE", "/api/v1/team/professionals/p1/blocks/b1"],
+  ]);
+  expect(requests[1]?.body).toEqual(expect.objectContaining({ workDays: [] }));
+  expect(requests[2]?.body).toEqual(expect.objectContaining({ workDays: [0, 2, 6] }));
 });

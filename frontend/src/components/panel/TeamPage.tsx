@@ -222,6 +222,7 @@ function ProfessionalDetails({
   close: () => void;
 }) {
   const { user } = useAuth();
+  const [selectedBlock, selectBlock] = useState("");
   const detail = useQuery({
     queryKey: ["panel", "professional", person.id],
     queryFn: () => api.professional(person.id),
@@ -300,6 +301,7 @@ function ProfessionalDetails({
           </>
         )}
       </QueryState>
+      <ProfessionalScheduleEditor professionalId={person.id} write={write} />
       <h3>Serviços vinculados</h3>
       <QueryState query={items}>
         {(data) =>
@@ -358,6 +360,25 @@ function ProfessionalDetails({
                 <li key={item.id}>
                   {fmtDateTime(item.start)} a {fmtDateTime(item.end)}{" "}
                   {item.reason && `· ${item.reason}`}
+                  <Button variant="ghost" onClick={() => selectBlock(item.id)}>
+                    Ver detalhes do bloqueio
+                  </Button>
+                  {write && (
+                    <Button
+                      variant="ghost"
+                      disabled={op.busy}
+                      onClick={() => {
+                        if (window.confirm("Remover este bloqueio?"))
+                          op.run(
+                            () => api.deleteBlock(person.id, item.id),
+                            "Bloqueio removido.",
+                            () => selectBlock(""),
+                          );
+                      }}
+                    >
+                      Remover bloqueio
+                    </Button>
+                  )}
                 </li>
               ))}
             </ul>
@@ -366,6 +387,13 @@ function ProfessionalDetails({
           )
         }
       </QueryState>
+      {selectedBlock && (
+        <BlockDetails
+          professionalId={person.id}
+          blockId={selectedBlock}
+          close={() => selectBlock("")}
+        />
+      )}
       {write && (
         <form
           className={s.formGrid}
@@ -391,6 +419,146 @@ function ProfessionalDetails({
         </form>
       )}
     </ModuleCard>
+  );
+}
+
+function ProfessionalScheduleEditor({
+  professionalId,
+  write,
+}: {
+  professionalId: string;
+  write: boolean;
+}) {
+  const schedule = useQuery({
+    queryKey: ["panel", "professional-schedule", professionalId],
+    queryFn: () => api.professionalSchedule(professionalId),
+  });
+  const [revision, setRevision] = useState(0);
+  const op = useOperation();
+  return (
+    <section>
+      <h3>Jornada individual</h3>
+      <p>Alterar a jornada não modifica os agendamentos existentes.</p>
+      {op.feedback}
+      <QueryState query={schedule}>
+        {(saved) => (
+          <>
+            <p>
+              Jornada salva:{" "}
+              {saved.workDays.length
+                ? saved.workDays.map((day) => weekLabels[daysOfWeek.indexOf(day)]).join(", ")
+                : "Semana fechada"}{" "}
+              · {saved.startTime.slice(0, 5)}–{saved.endTime.slice(0, 5)} · intervalos de{" "}
+              {saved.slotIntervalMinutes} min
+            </p>
+            {write && (
+              <form
+                key={`${JSON.stringify(saved)}-${revision}`}
+                className={s.formGrid}
+                onSubmit={(event) =>
+                  op.submit(
+                    event,
+                    (form) =>
+                      api.updateSchedule(professionalId, {
+                        workDays: form.getAll("workDays").map(String),
+                        startTime: timeField(field(form, "startTime")),
+                        endTime: timeField(field(form, "endTime")),
+                        slotIntervalMinutes: numberField(form, "slotIntervalMinutes"),
+                      }),
+                    "Jornada atualizada.",
+                    false,
+                  )
+                }
+              >
+                <fieldset>
+                  <legend>Dias da jornada</legend>
+                  <div className={s.pageActions}>
+                    {daysOfWeek.map((day, index) => (
+                      <label className={s.checkLine} key={day}>
+                        <input
+                          type="checkbox"
+                          name="workDays"
+                          value={day}
+                          defaultChecked={saved.workDays.includes(day)}
+                        />
+                        {weekLabels[index]}
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
+                <TextField
+                  label="Início da jornada individual"
+                  name="startTime"
+                  type="time"
+                  defaultValue={saved.startTime.slice(0, 5)}
+                  required
+                />
+                <TextField
+                  label="Fim da jornada individual"
+                  name="endTime"
+                  type="time"
+                  defaultValue={saved.endTime.slice(0, 5)}
+                  required
+                />
+                <TextField
+                  label="Intervalo da jornada (min)"
+                  name="slotIntervalMinutes"
+                  type="number"
+                  min="5"
+                  max="120"
+                  defaultValue={saved.slotIntervalMinutes}
+                  required
+                />
+                <Button type="submit" loading={op.busy}>
+                  Salvar jornada
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  disabled={op.busy}
+                  onClick={() =>
+                    void schedule.refetch().then(() => setRevision((value) => value + 1))
+                  }
+                >
+                  Recuperar jornada salva
+                </Button>
+              </form>
+            )}
+          </>
+        )}
+      </QueryState>
+    </section>
+  );
+}
+
+function BlockDetails({
+  professionalId,
+  blockId,
+  close,
+}: {
+  professionalId: string;
+  blockId: string;
+  close: () => void;
+}) {
+  const query = useQuery({
+    queryKey: ["panel", "block", professionalId, blockId],
+    queryFn: () => api.blockDetail(professionalId, blockId),
+  });
+  return (
+    <section>
+      <h4>Detalhes do bloqueio</h4>
+      <Button variant="ghost" onClick={close}>
+        Fechar bloqueio
+      </Button>
+      <QueryState query={query}>
+        {(block) => (
+          <p>
+            {fmtDateTime(block.start)} a {fmtDateTime(block.end)}
+            {block.reason && ` · ${block.reason}`}
+          </p>
+        )}
+      </QueryState>
+    </section>
   );
 }
 

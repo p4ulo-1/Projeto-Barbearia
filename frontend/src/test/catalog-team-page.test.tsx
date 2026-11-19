@@ -30,6 +30,11 @@ const api = vi.hoisted(() => ({
   assignService: vi.fn(),
   unassignService: vi.fn(),
   blocks: vi.fn(),
+  block: vi.fn(),
+  blockDetail: vi.fn(),
+  deleteBlock: vi.fn(),
+  professionalSchedule: vi.fn(),
+  updateSchedule: vi.fn(),
   roles: vi.fn(),
   assignable: vi.fn(),
 }));
@@ -83,6 +88,12 @@ beforeEach(() => {
   api.professional.mockResolvedValue(person);
   api.professionalServices.mockResolvedValue(["s1"]);
   api.blocks.mockResolvedValue([]);
+  api.professionalSchedule.mockResolvedValue({
+    workDays: ["Monday", "Wednesday"],
+    startTime: "09:00:00",
+    endTime: "18:00:00",
+    slotIntervalMinutes: 30,
+  });
   api.roles.mockResolvedValue([]);
   api.assignable.mockResolvedValue([]);
   vi.spyOn(window, "confirm").mockReturnValue(true);
@@ -212,5 +223,134 @@ describe("catálogo e equipe", () => {
     expect(
       screen.queryByRole("button", { name: "Cadastrar profissional" }),
     ).not.toBeInTheDocument();
+  });
+});
+
+describe("jornada e bloqueios", () => {
+  async function openPerson() {
+    show(<TeamPage />);
+    fireEvent.click((await screen.findAllByRole("button", { name: "Ver vínculos e bloqueios" }))[0]!);
+    await screen.findByText(/Jornada salva:/);
+  }
+
+  it("exibe jornada e salva uma semana fechada", async () => {
+    api.updateSchedule.mockImplementation(async (_id, input) => {
+      api.professionalSchedule.mockResolvedValue(input);
+      return input;
+    });
+    await openPerson();
+    expect(screen.getByText(/Jornada salva: Segunda-feira, Quarta-feira/)).toBeInTheDocument();
+    const form = screen.getByRole("button", { name: "Salvar jornada" }).closest("form")!;
+    fireEvent.click(within(form).getByLabelText("Segunda-feira"));
+    fireEvent.click(within(form).getByLabelText("Quarta-feira"));
+    fireEvent.change(within(form).getByLabelText("Início da jornada individual"), {
+      target: { value: "10:00" },
+    });
+    fireEvent.click(within(form).getByRole("button", { name: "Salvar jornada" }));
+    await waitFor(() =>
+      expect(api.updateSchedule).toHaveBeenCalledWith("p1", {
+        workDays: [],
+        startTime: "10:00:00",
+        endTime: "18:00:00",
+        slotIntervalMinutes: 30,
+      }),
+    );
+    expect(await screen.findByText(/Jornada salva: Semana fechada/)).toBeInTheDocument();
+  });
+
+  it("salva jornada aberta e mantém dados separados ao trocar de profissional", async () => {
+    const other = { ...person, id: "p2", name: "Bia" };
+    api.professionals.mockResolvedValue(page([person, other]));
+    api.professionalSchedule.mockImplementation(async (id: string) => id === "p2"
+      ? { workDays: ["Friday"], startTime: "11:00:00", endTime: "17:00:00", slotIntervalMinutes: 20 }
+      : { workDays: ["Monday", "Wednesday"], startTime: "09:00:00", endTime: "18:00:00", slotIntervalMinutes: 30 });
+    api.updateSchedule.mockResolvedValue({ workDays: ["Monday", "Wednesday", "Friday"], startTime: "09:00:00", endTime: "18:00:00", slotIntervalMinutes: 30 });
+    await openPerson();
+    const form = screen.getByRole("button", { name: "Salvar jornada" }).closest("form")!;
+    fireEvent.click(within(form).getByLabelText("Sexta-feira"));
+    fireEvent.click(within(form).getByRole("button", { name: "Salvar jornada" }));
+    await waitFor(() => expect(api.updateSchedule).toHaveBeenCalledWith("p1", expect.objectContaining({ workDays: ["Monday", "Wednesday", "Friday"] })));
+    const otherRow = screen.getByText("Bia", { exact: true }).closest("li")!;
+    fireEvent.click(within(otherRow).getByRole("button", { name: "Ver vínculos e bloqueios" }));
+    expect(await screen.findByText(/Jornada salva: Sexta-feira · 11:00–17:00/)).toBeInTheDocument();
+  });
+
+  it("mantém jornada salva e permite recuperá-la após conflito", async () => {
+    api.updateSchedule.mockRejectedValue(new ApiError("Limite do plano atingido", 409));
+    await openPerson();
+    let form = screen.getByRole("button", { name: "Salvar jornada" }).closest("form")!;
+    fireEvent.click(within(form).getByLabelText("Terça-feira"));
+    fireEvent.click(within(form).getByRole("button", { name: "Salvar jornada" }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Limite do plano atingido"));
+    expect(toast.success).not.toHaveBeenCalledWith("Jornada atualizada.");
+    expect(screen.getByText(/Jornada salva: Segunda-feira, Quarta-feira/)).toBeInTheDocument();
+    fireEvent.click(within(form).getByRole("button", { name: "Recuperar jornada salva" }));
+    await waitFor(() => {
+      form = screen.getByRole("button", { name: "Salvar jornada" }).closest("form")!;
+      expect(within(form).getByLabelText("Terça-feira")).not.toBeChecked();
+    });
+  });
+
+  it("consulta detalhes e remove bloqueio atualizando a lista", async () => {
+    const block = {
+      id: "b1",
+      start: "2026-11-23T12:00:00Z",
+      end: "2026-11-23T13:00:00Z",
+      reason: "Pausa",
+    };
+    api.blocks.mockResolvedValue([block]);
+    api.blockDetail.mockResolvedValue(block);
+    api.deleteBlock.mockImplementation(async () => {
+      api.blocks.mockResolvedValue([]);
+    });
+    await openPerson();
+    fireEvent.click(await screen.findByRole("button", { name: "Ver detalhes do bloqueio" }));
+    await waitFor(() => expect(api.blockDetail).toHaveBeenCalledWith("p1", "b1"));
+    expect(
+      await screen.findByRole("heading", { name: "Detalhes do bloqueio" }),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Remover bloqueio" }));
+    await waitFor(() => expect(api.deleteBlock).toHaveBeenCalledWith("p1", "b1"));
+    expect(await screen.findByText("Nenhum horário bloqueado.")).toBeInTheDocument();
+  });
+
+  it("envia instantes UTC a partir do horário local e exibe erro da API", async () => {
+    api.block.mockRejectedValue(new ApiError("O término deve ser posterior ao início.", 400));
+    await openPerson();
+    fireEvent.change(screen.getByLabelText("Início do bloqueio"), {
+      target: { value: "2026-11-23T09:00" },
+    });
+    fireEvent.change(screen.getByLabelText("Fim do bloqueio"), {
+      target: { value: "2026-11-23T10:00" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Bloquear horário" }));
+    await waitFor(() =>
+      expect(api.block).toHaveBeenCalledWith("p1", {
+        start: new Date("2026-11-23T09:00").toISOString(),
+        end: new Date("2026-11-23T10:00").toISOString(),
+      }),
+    );
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith("O término deve ser posterior ao início."),
+    );
+  });
+
+  it("cria bloqueio e atualiza a listagem", async () => {
+    const block = { id: "b2", start: "2026-11-23T12:00:00Z", end: "2026-11-23T13:00:00Z", reason: "Reunião" };
+    api.block.mockImplementation(async () => { api.blocks.mockResolvedValue([block]); return block; });
+    await openPerson();
+    fireEvent.change(screen.getByLabelText("Início do bloqueio"), { target: { value: "2026-11-23T09:00" } });
+    fireEvent.change(screen.getByLabelText("Fim do bloqueio"), { target: { value: "2026-11-23T10:00" } });
+    fireEvent.click(screen.getByRole("button", { name: "Bloquear horário" }));
+    expect(await screen.findByText(/Reunião/)).toBeInTheDocument();
+    expect(api.blocks.mock.calls.length).toBeGreaterThan(1);
+  });
+
+  it("permite somente leitura sem ManageTeam", async () => {
+    state.permissions = ["ViewServices", "ViewTeamAgenda"];
+    await openPerson();
+    expect(screen.getByText(/Jornada salva:/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Salvar jornada" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Bloquear horário" })).not.toBeInTheDocument();
   });
 });

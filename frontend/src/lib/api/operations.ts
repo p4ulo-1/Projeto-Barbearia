@@ -37,6 +37,11 @@ export interface ProfessionalInput {
   endTime: string;
   slotIntervalMinutes: number;
 }
+export type ProfessionalSchedule = Pick<
+  ProfessionalInput,
+  "workDays" | "startTime" | "endTime" | "slotIntervalMinutes"
+>;
+type ApiSchedule = Omit<ProfessionalSchedule, "workDays"> & { workDays: number[] };
 export interface Professional {
   id: string;
   name: string;
@@ -257,8 +262,17 @@ export const realOperations = {
   createPro: (input: ProfessionalInput) =>
     send<Professional>(pros, "POST", {
       ...input,
-      workDays: input.workDays.map((day) => daysOfWeek.indexOf(day)),
+      workDays: toApiDays(input.workDays),
     }),
+  professionalSchedule: async (id: string): Promise<ProfessionalSchedule> =>
+    fromApiSchedule(await get<ApiSchedule>(`${pros}/${id}/schedule`)),
+  updateSchedule: async (id: string, input: ProfessionalSchedule): Promise<ProfessionalSchedule> =>
+    fromApiSchedule(
+      await send<ApiSchedule>(`${pros}/${id}/schedule`, "PUT", {
+        ...input,
+        workDays: toApiDays(input.workDays),
+      }),
+    ),
   setProvider: (id: string, isServiceProvider: boolean) =>
     send<Professional>(`${pros}/${id}/service-provider`, "PATCH", { isServiceProvider }),
   professionalServices: (id: string) => get<string[]>(`${pros}/${id}/services`),
@@ -267,6 +281,9 @@ export const realOperations = {
   unassignService: (id: string, serviceId: string) =>
     send<void>(`${pros}/${id}/services/${serviceId}`, "DELETE"),
   blocks: (id: string) => get<Block[]>(`${pros}/${id}/blocks`),
+  blockDetail: (id: string, blockId: string) => get<Block>(`${pros}/${id}/blocks/${blockId}`),
+  deleteBlock: (id: string, blockId: string) =>
+    send<void>(`${pros}/${id}/blocks/${blockId}`, "DELETE"),
   block: (id: string, input: Omit<Block, "id">) =>
     send<Block>(`${pros}/${id}/blocks`, "POST", input),
   roles: () => get<Role[]>(roles),
@@ -440,6 +457,15 @@ export const daysOfWeek = [
   "Friday",
   "Saturday",
 ];
+const toApiDays = (days: string[]) => days.map((day) => daysOfWeek.indexOf(day));
+const fromApiSchedule = (schedule: ApiSchedule): ProfessionalSchedule => ({
+  ...schedule,
+  workDays: schedule.workDays.map((day) => {
+    const name = daysOfWeek[day];
+    if (!name) throw new Error("A API retornou um dia de jornada inválido.");
+    return name;
+  }),
+});
 function slots(
   data: DemoData,
   professionalId: string,
@@ -553,6 +579,26 @@ export const demoOperations: typeof realOperations = {
       data.professionals.push(item);
       return item;
     }),
+  professionalSchedule: async (professionalId) => {
+    const p = find(demoData().data.professionals, professionalId);
+    return {
+      workDays: p.workDays,
+      startTime: p.startTime,
+      endTime: p.endTime,
+      slotIntervalMinutes: p.slotIntervalMinutes,
+    };
+  },
+  updateSchedule: async (professionalId, input) =>
+    change((data) => {
+      if (
+        input.startTime >= input.endTime ||
+        input.slotIntervalMinutes < 5 ||
+        input.slotIntervalMinutes > 120
+      )
+        throw new ApiError("Informe uma jornada válida.", 400);
+      Object.assign(find(data.professionals, professionalId), input);
+      return input;
+    }),
   setProvider: async (professionalId, isServiceProvider) =>
     change((data) =>
       Object.assign(find(data.professionals, professionalId), { isServiceProvider }),
@@ -572,6 +618,14 @@ export const demoOperations: typeof realOperations = {
       ).filter((id) => id !== serviceId);
     }),
   blocks: async (professionalId) => demoData().data.blocksByProfessional[professionalId] ?? [],
+  blockDetail: async (professionalId, blockId) =>
+    find(demoData().data.blocksByProfessional[professionalId] ?? [], blockId),
+  deleteBlock: async (professionalId, blockId) =>
+    change((data) => {
+      const blocks = data.blocksByProfessional[professionalId] ?? [];
+      find(blocks, blockId);
+      data.blocksByProfessional[professionalId] = blocks.filter((block) => block.id !== blockId);
+    }),
   block: async (professionalId, input) =>
     change((data) => {
       if (Date.parse(input.end) <= Date.parse(input.start))
