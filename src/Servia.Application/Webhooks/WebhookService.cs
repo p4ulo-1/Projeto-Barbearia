@@ -60,6 +60,11 @@ public sealed class WebhookService(
             await RecordAsync(tenantId, payload.EventId, "mercadopago", now, cancellationToken);
             return WebhookResult.Ignored("Pagamento não corresponde a nenhuma fatura.");
         }
+        if (invoice.IsPaid)
+        {
+            await RecordAsync(tenantId, payload.EventId, "mercadopago", now, cancellationToken);
+            return WebhookResult.Ignored("A fatura já está paga.");
+        }
 
         try
         {

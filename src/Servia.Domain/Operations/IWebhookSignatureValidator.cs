@@ -11,7 +11,9 @@ public interface IWebhookSignatureValidator
     /// <summary>
     /// Indica se a assinatura corresponde ao corpo enviado.
     /// </summary>
-    bool IsValid(string source, string rawBody, string? signature, string? requestId);
+    bool IsValidWhatsApp(string rawBody, string? signature);
+
+    long? ValidateMercadoPago(string resourceId, string? signature, string? requestId);
 }
 
 /// <summary>

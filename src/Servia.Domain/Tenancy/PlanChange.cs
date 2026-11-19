@@ -22,7 +22,7 @@ public sealed class PlanChange : ITenantScoped
         Guid? fromPlanId,
         Guid toPlanId,
         PlanChangeReason reason,
-        Guid changedBy,
+        Guid? changedBy,
         DateTimeOffset changedAt)
     {
         Id = id;
@@ -57,8 +57,8 @@ public sealed class PlanChange : ITenantScoped
 
     public PlanChangeReason Reason { get; private set; }
 
-    /// <summary>Usuário que solicitou a mudança.</summary>
-    public Guid ChangedBy { get; private set; }
+    /// <summary>Usuário que efetivou a mudança, quando há uma ação autenticada.</summary>
+    public Guid? ChangedBy { get; private set; }
 
     public DateTimeOffset ChangedAt { get; private set; }
 
@@ -111,7 +111,7 @@ public sealed class PlanChange : ITenantScoped
         Guid? fromPlanId,
         Guid toPlanId,
         PlanChangeReason reason,
-        Guid changedBy,
+        Guid? changedBy,
         DateTimeOffset now)
     {
         if (tenantId == Guid.Empty)
@@ -129,7 +129,7 @@ public sealed class PlanChange : ITenantScoped
             throw new DomainRuleException("O plano de destino é obrigatório.");
         }
 
-        if (changedBy == Guid.Empty)
+        if (changedBy == Guid.Empty || (changedBy is null && reason != PlanChangeReason.Initial))
         {
             throw new DomainRuleException("O responsável pela mudança é obrigatório.");
         }

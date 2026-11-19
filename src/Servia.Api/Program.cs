@@ -120,6 +120,12 @@ builder.Services.AddScoped<AiUsageService>();
 builder.Services.AddScoped<IWebhookRepository, WebhookRepository>();
 builder.Services.AddScoped<IWebhookTenantResolver, WebhookTenantResolver>();
 builder.Services.AddScoped<WebhookService>();
+builder.Services.AddScoped<MercadoPagoInbox>();
+builder.Services.AddScoped<IScheduledJob, MercadoPagoInboxJob>();
+builder.Services.AddScoped<SubscriptionSynchronizationService>();
+builder.Services.AddScoped<SubscriptionReconciliationRepository>();
+builder.Services.Configure<SubscriptionReconciliationOptions>(builder.Configuration.GetSection("MercadoPago:Reconciliation"));
+builder.Services.AddScoped<IScheduledJob, SubscriptionReconciliationJob>();
 
 // Rotinas periodicas (F19).
 builder.Services.AddScoped<IJobRepository, JobRepository>();
@@ -224,16 +230,13 @@ var mercadoPagoOptions = builder.Configuration.GetSection("MercadoPago").Get<Mer
 var metaOptions = builder.Configuration.GetSection("MetaWhatsApp").Get<MetaWhatsAppOptions>();
 var aiOptions = builder.Configuration.GetSection("Ai").Get<AiOptions>();
 
+builder.Services.AddSingleton(mercadoPagoOptions ?? new MercadoPagoOptions());
 if (!string.IsNullOrWhiteSpace(mercadoPagoOptions?.AccessToken))
 {
-    builder.Services.AddSingleton(mercadoPagoOptions);
     builder.Services.AddHttpClient<IPaymentGateway, MercadoPagoGateway>();
-    if (mercadoPagoOptions.HasCheckoutReturnUrl)
-    {
-        builder.Services.AddHttpClient<IRecurringCheckoutGateway, MercadoPagoGateway>()
-            .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false })
-            .RemoveAllLoggers();
-    }
+    builder.Services.AddHttpClient<IRecurringCheckoutGateway, MercadoPagoGateway>()
+        .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false })
+        .RemoveAllLoggers();
 }
 
 if (!string.IsNullOrWhiteSpace(metaOptions?.AccessToken))

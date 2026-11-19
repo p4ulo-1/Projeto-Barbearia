@@ -49,6 +49,7 @@ internal sealed class SubscriptionConfiguration : IEntityTypeConfiguration<Subsc
         builder.Property(subscription => subscription.ContractPriceAmount).HasPrecision(18, 2);
         builder.Property(subscription => subscription.ContractCurrency).HasMaxLength(3);
         builder.Property(subscription => subscription.CheckoutUrl).HasMaxLength(2048);
+        builder.Property(subscription => subscription.CheckoutPayerEmail).HasMaxLength(320);
         builder.Property(subscription => subscription.GatewayTrialPlanId).HasMaxLength(100);
         builder.Property<uint>("Version").IsRowVersion();
 
@@ -63,6 +64,9 @@ internal sealed class SubscriptionConfiguration : IEntityTypeConfiguration<Subsc
             .IsUnique().HasFilter("\"GatewaySubscriptionId\" IS NOT NULL");
         builder.HasIndex(subscription => subscription.FirstPaymentId)
             .IsUnique().HasFilter("\"FirstPaymentId\" IS NOT NULL");
+        builder.HasIndex(subscription => new { subscription.CheckoutDispatchedAt, subscription.Id }, "IX_Subscriptions_Reconciliation")
+            .HasFilter("\"CheckoutDispatchedAt\" IS NOT NULL AND \"CheckoutKey\" IS NOT NULL AND \"CancellationEffectiveOn\" IS NULL"
+                + " AND \"Status\" IN ('PendingCheckout', 'PendingConfirmation', 'AuthorizedAwaitingFirstPayment', 'Trialing', 'Active', 'PastDue')");
 
         builder.Ignore(subscription => subscription.IsOnTrial);
         builder.Ignore(subscription => subscription.IsActive);

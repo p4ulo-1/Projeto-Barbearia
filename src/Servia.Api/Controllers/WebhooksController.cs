@@ -1,12 +1,10 @@
-using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Servia.Api.Contracts;
 using Servia.Application.Webhooks;
 using Servia.Domain.Operations;
-using Servia.Domain.Tenancy;
+using Servia.Infrastructure.Repositories;
 
 namespace Servia.Api.Controllers;
 
@@ -31,47 +29,59 @@ namespace Servia.Api.Controllers;
 public sealed class WebhooksController(
     WebhookService webhooks,
     IWebhookSignatureValidator signatures,
-    IWebhookTenantResolver tenants) : ControllerBase
+    IWebhookTenantResolver tenants,
+    MercadoPagoInbox inbox,
+    TimeProvider clock) : ControllerBase
 {
     /// <summary>Recebe eventos de pagamento do Mercado Pago (F17.1).</summary>
     [HttpPost("mercadopago")]
+    [RequestSizeLimit(16 * 1024)]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status413PayloadTooLarge)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> MercadoPagoAsync(
         [FromBody] JsonElement payload,
         [FromHeader(Name = "x-signature")] string? signature,
         [FromHeader(Name = "x-request-id")] string? requestId,
         CancellationToken cancellationToken)
     {
-        var raw = payload.GetRawText();
-
-        if (!signatures.IsValid("mercadopago", raw, signature, requestId))
+        var ids = Request.Query["data.id"];
+        var resource = ids.Count == 1 ? ids[0] : null;
+        if (!IsIdentifier(resource, 100)
+            || signatures.ValidateMercadoPago(resource!, signature, requestId) is not { } timestamp)
         {
             return Unauthorized(new ErrorResponse("Assinatura do webhook inválida."));
         }
-
-        var parsed = ParsePayment(payload);
-
-        if (parsed is null)
+        if (payload.ValueKind != JsonValueKind.Object
+            || !payload.TryGetProperty("type", out var type) || type.ValueKind != JsonValueKind.String
+            || type.GetString() is not { } topic || !IsIdentifier(topic, 80)
+            || !payload.TryGetProperty("id", out var id) || !IsIdentifier(ReadId(id), 100)
+            || !payload.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Object
+            || !data.TryGetProperty("id", out var bodyId)
+            || !string.Equals(resource, ReadId(bodyId), StringComparison.OrdinalIgnoreCase)
+            || (Request.Query.TryGetValue("type", out var queryTopic) && (queryTopic.Count != 1 || queryTopic[0] != topic)))
         {
-            // Evento desconhecido: registra e responde 200 para o provedor
-            // nao reenviar indefinidamente (F17.5).
-            return Ok(new { outcome = "ignored", reason = "Evento não reconhecido." });
+            return BadRequest(new ErrorResponse("Dados da notificação inválidos."));
         }
 
-        var tenantId = await tenants.ResolveByPaymentAsync(
-            parsed.GatewayPaymentId, cancellationToken);
-
-        if (tenantId is null)
+        if (topic is MercadoPagoNotification.Payment or MercadoPagoNotification.AuthorizedPayment
+            && (!long.TryParse(resource, out var numericId) || numericId <= 0
+                || numericId.ToString(System.Globalization.CultureInfo.InvariantCulture) != resource))
         {
-            return Ok(new { outcome = "ignored", reason = "Pagamento não pertence a nenhum estabelecimento." });
+            return BadRequest(new ErrorResponse("Identificador financeiro inválido."));
         }
-
-        var result = await webhooks.HandlePaymentAsync(tenantId.Value, parsed, cancellationToken);
-
-        return result.Outcome == WebhookOutcome.Rejected
-            ? BadRequest(new ErrorResponse(result.Reason!))
-            : Ok(new { outcome = result.Outcome.ToString(), reason = result.Reason });
+        var supported = MercadoPagoNotification.IsSupported(topic);
+        var now = clock.GetUtcNow();
+        await inbox.EnqueueAsync(new MercadoPagoNotification
+        {
+            Id = Guid.NewGuid(), ExternalId = ReadId(id)!, Topic = topic,
+            ResourceId = resource!.ToLowerInvariant(), RequestId = requestId!, SignatureTimestamp = timestamp,
+            ReceivedAt = now, AvailableAt = now, CompletedAt = supported ? null : now,
+            Result = supported ? null : "UnsupportedTopic"
+        }, cancellationToken);
+        return Ok(new { outcome = supported ? "accepted" : "ignored" });
     }
 
     /// <summary>Recebe mensagens do WhatsApp (F17.2).</summary>
@@ -85,7 +95,7 @@ public sealed class WebhooksController(
     {
         var raw = payload.GetRawText();
 
-        if (!signatures.IsValid("whatsapp", raw, signature, null))
+        if (!signatures.IsValidWhatsApp(raw, signature))
         {
             return Unauthorized(new ErrorResponse("Assinatura do webhook inválida."));
         }
@@ -113,34 +123,16 @@ public sealed class WebhooksController(
             : Ok(new { outcome = result.Outcome.ToString(), reason = result.Reason });
     }
 
-    /// <summary>
-    /// Extrai o evento de pagamento do formato do Mercado Pago.
-    /// Retorna nulo quando o evento não é de pagamento.
-    /// </summary>
-    private static PaymentWebhookEvent? ParsePayment(JsonElement payload)
+    private static string? ReadId(JsonElement value) => value.ValueKind switch
     {
-        if (!payload.TryGetProperty("type", out var type)
-            || !string.Equals(type.GetString(), "payment", StringComparison.OrdinalIgnoreCase))
-        {
-            return null;
-        }
+        JsonValueKind.String => value.GetString(),
+        JsonValueKind.Number when value.TryGetInt64(out _) => value.GetRawText(),
+        _ => null
+    };
 
-        if (!payload.TryGetProperty("data", out var data)
-            || !data.TryGetProperty("id", out var id))
-        {
-            return null;
-        }
-
-        var eventId = payload.TryGetProperty("id", out var eventIdElement)
-            ? eventIdElement.GetString() ?? id.ToString()
-            : id.ToString();
-
-        var status = data.TryGetProperty("status", out var statusElement)
-            ? statusElement.GetString() ?? "unknown"
-            : "unknown";
-
-        return new PaymentWebhookEvent(eventId, id.ToString(), status);
-    }
+    private static bool IsIdentifier(string? value, int limit) =>
+        value is { Length: > 0 } && value.Length <= limit
+        && value.All(character => char.IsAsciiLetterOrDigit(character) || character is '_' or '-');
 
     /// <summary>
     /// Extrai a mensagem recebida do formato da Meta.

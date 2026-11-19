@@ -47,6 +47,7 @@ public sealed partial class MercadoPagoGateway : IPaymentGateway, IRecurringChec
         _httpClient = httpClient;
         _retryPolicy = retryPolicy ?? new RetryPolicy();
         _returnUrl = options.ReturnUrl;
+        CanStartCheckout = options.HasCheckoutReturnUrl;
         _trialPlanIds = options.TrialPlanIds;
 
         _httpClient.BaseAddress ??= new Uri(ApiBaseUrl);
@@ -55,6 +56,7 @@ public sealed partial class MercadoPagoGateway : IPaymentGateway, IRecurringChec
     }
 
     public string ProviderName => "mercadopago";
+    public bool CanStartCheckout { get; }
 
     public async Task<GatewayCustomer> RegisterCustomerAsync(
         Guid tenantId,

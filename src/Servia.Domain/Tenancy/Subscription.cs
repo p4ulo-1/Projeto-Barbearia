@@ -76,6 +76,7 @@ public sealed class Subscription : ITenantScoped
     public Guid? CheckoutKey { get; private set; }
 
     public DateTimeOffset? CheckoutDispatchedAt { get; private set; }
+    public string? CheckoutPayerEmail { get; private set; }
 
     public string? CheckoutUrl { get; private set; }
 
@@ -170,7 +171,7 @@ public sealed class Subscription : ITenantScoped
         };
     }
 
-    public void MarkCheckoutDispatched(DateTimeOffset now)
+    public void MarkCheckoutDispatched(DateTimeOffset now, string? payerEmail = null)
     {
         if (CheckoutKey is null || Status != SubscriptionStatus.PendingCheckout || CheckoutDispatchedAt.HasValue
             || GatewaySubscriptionId is not null)
@@ -178,6 +179,7 @@ public sealed class Subscription : ITenantScoped
             throw new DomainRuleException("A tentativa já foi encaminhada para contratação.");
         }
         CheckoutDispatchedAt = now.ToUniversalTime();
+        CheckoutPayerEmail = payerEmail;
     }
 
     public void UseAuthorizedTrial(string externalPlanId, Guid trialPlanId)
@@ -215,6 +217,7 @@ public sealed class Subscription : ITenantScoped
             throw new DomainRuleException("A tentativa não pode receber este identificador externo.");
         }
         GatewaySubscriptionId = id;
+        CheckoutPayerEmail = null;
         CheckoutUrl = checkoutUrl ?? CheckoutUrl;
     }
 
@@ -267,6 +270,7 @@ public sealed class Subscription : ITenantScoped
             throw new DomainRuleException("Somente uma tentativa pendente pode ser encerrada por falha.");
         }
         CheckoutFailedOn = today;
+        CheckoutPayerEmail = null;
         CheckoutUrl = null;
         Status = SubscriptionStatus.Cancelled;
     }

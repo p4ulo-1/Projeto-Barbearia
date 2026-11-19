@@ -28,9 +28,9 @@ public sealed class WebhookTenantResolver(AppDbContext context) : IWebhookTenant
 
         var tenantId = await context.PlatformInvoices
             .IgnoreQueryFilters()
-            .Where(invoice => invoice.GatewayPaymentId == gatewayPaymentId)
+            .Where(invoice => invoice.GatewayPaymentId == gatewayPaymentId && invoice.RecurringDueAtUtc == null)
             .Select(invoice => (Guid?)invoice.TenantId)
-            .FirstOrDefaultAsync(cancellationToken);
+            .SingleOrDefaultAsync(cancellationToken);
 
         return tenantId;
     }

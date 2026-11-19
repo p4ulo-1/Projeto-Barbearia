@@ -1,24 +1,30 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
 using Servia.Api.Contracts;
 using Servia.Api.Controllers;
+using Servia.Api.Jobs;
 using Servia.Application.Jobs;
 using Servia.Domain.Appointments;
 using Servia.Domain.Billing;
 using Servia.Domain.Catalog;
 using Servia.Domain.Common;
 using Servia.Domain.Identity;
+using Servia.Domain.Operations;
 using Servia.Domain.Sites;
 using Servia.Domain.Team;
 using Servia.Domain.Tenancy;
 using Servia.Infrastructure.Integrations;
 using Servia.Infrastructure.Persistence;
+using Servia.Infrastructure.Repositories;
 using Servia.Tests.Api;
 
 namespace Servia.Tests.Integration;
@@ -29,6 +35,205 @@ public sealed class SubscriptionCheckoutIntegrationTests(CheckoutApiFactory fact
     private const string Checkout = "/api/v1/billing/subscription/checkout";
     private const string Password = "SenhaCheckout123!";
     private const string Billing = "/api/v1/billing/subscription";
+    private const string Webhook = "/api/v1/webhooks/mercadopago";
+
+    [Fact]
+    public async Task Webhook_Autentica_Envelope_Persiste_Deduplica_E_Nao_Confirma_Falha_Do_Banco()
+    {
+        using var client = factory.CreateClient();
+        var eventId = Guid.NewGuid().ToString("N");
+        var delivery = Guid.NewGuid().ToString("D");
+        using var unsigned = await client.PostAsJsonAsync($"{Webhook}?data.id=999",
+            new { id = 1234, type = "payment", data = new { id = 999 } });
+        Assert.Equal(HttpStatusCode.Unauthorized, unsigned.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized,
+            await NotifyAsync(client, "payment", "999", eventId, invalidSignature: true));
+        Assert.Equal(HttpStatusCode.BadRequest,
+            await NotifyAsync(client, "payment", "999", null));
+        Assert.Equal(HttpStatusCode.BadRequest,
+            await NotifyAsync(client, "payment", "999", eventId, bodyResource: "777"));
+        Assert.Null(await ReadNotificationAsync(eventId));
+
+        var responses = await Task.WhenAll(Enumerable.Range(0, 6)
+            .Select(_ => NotifyAsync(client, "subscription_preapproval_plan", "AbC123", eventId)));
+        Assert.All(responses, status => Assert.Equal(HttpStatusCode.OK, status));
+        var ignored = await ReadNotificationAsync(eventId);
+        Assert.Equal("UnsupportedTopic", ignored!.Result);
+        Assert.Equal("abc123", ignored.ResourceId);
+        Assert.NotNull(ignored.CompletedAt);
+        Assert.Equal(0, ignored.Attempts);
+
+        var replayId = Guid.NewGuid().ToString("N");
+        Assert.Equal(HttpStatusCode.OK, await NotifyAsync(client, "subscription_preapproval_plan", "abc123", replayId, delivery));
+        var tamperedId = Guid.NewGuid().ToString("N");
+        Assert.Equal(HttpStatusCode.OK, await NotifyAsync(client, "subscription_preapproval_plan", "abc123", tamperedId, delivery));
+        Assert.Null(await ReadNotificationAsync(tamperedId));
+
+        await using var scope = factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var rejected = Guid.NewGuid().ToString("N");
+        await db.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE "MercadoPagoInbox" ADD CONSTRAINT webhook_test_fault CHECK ("Topic" <> 'test_database_failure')
+            """);
+        try
+        {
+            Assert.Equal(HttpStatusCode.InternalServerError,
+                await NotifyAsync(client, "test_database_failure", "abc123", rejected));
+            Assert.Null(await ReadNotificationAsync(rejected));
+        }
+        finally
+        {
+            await db.Database.ExecuteSqlRawAsync("""
+                ALTER TABLE "MercadoPagoInbox" DROP CONSTRAINT webhook_test_fault
+                """);
+        }
+    }
+
+    [Fact]
+    public async Task Webhook_Integra_Trial_Pagamentos_Renovacao_E_Cancelamento_Sem_Regressao()
+    {
+        using var tenant = await SignUpAsync(legacy: false);
+        using var other = await SignUpAsync(legacy: false);
+        using var client = factory.CreateClient();
+        var gateway = factory.Stub;
+        gateway.Reset();
+        gateway.Now = DateTimeOffset.FromUnixTimeSeconds(DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+        try
+        {
+            var request = new StartCheckoutRequest(Guid.NewGuid(), "PRO", "opaque-test-token");
+            var issued = await StartAsync(tenant.Client, request, "AwaitingExternalConfirmation");
+            var externalId = $"sub_{issued.AttemptId:N}";
+            gateway.NotifiedSubscription = externalId;
+            gateway.InvalidReference = true;
+            var authId = await EnqueueAsync(client, MercadoPagoNotification.Subscription, externalId, other.Id);
+            Assert.Equal("RequiresReconciliation", (await ProcessNotificationAsync(authId)).Result);
+            Assert.Equal("AwaitingTrialAuthorization", (await other.Client.GetFromJsonAsync<SubscriptionResponse>(Billing))!.Status);
+            gateway.InvalidReference = false;
+            gateway.Now = gateway.Instant.AddSeconds(30);
+            Assert.Equal("Trialing", (await ProcessNotificationAsync(authId)).Result);
+            var trial = (await tenant.Client.GetFromJsonAsync<SubscriptionResponse>(Billing))!;
+            Assert.Equal("Trialing", trial.Status);
+            Assert.Equal("ESSENCIAL", trial.PlanCode);
+            var first = trial.TrialEndsAtUtc!.Value;
+            Assert.Equal(trial.TrialStartedAtUtc!.Value.AddDays(14), first);
+
+            gateway.Now = gateway.CycleDue = first;
+            var pending = await EnqueueAsync(client, MercadoPagoNotification.AuthorizedPayment, gateway.InvoiceId);
+            Assert.Equal("AwaitingFinancialConfirmation", (await ProcessNotificationAsync(pending)).Result);
+            gateway.Rejected = true;
+            var rejected = await EnqueueAsync(client, MercadoPagoNotification.Payment, gateway.PaymentId);
+            Assert.Equal("FirstPaymentRejected", (await ProcessNotificationAsync(rejected)).Result);
+
+            gateway.Rejected = false;
+            gateway.Approved = true;
+            var approved = await EnqueueAsync(client, MercadoPagoNotification.Payment, gateway.PaymentId, other.Id);
+            Assert.Equal("Active", (await ProcessNotificationAsync(approved)).Result);
+            Assert.Equal(HttpStatusCode.OK, await NotifyAsync(client, "payment", gateway.PaymentId, approved));
+            Assert.Equal(1, (await ReadNotificationAsync(approved))!.Attempts);
+            await WithTenantAsync(tenant.Id, async db =>
+            {
+                // Simula a perda da confirmação da inbox após o commit financeiro.
+                await db.Set<MercadoPagoNotification>().Where(row => row.ExternalId == approved)
+                    .ExecuteUpdateAsync(setters => setters.SetProperty(row => row.CompletedAt, (DateTimeOffset?)null));
+            });
+            Assert.Equal("PreviousCycle", (await ProcessNotificationAsync(approved)).Result);
+            var paid = (await tenant.Client.GetFromJsonAsync<SubscriptionResponse>(Billing))!;
+            Assert.Equal("PRO", paid.PlanCode);
+            Assert.Equal("AwaitingTrialAuthorization", (await other.Client.GetFromJsonAsync<SubscriptionResponse>(Billing))!.Status);
+
+            gateway.Now = gateway.CycleDue = paid.NextChargeAtUtc!.Value;
+            gateway.NewPayment();
+            gateway.Approved = false;
+            gateway.Rejected = true;
+            var renewal = await EnqueueAsync(client, MercadoPagoNotification.AuthorizedPayment, gateway.InvoiceId);
+            Assert.Equal("PaymentRejected", (await ProcessNotificationAsync(renewal)).Result);
+            Assert.Equal("PastDue", (await tenant.Client.GetFromJsonAsync<SubscriptionResponse>(Billing))!.Status);
+            gateway.Now = gateway.Instant.AddHours(48);
+            gateway.Rejected = false;
+            gateway.Approved = true;
+            var recovered = await EnqueueAsync(client, MercadoPagoNotification.Payment, gateway.PaymentId);
+            Assert.Equal("Renewed", (await ProcessNotificationAsync(recovered)).Result);
+            Assert.Equal("Active", (await tenant.Client.GetFromJsonAsync<SubscriptionResponse>(Billing))!.Status);
+
+            gateway.CycleDue = first;
+            gateway.Rejected = true;
+            var stale = await EnqueueAsync(client, MercadoPagoNotification.AuthorizedPayment, gateway.InvoiceId);
+            Assert.Equal("PreviousCycle", (await ProcessNotificationAsync(stale)).Result);
+
+            gateway.Cancelled = true;
+            var cancellation = await EnqueueAsync(client, MercadoPagoNotification.Subscription, externalId);
+            Assert.Equal("CancellationScheduled", (await ProcessNotificationAsync(cancellation)).Result);
+            var scheduled = (await tenant.Client.GetFromJsonAsync<SubscriptionResponse>(Billing))!;
+            Assert.Equal(paid.NextChargeAtUtc.Value.AddMonths(1), scheduled.CancellationEffectiveAtUtc);
+            gateway.Now = scheduled.CancellationEffectiveAtUtc;
+            var expiredCancellation = await EnqueueAsync(client, MercadoPagoNotification.Subscription, externalId);
+            Assert.Equal("Cancelled", (await ProcessNotificationAsync(expiredCancellation)).Result);
+            gateway.Cancelled = false;
+            var after = await EnqueueAsync(client, MercadoPagoNotification.Payment, gateway.PaymentId);
+            Assert.Equal("Superseded", (await ProcessNotificationAsync(after)).Result);
+            Assert.Equal(1, gateway.Posts);
+            Assert.Equal(0, gateway.CancellationPosts);
+            await WithTenantAsync(tenant.Id, async db =>
+            {
+                var history = await db.PlanChanges.SingleAsync();
+                Assert.Null(history.ChangedBy);
+                var invoices = await db.PlatformInvoices.Where(invoice => invoice.RecurringDueAtUtc != null).ToListAsync();
+                Assert.Equal(2, invoices.Count);
+                Assert.All(invoices, invoice =>
+                {
+                    Assert.True(invoice.IsPaid);
+                    Assert.NotNull(invoice.RecurringFailureAtUtc);
+                });
+            });
+        }
+        finally
+        {
+            gateway.Reset();
+        }
+    }
+
+    [Fact]
+    public async Task Webhook_Recupera_Lease_E_Falha_Transitoria_Com_Workers_Concorrentes()
+    {
+        using var tenant = await SignUpAsync();
+        using var client = factory.CreateClient();
+        var gateway = factory.Stub;
+        gateway.Reset();
+        try
+        {
+            await AgeTrialAsync(tenant.Id);
+            var checkout = await StartAsync(tenant.Client, new StartCheckoutRequest(Guid.NewGuid(), "PRO"), "AwaitingAuthorization");
+            var eventId = await EnqueueAsync(client, MercadoPagoNotification.Subscription, $"sub_{checkout.AttemptId:N}");
+            gateway.Now = gateway.Instant;
+            await using var abandonedScope = factory.Services.CreateAsyncScope();
+            var abandoned = abandonedScope.ServiceProvider.GetRequiredService<MercadoPagoInbox>();
+            var claim = await abandoned.ClaimAsync(gateway.Instant, default);
+            Assert.Equal(eventId, claim!.ExternalId);
+            Assert.False(await ProcessNextNotificationAsync());
+
+            gateway.Now = gateway.Instant.AddMinutes(5);
+            gateway.NotificationUnavailable = true;
+            var processed = await Task.WhenAll(Enumerable.Range(0, 4).Select(_ => ProcessNextNotificationAsync()));
+            Assert.Single(processed, value => value);
+            var failed = (await ReadNotificationAsync(eventId))!;
+            Assert.Equal(2, failed.Attempts);
+            Assert.Equal("ProcessingFailed", failed.Result);
+            Assert.Null(failed.CompletedAt);
+            await abandoned.FinishAsync(claim, "LostLease", false, gateway.Instant, default);
+            Assert.Null((await ReadNotificationAsync(eventId))!.CompletedAt);
+
+            gateway.Now = failed.AvailableAt;
+            gateway.NotificationUnavailable = false;
+            var retried = await ProcessNotificationAsync(eventId);
+            Assert.Equal("AwaitingAuthorization", retried.Result);
+            Assert.NotNull(retried.CompletedAt);
+            Assert.Equal(3, retried.Attempts);
+        }
+        finally
+        {
+            gateway.Reset();
+        }
+    }
 
     [Fact]
     public async Task Trial_Autorizado_Expira_No_Instante_E_Renovacao_Restaura_Acesso_Apos_48h()
@@ -434,6 +639,52 @@ public sealed class SubscriptionCheckoutIntegrationTests(CheckoutApiFactory fact
         });
     }
 
+    private async Task<bool> ProcessNextNotificationAsync()
+    {
+        await using var scope = factory.Services.CreateAsyncScope();
+        var worker = scope.ServiceProvider.GetServices<IScheduledJob>().OfType<MercadoPagoInboxJob>().Single();
+        return await worker.ProcessNextAsync(default);
+    }
+
+    private async Task<MercadoPagoNotification?> ReadNotificationAsync(string eventId)
+    {
+        await using var scope = factory.Services.CreateAsyncScope();
+        return await scope.ServiceProvider.GetRequiredService<AppDbContext>().Set<MercadoPagoNotification>()
+            .SingleOrDefaultAsync(row => row.ExternalId == eventId);
+    }
+
+    private async Task<MercadoPagoNotification> ProcessNotificationAsync(string eventId)
+    {
+        Assert.True(await ProcessNextNotificationAsync());
+        return (await ReadNotificationAsync(eventId))!;
+    }
+
+    private static async Task<string> EnqueueAsync(HttpClient client, string topic, string resource, Guid? tenant = null)
+    {
+        var eventId = Guid.NewGuid().ToString("N");
+        Assert.Equal(HttpStatusCode.OK, await NotifyAsync(client, topic, resource, eventId, tenant: tenant));
+        return eventId;
+    }
+
+    internal static async Task<HttpStatusCode> NotifyAsync(HttpClient client, string topic, string resource, string? eventId,
+        string? requestId = null, bool invalidSignature = false, string? bodyResource = null, Guid? tenant = null)
+    {
+        const string timestamp = "1704908010";
+        requestId ??= Guid.NewGuid().ToString("D");
+        var manifest = $"id:{resource.ToLowerInvariant()};request-id:{requestId};ts:{timestamp};";
+        var key = Encoding.UTF8.GetBytes(invalidSignature ? "wrong-key" : CheckoutApiFactory.WebhookSecret);
+        var hash = HMACSHA256.HashData(key, Encoding.UTF8.GetBytes(manifest));
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"{Webhook}?data.id={resource}&type={topic}")
+        {
+            Content = JsonContent.Create(new { id = eventId, type = topic, tenantId = tenant,
+                data = new { id = bodyResource ?? resource, status = "approved" } })
+        };
+        request.Headers.Add("x-signature", $"ts={timestamp},v1={Convert.ToHexString(hash).ToLowerInvariant()}");
+        request.Headers.Add("x-request-id", requestId);
+        using var response = await client.SendAsync(request);
+        return response.StatusCode;
+    }
+
     private static async Task<CheckoutResponse> StartAsync(HttpClient client, StartCheckoutRequest request, string state)
     {
         using var response = await client.PostAsJsonAsync(Checkout, request);
@@ -525,13 +776,16 @@ public sealed class SubscriptionCheckoutIntegrationTests(CheckoutApiFactory fact
 
 public sealed class CheckoutApiFactory : IsolatedApiFactory
 {
+    internal const string WebhookSecret = "isolated-webhook-fixture-key";
     public CheckoutProviderStub Stub { get; } = new();
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         base.ConfigureWebHost(builder);
+        builder.UseSetting("MercadoPago:WebhookSecret", WebhookSecret);
         builder.ConfigureServices(services =>
         {
+            services.RemoveAll<IHostedService>();
             services.RemoveAll<IRecurringCheckoutGateway>();
             services.RemoveAll<ISignupThrottle>();
             services.RemoveAll<TimeProvider>();
@@ -577,6 +831,13 @@ public sealed class CheckoutProviderStub : HttpMessageHandler
     public DateTimeOffset? Now { get; set; }
     public DateTimeOffset Instant => Now ?? DateTimeOffset.UtcNow;
     public decimal? NewRecurringAmount { get; set; }
+    public bool NotificationUnavailable { get; set; }
+    public string? SearchBehavior { get; set; }
+    public int Searches { get; private set; }
+    public DateTimeOffset? ProviderNextCharge { get; set; }
+    public string? NotifiedSubscription { get; set; }
+    public string PaymentId => _paymentId.ToString(System.Globalization.CultureInfo.InvariantCulture);
+    public string InvoiceId => "9900001";
     public string Outcome { get; private set; } = "";
     public TaskCompletionSource? ReleasePost { get; set; }
     public TaskCompletionSource PostEntered { get; private set; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -590,6 +851,11 @@ public sealed class CheckoutProviderStub : HttpMessageHandler
         CreditOnly = true;
         CycleDue = null;
         Now = null;
+        NotifiedSubscription = null;
+        NotificationUnavailable = false;
+        SearchBehavior = null;
+        Searches = 0;
+        ProviderNextCharge = null;
         NewRecurringAmount = null;
         Outcome = outcome;
         ReleasePost = null;
@@ -659,24 +925,53 @@ public sealed class CheckoutProviderStub : HttpMessageHandler
             if (Outcome == "ambiguous") return Reply(HttpStatusCode.Created, new { id });
             return Authorization(id, trialPlan is null ? "pending" : "authorized", HttpStatusCode.Created);
         }
+        if (uri.AbsolutePath == "/preapproval/search")
+        {
+            Searches++;
+            Assert.Contains("payer_email=", uri.Query);
+            if (SearchBehavior == "throttle")
+            {
+                var busy = Reply(HttpStatusCode.TooManyRequests, new { });
+                busy.Headers.RetryAfter = new RetryConditionHeaderValue(TimeSpan.FromMinutes(20));
+                return busy;
+            }
+            var results = new List<object> { new { id = "unrelated", external_reference = 1234 } };
+            if (SearchBehavior != "missing")
+            {
+                foreach (var attempt in _attempts)
+                {
+                    results.Add(new { id = attempt.Key, external_reference = attempt.Value.Reference });
+                    if (SearchBehavior == "duplicate")
+                    {
+                        results.Add(new { id = $"duplicate_{attempt.Key}", external_reference = attempt.Value.Reference });
+                    }
+                }
+            }
+            return Reply(HttpStatusCode.OK, new { paging = new { offset = 0, total = results.Count }, results });
+        }
         if (uri.AbsolutePath.StartsWith("/preapproval/", StringComparison.Ordinal))
         {
+            if (NotificationUnavailable) return Reply(HttpStatusCode.ServiceUnavailable, new { });
             var id = uri.Segments[^1];
             return Authorization(id, Cancelled ? "canceled"
                 : Authorized || _attempts[id].TrialPlan is not null ? "authorized" : "pending");
         }
-        if (uri.AbsolutePath == "/authorized_payments/search")
+        if (uri.AbsolutePath == "/authorized_payments/search" || uri.AbsolutePath == $"/authorized_payments/{InvoiceId}")
         {
-            var id = uri.Query.Split('&')[0].Split('=')[1];
+            var byPayment = uri.Query.StartsWith("?payment_id=", StringComparison.Ordinal);
+            var byInvoice = uri.AbsolutePath != "/authorized_payments/search";
+            var id = byInvoice || byPayment ? NotifiedSubscription! : uri.Query.Split('&')[0].Split('=')[1];
+            if (byPayment) Assert.StartsWith($"?payment_id={PaymentId}&", uri.Query);
             var attempt = _attempts[id];
             var now = CycleDue ?? Instant;
             object Invoice(DateTimeOffset dueAt, string status) => new
             {
-                type = "scheduled", preapproval_id = id, debit_date = dueAt,
+                id = long.Parse(InvoiceId), type = "scheduled", preapproval_id = id, debit_date = dueAt, status = "processed",
                 currency_id = "BRL", transaction_amount = NewRecurringAmount ?? attempt.Amount,
                 payment = new { id = _paymentId, status }
             };
             var latest = Invoice(now, Approved ? "approved" : Rejected ? "rejected" : "pending");
+            if (byInvoice) return Reply(HttpStatusCode.OK, latest);
             var results = EarlierUnpaid ? new[] { latest, Invoice(now.AddDays(-1), "pending") } : new[] { latest };
             return Reply(HttpStatusCode.OK, new
             {
@@ -689,7 +984,8 @@ public sealed class CheckoutProviderStub : HttpMessageHandler
         {
             id = _paymentId, status = Rejected ? "rejected" : Approved ? "approved" : "pending",
             currency_id = "BRL", date_approved = Instant,
-            transaction_amount = NewRecurringAmount ?? _attempts.Values.First().Amount, transaction_amount_refunded = Refunded ? 1 : 0
+            transaction_amount = NewRecurringAmount ?? (NotifiedSubscription is { } sub
+                ? _attempts[sub].Amount : _attempts.Values.First().Amount), transaction_amount_refunded = Refunded ? 1 : 0
         });
     }
 
@@ -701,7 +997,7 @@ public sealed class CheckoutProviderStub : HttpMessageHandler
             id, status, external_reference = InvalidReference ? "foreign" : attempt.Reference,
             init_point = attempt.TrialPlan is null ? $"https://www.mercadopago.com.br/subscriptions/checkout?preapproval_id={id}" : null,
             preapproval_plan_id = attempt.TrialPlan, date_created = attempt.Created,
-            next_payment_date = attempt.TrialPlan is null ? (DateTimeOffset?)null : attempt.Created.AddDays(14),
+            next_payment_date = ProviderNextCharge ?? (attempt.TrialPlan is null ? (DateTimeOffset?)null : attempt.Created.AddDays(14)),
             auto_recurring = new { currency_id = "BRL", frequency = 1, frequency_type = "months",
                 transaction_amount = NewRecurringAmount ?? attempt.Amount }
         });

@@ -24,7 +24,6 @@ internal sealed class PlanChangeConfiguration : IEntityTypeConfiguration<PlanCha
         builder.Property(change => change.FromPlanId);
         builder.Property(change => change.ToPlanId).IsRequired();
         builder.Property(change => change.Reason).HasConversion<string>().HasMaxLength(20).IsRequired();
-        builder.Property(change => change.ChangedBy).IsRequired();
         builder.Property(change => change.ChangedAt).IsRequired();
         builder.Property(change => change.Status).HasConversion<string>().HasMaxLength(20)
             .HasDefaultValue(PlanChangeStatus.Effective);

@@ -43,6 +43,7 @@ public sealed class WebhookRepository(AppDbContext context) : IWebhookRepository
         context.PlatformInvoices
             .FirstOrDefaultAsync(
                 invoice => invoice.TenantId == tenantId
+                           && invoice.RecurringDueAtUtc == null
                            && invoice.GatewayPaymentId == gatewayPaymentId,
                 cancellationToken);
 

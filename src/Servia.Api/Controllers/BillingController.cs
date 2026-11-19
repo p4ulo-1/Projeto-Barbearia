@@ -160,7 +160,7 @@ public sealed class BillingController(
     [ProducesResponseType<ErrorResponse>(StatusCodes.Status503ServiceUnavailable)]
     public async Task<IActionResult> StartCheckoutAsync([FromBody] StartCheckoutRequest request, CancellationToken cancellationToken)
     {
-        if (!checkout.IsConfigured)
+        if (!checkout.CanStartCheckout)
         {
             return CheckoutUnavailable();
         }
