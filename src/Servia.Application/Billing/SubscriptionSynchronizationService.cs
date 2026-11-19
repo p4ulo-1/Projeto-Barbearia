@@ -30,7 +30,7 @@ public sealed class SubscriptionSynchronizationService(SubscriptionCheckoutServi
         }
 
         var cancelled = authorization.Status is "cancelled" or "canceled";
-        if (subscription.FirstPaymentId is not null || (subscription.TrialStartedAtUtc.HasValue
+        if (subscription.FirstPaymentId is not null || (subscription.IsOnTrial && subscription.TrialDeadline > clock.GetUtcNow()
             && (cancelled || subscription.CancellationRequestedOn.HasValue)))
         {
             return authorizationOnly && !cancelled && subscription.CancellationRequestedOn is null

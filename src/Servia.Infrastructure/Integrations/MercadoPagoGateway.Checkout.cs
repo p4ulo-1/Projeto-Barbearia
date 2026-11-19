@@ -180,6 +180,10 @@ public sealed partial class MercadoPagoGateway
             using var search = new HttpRequestMessage(HttpMethod.Get,
                 $"/authorized_payments/search?preapproval_id={Uri.EscapeDataString(subscriptionId)}&offset={invoices.Count}&limit=20");
             var list = await SendCheckoutAsync<InvoiceSearch>(search, cancellationToken);
+            if (total is null && list is { Paging: { Offset: 0, Total: 0 }, Results.Length: 0 })
+            {
+                return new(NoInvoice: true);
+            }
             if (list.Paging is not { Total: > 0 } paging || paging.Offset != invoices.Count
                 || (total.HasValue && total != paging.Total) || list.Results is not { Length: > 0 } items
                 || items.Any(invoice => invoice.PreapprovalId != subscriptionId || !invoice.DebitDate.HasValue))
@@ -197,6 +201,10 @@ public sealed partial class MercadoPagoGateway
 
         var earliest = dueAt ?? invoices.Min(invoice => invoice.DebitDate);
         var first = invoices.Where(invoice => invoice.DebitDate == earliest).ToArray();
+        if (first.Length == 0)
+        {
+            return new(NoInvoice: true);
+        }
         if (first.Length != 1 || first[0] is not { Type: "scheduled", DebitDate: { } debit }
             || first[0].TransactionAmount != amount.Amount || first[0].CurrencyId != amount.Currency)
         {

@@ -832,9 +832,11 @@ public sealed class CheckoutProviderStub : HttpMessageHandler
     public DateTimeOffset Instant => Now ?? DateTimeOffset.UtcNow;
     public decimal? NewRecurringAmount { get; set; }
     public bool NotificationUnavailable { get; set; }
+    public bool AuthorizationPending { get; set; }
     public string? SearchBehavior { get; set; }
     public int Searches { get; private set; }
     public DateTimeOffset? ProviderNextCharge { get; set; }
+    public Func<CancellationToken, Task>? BeforeCycleResponse { get; set; }
     public string? NotifiedSubscription { get; set; }
     public string PaymentId => _paymentId.ToString(System.Globalization.CultureInfo.InvariantCulture);
     public string InvoiceId => "9900001";
@@ -853,9 +855,11 @@ public sealed class CheckoutProviderStub : HttpMessageHandler
         Now = null;
         NotifiedSubscription = null;
         NotificationUnavailable = false;
+        AuthorizationPending = false;
         SearchBehavior = null;
         Searches = 0;
         ProviderNextCharge = null;
+        BeforeCycleResponse = null;
         NewRecurringAmount = null;
         Outcome = outcome;
         ReleasePost = null;
@@ -954,12 +958,16 @@ public sealed class CheckoutProviderStub : HttpMessageHandler
             if (NotificationUnavailable) return Reply(HttpStatusCode.ServiceUnavailable, new { });
             var id = uri.Segments[^1];
             return Authorization(id, Cancelled ? "canceled"
-                : Authorized || _attempts[id].TrialPlan is not null ? "authorized" : "pending");
+                : !AuthorizationPending && (Authorized || _attempts[id].TrialPlan is not null) ? "authorized" : "pending");
         }
         if (uri.AbsolutePath == "/authorized_payments/search" || uri.AbsolutePath == $"/authorized_payments/{InvoiceId}")
         {
             var byPayment = uri.Query.StartsWith("?payment_id=", StringComparison.Ordinal);
             var byInvoice = uri.AbsolutePath != "/authorized_payments/search";
+            if (!byInvoice && !byPayment && BeforeCycleResponse is { } beforeCycle)
+            {
+                await beforeCycle(cancellationToken);
+            }
             var id = byInvoice || byPayment ? NotifiedSubscription! : uri.Query.Split('&')[0].Split('=')[1];
             if (byPayment) Assert.StartsWith($"?payment_id={PaymentId}&", uri.Query);
             var attempt = _attempts[id];

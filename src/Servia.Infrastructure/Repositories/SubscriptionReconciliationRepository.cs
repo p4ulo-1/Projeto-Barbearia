@@ -11,19 +11,27 @@ public sealed class SubscriptionReconciliationRepository(AppDbContext context)
     {
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
         var candidates = await context.Subscriptions.FromSqlInterpolated($"""
-            SELECT s.*
-            FROM "Subscriptions" AS s
-            LEFT JOIN "SubscriptionReconciliation" AS r ON r."SubscriptionId" = s."Id"
-            WHERE s."CheckoutDispatchedAt" IS NOT NULL AND s."CheckoutKey" IS NOT NULL
-              AND s."CancellationEffectiveOn" IS NULL
-              AND s."Status" IN ('PendingCheckout', 'PendingConfirmation', 'AuthorizedAwaitingFirstPayment',
-                                 'Trialing', 'Active', 'PastDue')
-              AND COALESCE(r."NextCheckAt", s."CheckoutDispatchedAt" + INTERVAL '1 minute') <= {now}
-              AND NOT EXISTS (
-                  SELECT 1 FROM "SubscriptionReconciliation" AS cooldown
-                  WHERE cooldown."RateLimitedUntil" > {now}
-              )
-            ORDER BY COALESCE(r."NextCheckAt", s."CheckoutDispatchedAt" + INTERVAL '1 minute'), s."Id"
+            WITH eligible AS NOT MATERIALIZED (
+                SELECT "Id", "CheckoutDispatchedAt" FROM "Subscriptions"
+                WHERE "CheckoutDispatchedAt" IS NOT NULL AND "CheckoutKey" IS NOT NULL
+                  AND "CancellationEffectiveOn" IS NULL
+                  AND "Status" IN ('PendingCheckout', 'PendingConfirmation', 'AuthorizedAwaitingFirstPayment',
+                                   'Trialing', 'Active', 'PastDue')
+            ), ready AS (
+                SELECT e."Id", r."NextCheckAt" AS due
+                FROM "SubscriptionReconciliation" AS r JOIN eligible AS e ON e."Id" = r."SubscriptionId"
+                WHERE r."NextCheckAt" <= {now}
+                UNION ALL
+                SELECT e."Id", e."CheckoutDispatchedAt" + INTERVAL '1 minute'
+                FROM eligible AS e
+                WHERE e."CheckoutDispatchedAt" <= {now} - INTERVAL '1 minute'
+                  AND NOT EXISTS (SELECT 1 FROM "SubscriptionReconciliation" WHERE "SubscriptionId" = e."Id")
+            )
+            SELECT s.*, s.xmin FROM ready JOIN "Subscriptions" AS s ON ready."Id" = s."Id"
+            WHERE NOT EXISTS (
+                SELECT 1 FROM "SubscriptionReconciliation" AS cooldown WHERE cooldown."RateLimitedUntil" > {now}
+            )
+            ORDER BY ready.due, s."Id"
             LIMIT 1 FOR UPDATE OF s SKIP LOCKED
             """).IgnoreQueryFilters().AsNoTracking().ToListAsync(cancellationToken);
         var subscription = candidates.SingleOrDefault();

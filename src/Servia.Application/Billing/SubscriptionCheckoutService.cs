@@ -244,7 +244,8 @@ public sealed class SubscriptionCheckoutService(
 
         var observedAt = clock.GetUtcNow();
         var startingTrial = attempt.GatewayTrialPlanId is not null && attempt.TrialStartedAtUtc is null;
-        if (attempt.CancellationRequestedOn.HasValue)
+        var cancellationObserved = authorization.Status is "cancelled" or "canceled";
+        if (attempt.CancellationRequestedOn.HasValue && !cancellationObserved)
         {
             return new CheckoutResult(attempt, "RequiresReconciliation");
         }
@@ -262,11 +263,18 @@ public sealed class SubscriptionCheckoutService(
         RecurringCycleEvidence evidence = new();
         var paymentLookupFailed = false;
         var originalTrialDue = authorization.CreatedAt?.AddDays(Subscription.TrialDays);
-        if (authorization.Status == "authorized" && (!startingTrial || originalTrialDue <= observedAt))
+        if (cancellationObserved && startingTrial && !originalTrialDue.HasValue)
+        {
+            return new CheckoutResult(attempt, "CancellationPending");
+        }
+        var firstCycleDue = startingTrial ? originalTrialDue : attempt.TrialEndsAtUtc;
+        var checkFirstCycle = (!startingTrial || originalTrialDue <= observedAt)
+            && (authorization.Status == "authorized" || cancellationObserved);
+        if (checkFirstCycle)
         {
             try
             {
-                evidence = (startingTrial ? originalTrialDue : attempt.TrialEndsAtUtc) is { } deadline
+                evidence = firstCycleDue is { } deadline
                     ? await gateway.FindCyclePaymentAsync(externalId, deadline, Amount(attempt), cancellationToken)
                     : await gateway.FindFirstPaymentAsync(externalId, Amount(attempt), cancellationToken);
             }
@@ -274,6 +282,10 @@ public sealed class SubscriptionCheckoutService(
             {
                 paymentLookupFailed = true;
             }
+        }
+        if (cancellationObserved && checkFirstCycle && evidence.Payment is null && !evidence.NoInvoice && !evidence.Rejected)
+        {
+            return new CheckoutResult(attempt, "CancellationPending");
         }
 
         try
@@ -285,7 +297,7 @@ public sealed class SubscriptionCheckoutService(
                 {
                     return await DescribeAsync(stored, token);
                 }
-                if (stored.CancellationRequestedOn.HasValue)
+                if (stored.CancellationRequestedOn.HasValue && !cancellationObserved)
                 {
                     return new CheckoutResult(stored, "RequiresReconciliation");
                 }
@@ -297,9 +309,21 @@ public sealed class SubscriptionCheckoutService(
                     }
                     stored.ExpireTrial(clock.GetUtcNow());
                 }
-                if (authorization.Status is "cancelled" or "canceled")
+                if (cancellationObserved && evidence.Payment is null)
                 {
-                    stored.FailCheckout(UtcDay(clock.GetUtcNow()));
+                    if (stored.TrialStartedAtUtc.HasValue)
+                    {
+                        if (evidence.Rejected && firstCycleDue is { } due)
+                        {
+                            (await GetInvoiceAsync(stored, due, token)).RecordRecurringFailure(due);
+                        }
+                        stored.RequestCancellation(UtcDay(observedAt));
+                        stored.ConfirmCancellation(externalId, observedAt);
+                    }
+                    else
+                    {
+                        stored.FailCheckout(UtcDay(observedAt));
+                    }
                 }
                 else if (authorization.Status == "pending")
                 {
@@ -349,6 +373,16 @@ public sealed class SubscriptionCheckoutService(
                         {
                             await subscriptions.SaveChangesAsync(token);
                             return new CheckoutResult(stored, issue);
+                        }
+                        if (cancellationObserved)
+                        {
+                            stored.RequestCancellation(UtcDay(observedAt));
+                            if (stored.ChargeDeadline > observedAt)
+                            {
+                                stored.ConfirmCancellation(externalId, observedAt);
+                                await subscriptions.SaveChangesAsync(token);
+                                return new CheckoutResult(stored, "CancellationScheduled");
+                            }
                         }
                     }
                     else if ((stored.TrialEndsAtUtc ?? evidence.DueAt) is { } deadline

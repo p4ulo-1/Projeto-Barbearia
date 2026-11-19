@@ -56,7 +56,8 @@ public sealed class MercadoPagoInboxJob(
         }
 
         var retry = result is "GatewayUnavailable" or "ProcessingFailed" or "UnlinkedResource" or "RateLimited"
-            or "RequiresReconciliation" or "AwaitingCycle" or "UnconfirmedPayment" or "CapacityExceeded";
+            or "RequiresReconciliation" or "AwaitingCycle" or "UnconfirmedPayment" or "CapacityExceeded"
+            or "CancellationPending";
         await inbox.FinishAsync(item, result, retry, clock.GetUtcNow(), cancellationToken, retryAfter);
         return true;
     }
@@ -82,6 +83,13 @@ public sealed class MercadoPagoInboxJob(
         if (subscription is null && Guid.TryParseExact(authorization.ExternalReference, "N", out var reference))
         {
             subscription = await inbox.FindDispatchedCheckoutAsync(reference, cancellationToken);
+            if (subscription is not null && (subscription.CheckoutPayerEmail is not null
+                || subscription.GatewayTrialPlanId is not null))
+            {
+                var matches = await gateway.SearchByCorrelationAsync(subscription.CheckoutPayerEmail,
+                    subscription.GatewayTrialPlanId, reference.ToString("N"), cancellationToken);
+                if (matches.Count != 1 || matches[0] != externalId) return "UnlinkedResource";
+            }
         }
         if (subscription?.CheckoutKey is null) return "UnlinkedResource";
         tenantContext.SetTenant(subscription.TenantId);

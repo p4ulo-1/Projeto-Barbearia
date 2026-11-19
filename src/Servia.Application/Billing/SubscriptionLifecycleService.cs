@@ -45,7 +45,7 @@ public sealed class SubscriptionLifecycleService(
         }
         var remote = await ReadAuthorizationAsync(stored, gateway, cancellationToken);
         if (remote is null) return new(stored, "CancellationPending");
-        if (Cancelled(remote)) return await ConfirmCancellationAsync(stored, cancellationToken);
+        if (Cancelled(remote)) return await ConfirmRequestedCancellationAsync(stored, remote, cancellationToken);
         if (remote.Status is not ("authorized" or "paused")) return new(stored, "CancellationPending");
         var dispatch = await repository.ExecuteSerializableAsync(async token =>
         {
@@ -74,8 +74,30 @@ public sealed class SubscriptionLifecycleService(
             remote = await ReadAuthorizationAsync(stored, gateway, cancellationToken);
         }
         return remote is not null && Cancelled(remote)
-            ? await ConfirmCancellationAsync(stored, cancellationToken)
+            ? await ConfirmRequestedCancellationAsync(stored, remote, cancellationToken)
             : new(stored, "CancellationPending");
+    }
+
+    private async Task<LifecycleResult> ConfirmRequestedCancellationAsync(Subscription snapshot,
+        RecurringAuthorization observed, CancellationToken cancellationToken)
+    {
+        var now = clock.GetUtcNow();
+        if (snapshot.FirstPaymentId is null && snapshot.TrialDeadline <= now)
+        {
+            return new(snapshot, "CancellationPending");
+        }
+        if (snapshot.FirstPaymentId is not null && snapshot.ChargeDeadline <= now)
+        {
+            try
+            {
+                return await VerifyAsync(snapshot.TenantId, cancellationToken, snapshot.Id, observedAuthorization: observed);
+            }
+            catch (RecurringCheckoutGatewayException)
+            {
+                return new(snapshot, "CancellationPending");
+            }
+        }
+        return await ConfirmCancellationAsync(snapshot, cancellationToken);
     }
 
     public Task<PlanChange> RequestChangeAsync(Guid tenantId, Guid userId, string targetCode,
@@ -121,31 +143,35 @@ public sealed class SubscriptionLifecycleService(
         {
             return new(snapshot, "RequiresReconciliation");
         }
+        var backgroundVerification = observedAuthorization is not null;
+        if (snapshot.CancellationRequestedOn.HasValue && observedAuthorization is null)
+        {
+            observedAuthorization = await ReadAuthorizationAsync(snapshot, gateway, cancellationToken);
+        }
+        var cancellationObserved = false;
         if (observedAuthorization is not null)
         {
             if (!Matches(snapshot, observedAuthorization))
             {
                 return new(snapshot, "RequiresReconciliation");
             }
-            if (Cancelled(observedAuthorization))
+            cancellationObserved = Cancelled(observedAuthorization);
+            if (cancellationObserved && (snapshot.FirstPaymentId is null || snapshot.CancellationEffectiveOn.HasValue
+                || snapshot.ChargeDeadline is not { } charge || charge > clock.GetUtcNow()))
             {
                 return await ConfirmCancellationAsync(snapshot, cancellationToken, observedExternally: true);
             }
         }
-        if (snapshot.CancellationRequestedOn.HasValue)
+        if (snapshot.CancellationRequestedOn.HasValue && !cancellationObserved)
         {
-            // Uma verificação jamais reenvia o cancelamento.
-            var cancellation = observedAuthorization ?? await ReadAuthorizationAsync(snapshot, gateway, cancellationToken);
-            return cancellation is not null && Cancelled(cancellation)
-                ? await ConfirmCancellationAsync(snapshot, cancellationToken)
-                : new(snapshot, "CancellationPending");
+            return new(snapshot, "CancellationPending");
         }
         if (snapshot.Status is not (SubscriptionStatus.Active or SubscriptionStatus.PastDue)
             || snapshot.ChargeDeadline is not { } due)
         {
             return new(snapshot, "AwaitingFirstPayment");
         }
-        if (expectedDue.HasValue && expectedDue != due)
+        if (!cancellationObserved && expectedDue.HasValue && expectedDue != due)
         {
             return new(snapshot, expectedDue < due ? "PreviousCycle" : "AwaitingCycle");
         }
@@ -163,15 +189,15 @@ public sealed class SubscriptionLifecycleService(
         var amount = Money.From(price, currency);
         var pending = await PendingChangeAsync(snapshot, cancellationToken);
         PlanChange? downgrade = null;
-        if (pending is { Reason: PlanChangeReason.Downgrade, RequestedPrice: { } targetPrice, RequestedCurrency: { } targetCurrency }
+        if (!cancellationObserved && pending is { Reason: PlanChangeReason.Downgrade, RequestedPrice: { } targetPrice, RequestedCurrency: { } targetCurrency }
             && pending.EffectiveAtUtc == due && authorization?.Amount == targetPrice && authorization.Currency == targetCurrency)
         {
             downgrade = pending;
             amount = Money.From(targetPrice, targetCurrency);
         }
-        if (authorization is not { Status: "authorized" } || authorization.Amount != amount.Amount
+        if (!cancellationObserved && (authorization is not { Status: "authorized" } || authorization.Amount != amount.Amount
             || authorization.Currency != amount.Currency || authorization.Frequency != months
-            || authorization.FrequencyType != "months")
+            || authorization.FrequencyType != "months"))
         {
             return new(snapshot, "RequiresReconciliation");
         }
@@ -181,9 +207,17 @@ public sealed class SubscriptionLifecycleService(
         {
             evidence = await gateway.FindCyclePaymentAsync(snapshot.GatewaySubscriptionId, due, amount, cancellationToken);
         }
-        catch (RecurringCheckoutGatewayException) when (observedAuthorization is null)
+        catch (RecurringCheckoutGatewayException) when (!backgroundVerification)
         {
-            return new(snapshot, "RequiresReconciliation");
+            return new(snapshot, cancellationObserved ? "CancellationPending" : "RequiresReconciliation");
+        }
+        if (cancellationObserved && evidence.Payment is null && !evidence.NoInvoice && !evidence.Rejected)
+        {
+            return new(snapshot, "CancellationPending");
+        }
+        if (cancellationObserved && evidence.NoInvoice)
+        {
+            return await ConfirmCancellationAsync(snapshot, cancellationToken, observedExternally: true, verifiedDue: due);
         }
 
         return await repository.ExecuteSerializableAsync(async token =>
@@ -194,7 +228,8 @@ public sealed class SubscriptionLifecycleService(
             {
                 return new LifecycleResult(current, "Current");
             }
-            if (current.CancellationRequestedOn.HasValue || current.Status == SubscriptionStatus.Cancelled)
+            if ((!cancellationObserved && current.CancellationRequestedOn.HasValue)
+                || current.Status == SubscriptionStatus.Cancelled || current.CancellationEffectiveOn.HasValue)
             {
                 return new LifecycleResult(current, "RequiresReconciliation");
             }
@@ -251,25 +286,42 @@ public sealed class SubscriptionLifecycleService(
                     confirmedChange!.ConfirmScheduledDowngrade(due, now);
                 }
             }
+            if (cancellationObserved)
+            {
+                current.RequestCancellation(Today(now));
+                if (payment is null || end > now)
+                {
+                    ConfirmCancellation(current, now);
+                }
+            }
             await repository.SaveChangesAsync(token);
+            if (cancellationObserved && current.CancellationEffectiveOn.HasValue)
+            {
+                return new LifecycleResult(current, current.Status == SubscriptionStatus.Cancelled
+                    ? "Cancelled" : "CancellationScheduled");
+            }
             return new LifecycleResult(current,
                 payment is not null ? "Renewed" : evidence.Rejected ? "PaymentRejected" : "PaymentPending");
         }, cancellationToken);
     }
 
     private async Task<LifecycleResult> ConfirmCancellationAsync(Subscription snapshot, CancellationToken cancellationToken,
-        bool observedExternally = false) =>
+        bool observedExternally = false, DateTimeOffset? verifiedDue = null) =>
         await repository.ExecuteSerializableAsync(async token =>
         {
             var current = await CurrentAsync(snapshot.TenantId, token, readOnly: false);
             EnsureSame(snapshot, current);
+            if (verifiedDue.HasValue && current.ChargeDeadline != verifiedDue)
+            {
+                return new LifecycleResult(current, "Current");
+            }
             if (current.Status != SubscriptionStatus.Cancelled && current.CancellationEffectiveOn is null)
             {
                 if (observedExternally && current.CancellationRequestedOn is null)
                 {
                     current.RequestCancellation(Today(clock.GetUtcNow()));
                 }
-                current.ConfirmCancellation(snapshot.GatewaySubscriptionId!, clock.GetUtcNow());
+                ConfirmCancellation(current, clock.GetUtcNow());
             }
             if (current.Status != SubscriptionStatus.Cancelled && current.CancellationDeadline <= clock.GetUtcNow())
             {
@@ -281,6 +333,15 @@ public sealed class SubscriptionLifecycleService(
             }
             return new LifecycleResult(current, current.Status == SubscriptionStatus.Cancelled ? "Cancelled" : "CancellationScheduled");
         }, cancellationToken);
+
+    private static void ConfirmCancellation(Subscription current, DateTimeOffset now)
+    {
+        current.ConfirmCancellation(current.GatewaySubscriptionId!, now);
+        if (current.Status != SubscriptionStatus.Cancelled && current.CancellationDeadline <= now)
+        {
+            current.EndCancellation(now);
+        }
+    }
 
     private async Task<Subscription> CurrentAsync(Guid tenantId, CancellationToken cancellationToken, bool readOnly = true) =>
         await repository.FindCurrentAsync(tenantId, cancellationToken, readOnly)

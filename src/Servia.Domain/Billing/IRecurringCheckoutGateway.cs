@@ -28,7 +28,7 @@ public sealed record RecurringAuthorization(string? Id, string? ExternalReferenc
 
 public sealed record ApprovedRecurringPayment(string Id, DateTimeOffset DueAt, DateTimeOffset ApprovedAt);
 public sealed record RecurringCycleEvidence(ApprovedRecurringPayment? Payment = null, bool Rejected = false,
-    DateTimeOffset? DueAt = null);
+    DateTimeOffset? DueAt = null, bool NoInvoice = false);
 public sealed record RecurringNotificationPayment(string? SubscriptionId, DateTimeOffset? DueAt, string? PaymentStatus);
 
 /// <summary>Erro seguro para a aplicação, sem corpo ou credenciais do provedor.</summary>

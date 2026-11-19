@@ -5,8 +5,8 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Status-F0--F21%20entregues-brightgreen?style=for-the-badge" />
-  <img src="https://img.shields.io/badge/Testes-1011%20automatizados-brightgreen?style=for-the-badge" />
+  <img src="https://img.shields.io/badge/Status-F0--F21%20entregues%20%2B%20AV2%20em%20andamento-yellow?style=for-the-badge" />
+  <img src="https://img.shields.io/badge/Testes-1145%20backend%20%2B%2062%20frontend-brightgreen?style=for-the-badge" />
   <img src="https://img.shields.io/badge/Modelo-SaaS%20Multi--tenant-blue?style=for-the-badge" />
   <img src="https://img.shields.io/badge/PostgreSQL-17-336791?style=for-the-badge&logo=postgresql&logoColor=white" />
   <img src="https://img.shields.io/badge/React-TypeScript-61DAFB?style=for-the-badge&logo=react&logoColor=white" />
@@ -35,7 +35,6 @@
 | Gabriel Pinheiro da Silva Guerra | 06021409 |
 | Guilherme Henrique Quintanilha | 06013890 |
 | Vitor Alexandre Rocha de Souza | 06014670 |
-
 
 ---
 
@@ -87,6 +86,41 @@ Configurações que ajustam o comportamento da plataforma sem criar aplicações
 
 ---
 
+## ✅ Funcionalidades Implementadas
+
+O backend cobre o domínio completo das fases F0–F21. O frontend novo (`frontend/`) está em integração incremental com a API, no escopo da AV2.
+
+### Implementado e coberto por testes
+
+| Área | Estado |
+| --- | --- |
+| Multi-tenancy e isolamento por `TenantId` | ✅ Filtro global, FKs compostas `(TenantId, Id)` e testes cross-tenant |
+| Autenticação JWT e autorização por permissão | ✅ Login, refresh com rotação, logout, papéis por tenant |
+| Agenda interna | ✅ Criação, remarcação, cancelamento e conclusão; duração obtida do serviço no servidor |
+| Disponibilidade | ✅ Jornada do profissional, bloqueios, expediente do estabelecimento e conflito de horário |
+| Catálogo de serviços | ✅ CRUD, categorias, duração e preço |
+| Gestão de profissionais | ✅ Cadastro, jornadas, bloqueios e vínculo profissional–serviço |
+| Elegibilidade e limites de plano | ✅ Regra única de vaga (ativo + serviço ativo + jornada) com verificação transacional |
+| Clientes | ✅ Cadastro, consulta e histórico |
+| Site público por tenant | ✅ Resolução por subdomínio/`Host`, seções publicadas e `BookingWidget` |
+| Agendamento público | ✅ Reserva sem sessão, com as mesmas regras da agenda interna |
+| Financeiro do tenant | ✅ Registro de pagamentos e visão mínima |
+| Billing da plataforma | ✅ Planos, assinaturas, faturas, franquia de IA e política de inadimplência |
+| Mercado Pago — checkout recorrente | ⚠️ Implementado no código, **não homologado em sandbox** (ver limitações) |
+| Webhooks financeiros | ⚠️ Inbox durável e job de processamento implementados; validação ponta a ponta pendente |
+| IA de site | ✅ Geração e alteração de site com schema fechado |
+| Jobs em background | ✅ Rotinas agendadas (inbox, sincronização, notificações) |
+
+### Principais limitações atuais
+
+- **Mercado Pago não homologado.** O gateway implementa `POST /preapproval` e o checkout recorrente, mas a contratação real depende de credenciais e validação em sandbox. Nenhuma cobrança é considerada pronta para produção.
+- **Frontend em integração.** O `frontend/` cobre agenda, clientes, serviços, equipe, financeiro, assinatura e site. Onboarding, editor de site e contratação ainda têm dependências da AV2.
+- **WhatsApp pausado.** A integração com a WhatsApp Business Platform está suspensa (ADR-023).
+- **Segurança de sessão em avaliação.** Tokens ficam em `sessionStorage`; cookie `HttpOnly`, CSRF e CORS definitivos ainda não foram fechados.
+- **Observabilidade mínima.** Apenas health checks; sem métricas, trace ou alertas externos.
+
+---
+
 ## 🏗️ Arquitetura
 
 O repositório separa a aplicação cliente da aplicação servidora, sobre uma arquitetura em camadas.
@@ -122,11 +156,30 @@ O repositório separa a aplicação cliente da aplicação servidora, sobre uma 
 
 | Camada | Responsabilidade |
 | --- | --- |
-| **Servia.Api** | Entrada HTTP, controllers, middleware, autenticação e resolução de tenant |
+| **Servia.Api** | Entrada HTTP, controllers, middleware, autenticação, resolução de tenant e jobs agendados |
 | **Servia.Application** | Casos de uso, serviços, DTOs e orquestração de integrações |
 | **Servia.Domain** | Entidades, agregados, objetos de valor e regras de negócio |
 | **Servia.Infrastructure** | Persistência, repositórios, migrations, segurança e integrações externas |
 | **Servia.Tests** | Testes automatizados de domínio, persistência, API e integração |
+
+### Organização do repositório
+
+```text
+src/
+  Servia.Api/            API REST, controllers, jobs
+  Servia.Application/    casos de uso e serviços
+  Servia.Domain/         entidades e regras de negócio
+  Servia.Infrastructure/ EF Core, repositórios, migrations, integrações
+  Servia.Tests/          suíte de testes (xUnit + Testcontainers)
+  Servia.slnx            solução
+frontend/                frontend atual (TanStack Start + React)
+web/                     frontend anterior, preservado como referência
+docs/                    documentação de produto, arquitetura, operação e jurídico
+tests/load/              teste de carga com k6
+scripts/                 utilitários operacionais
+docker-compose.yml       ambiente completo (API + PostgreSQL)
+build.cmd                wrapper de build para Windows
+```
 
 ### Isolamento multi-tenant
 
@@ -144,13 +197,17 @@ Interface da aplicação, navegação, interação com o usuário e comunicaçã
 - TypeScript (modo estrito)
 - Vite
 - TanStack Start e TanStack Router
+- TanStack Query
+- Tailwind CSS 4 e componentes Radix UI
+- Vitest e Testing Library
+- Playwright (homologação em navegador real)
 
 ### Superfícies de produto
 
 | Superfície | Público | Estado |
 | --- | --- | --- |
 | Site público do estabelecimento | Clientes finais | ✅ |
-| Agendamento online | Clientes finais | ✅ |
+| Agendamento online (widget no site publicado) | Clientes finais | ✅ |
 | Painel do estabelecimento | Equipe do tenant | ✅ |
 | Painel da plataforma | Administradores da plataforma | ✅ |
 
@@ -226,18 +283,18 @@ O schema é aplicado por migrations (`MigrateAsync`), nunca por `EnsureCreated`.
 
 ## 🧪 Testes
 
-**1011 atributos `[Fact]`/`[Theory]`**, executados contra **PostgreSQL 17** via Testcontainers.
+**1145 atributos `[Fact]`/`[Theory]` no backend**, executados contra **PostgreSQL 17** via Testcontainers, e **62 testes de frontend** com Vitest.
 
 | Grupo | Cobertura |
 | --- | --- |
 | Domínio | Agendamentos, catálogo, equipe, clientes, billing, financeiro, mensageria, módulos, IA, operações |
 | Persistência | Migrations, schema, índices, seed, FKs compostas |
 | Isolamento multi-tenant | Leitura, criação, alteração, exclusão, header forjado, assinaturas |
-| Concorrência | Requisições simultâneas, sobreposição de horários, `ScheduleLock` |
-| API | Autenticação, autorização, paginação, provisionamento |
+| Concorrência | Requisições simultâneas, sobreposição de horários, `ScheduleLock`, ocupação de vagas do plano |
+| API | Autenticação, autorização, paginação, provisionamento, endpoints públicos |
 | Integrações | Mercado Pago, WhatsApp, OpenAI (com dublês) |
 
-Para executar:
+### Backend
 
 ```powershell
 cd src
@@ -248,9 +305,35 @@ cd src
 
 **Requisito:** Docker em execução — os testes sobem containers PostgreSQL 17 isolados.
 
+### Frontend
+
+```powershell
+cd frontend
+npm test
+npm run typecheck
+npm run build
+```
+
+### Homologação em navegador real
+
+O `frontend/` inclui scripts de homologação da Fase 1 da AV2, com API real, PostgreSQL isolado e Chromium via Playwright:
+
+```powershell
+cd frontend
+npm run homolog:run
+```
+
+Os artefatos (relatório e traces) são gravados em `frontend/.homolog-artifacts/`, ignorado pelo Git. Instruções completas em [`frontend/README.md`](frontend/README.md).
+
 ---
 
 ## ▶️ Executando o projeto
+
+### Requisitos
+
+- .NET 10 SDK
+- Node.js 22 e npm
+- Docker (para PostgreSQL e para os testes)
 
 ### Ambiente completo (Docker)
 
@@ -313,15 +396,20 @@ A documentação está organizada por finalidade:
 | [`docs/gerenciamento/Roadmap.md`](docs/gerenciamento/Roadmap.md) | Fases de entrega, estado de execução e pendências |
 | [`docs/operacao/ONBOARDING.md`](docs/operacao/ONBOARDING.md) | Colocar o primeiro cliente no ar |
 | [`docs/operacao/RUNBOOK.md`](docs/operacao/RUNBOOK.md) | Procedimentos operacionais e de incidentes |
+| [`docs/juridico/POLITICA_DE_PRIVACIDADE.md`](docs/juridico/POLITICA_DE_PRIVACIDADE.md) | Política de privacidade e tratamento de dados |
+| [`docs/juridico/TERMOS_DE_USO.md`](docs/juridico/TERMOS_DE_USO.md) | Termos de uso da plataforma |
+| [`frontend/README.md`](frontend/README.md) | Desenvolvimento, variáveis de ambiente e verificações do frontend |
 | [`tests/load/README.md`](tests/load/README.md) | Teste de carga com k6 |
 
-> **Estrutura:** `docs/produto/` (visão e catálogo), `docs/arquitetura/` (arquitetura, modelo e decisões), `docs/gerenciamento/` (roadmap), `docs/operacao/` (operação).
+> **Estrutura:** `docs/produto/` (visão e catálogo), `docs/arquitetura/` (arquitetura, modelo e decisões), `docs/gerenciamento/` (roadmap), `docs/operacao/` (operação), `docs/juridico/` (LGPD e termos).
 
 ---
 
-## 📊 Estado Atual
+## 📊 Estado do Desenvolvimento
 
-**Status:** ✅ Fases F0–F21 entregues. **1011 atributos `[Fact]`/`[Theory]`** no código atual (verificado em 2026-11-14). Operação comercial plena pendente — ver §"O que falta para operação comercial".
+**Status:** ✅ Fases F0–F21 entregues no backend. 🔄 AV2 em andamento no frontend e na integração de billing.
+
+**1145 atributos `[Fact]`/`[Theory]`** no backend e **62 testes** no frontend (verificado em 2026-11-19). Operação comercial plena pendente — ver §"O que falta para operação comercial".
 
 ### Fases concluídas
 
@@ -350,6 +438,24 @@ A documentação está organizada por finalidade:
 | F20 | Bootstrap e operação | 2 |
 | F21 | Cadastro público e landing page | 9 |
 
+### AV2 — Fase 1 (agenda)
+
+| Requisito | Estado |
+| --- | --- |
+| AV2-01 — Criação centralizada na agenda interna | ✅ Homologado em navegador real |
+| AV2-02 — Remarcação consistente | ✅ Homologado em navegador real |
+| AV2-03 — Contrato único público/interno | ✅ Homologado para o núcleo da agenda |
+| AV2-04 — Fluxo completo de agenda | ✅ Homologado para a Fase 1 |
+
+### AV2 — Fase 2 (billing e Mercado Pago)
+
+| Requisito | Estado |
+| --- | --- |
+| AV2-09 — Contratação e alteração de planos | ⚠️ Parcial |
+| AV2-19 — Contratação recorrente no Mercado Pago | ⚠️ Parcial — código implementado, sem homologação em sandbox |
+
+O ciclo financeiro de assinaturas (faturas, inadimplência, webhooks com inbox durável) foi implementado no backend. A contratação real depende de credenciais e validação externa.
+
 ### Auditoria de qualidade (2026-11-11)
 
 Oito etapas executadas, cada uma com commit independente:
@@ -365,23 +471,13 @@ Oito etapas executadas, cada uma com commit independente:
 | 7 | Riscos R1–R5 corrigidos |
 | 8 | Suíte de integração multi-tenant |
 
-### Verificação
-
-```text
-Build:  0 erros
-Testes: 1011 atributos [Fact]/[Theory] (PostgreSQL 17 via Testcontainers)
-Docker: API e PostgreSQL healthy
-```
-
-> **Números verificados em 2026-11-14.** A suíte completa não foi reexecutada nesta atualização documental; o número refere-se aos atributos de teste presentes no código.
-
 ### O que falta para operação comercial
 
 As fases F0–F21 entregaram domínio, API, integrações e frontend. O que resta **não é fase de roadmap** — são pendências identificadas na auditoria do ARCH:
 
 | # | Pendência | Impacto |
 | --- | --- | --- |
-| 1 | **Ciclo financeiro do billing** — gateway, fatura, inadimplência | O tenant contrata e nada é cobrado |
+| 1 | **Homologação do Mercado Pago em sandbox** — checkout recorrente e webhooks | Contratação implementada, cobrança real não validada |
 | 2 | **Cookie `HttpOnly` + CSRF + CORS** | Segurança obrigatória; o novo frontend depende |
 | 3 | **Política de consumo de IA** — compra de créditos, aquisição automática, notificação | Franquia e bloqueio existem; o resto não |
 | 4 | **Cobrança de alteração pós-publicação** | Tabela aprovada, não implementada |
