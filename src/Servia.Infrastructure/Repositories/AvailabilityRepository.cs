@@ -77,8 +77,8 @@ public sealed class AvailabilityRepository(AppDbContext context) : IAvailability
         DateOnly date,
         CancellationToken cancellationToken = default)
     {
-        var dayStart = new DateTimeOffset(date.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);
-        var dayEnd = dayStart.AddDays(1);
+        var dayStart = BookingTimeZone.GetUtcStartOfDay(date);
+        var dayEnd = BookingTimeZone.GetUtcStartOfDay(date.AddDays(1));
 
         return await context.ScheduleBlocks
             .Where(block => block.TenantId == tenantId

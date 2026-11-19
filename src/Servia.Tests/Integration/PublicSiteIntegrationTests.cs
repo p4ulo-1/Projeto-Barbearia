@@ -713,11 +713,12 @@ public class PublicSiteApiFactory : IsolatedApiFactory
         var professional = context.Professionals.IgnoreQueryFilters()
             .First(item => item.TenantId == tenant.Id);
 
+        var zone = TimeZoneInfo.FindSystemTimeZoneById("America/Sao_Paulo");
         context.ScheduleBlocks.Add(ScheduleBlock.Create(
             tenant.Id,
             professional.Id,
-            new DateTimeOffset(date.ToDateTime(start), TimeSpan.Zero),
-            new DateTimeOffset(date.ToDateTime(end), TimeSpan.Zero),
+            TimeZoneInfo.ConvertTimeToUtc(date.ToDateTime(start), zone),
+            TimeZoneInfo.ConvertTimeToUtc(date.ToDateTime(end), zone),
             "Bloqueio de teste"));
 
         await context.SaveChangesAsync();

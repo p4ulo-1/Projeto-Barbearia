@@ -38,8 +38,10 @@ public sealed class ProfessionalAvailabilityIntegrationTests(PublicSiteApiFactor
 
         var date = booking.Date.AddDays(14);
         var originalTime = new TimeOnly(10, 0);
-        var startTime = new TimeOnly(11, 0);
-        var nextTime = new TimeOnly(11, 30);
+        var startTime = new TimeOnly(21, 0);
+        var nextTime = new TimeOnly(21, 30);
+        var lastHour = new TimeOnly(22, 0);
+        var lastTime = new TimeOnly(22, 30);
         const string host = PublicSiteApiFactory.PublishedHost;
         const string agenda = "/api/v1/agenda/appointments";
         var professionalRoute = $"/api/v1/team/professionals/{booking.ProfessionalId}";
@@ -76,16 +78,19 @@ public sealed class ProfessionalAvailabilityIntegrationTests(PublicSiteApiFactor
         var closedBusiness = new UpdateScheduleRequest(Enum.GetValues<DayOfWeek>()
             .Select(day => new ScheduleDayRequest(day, false, null, null)).ToArray());
         Assert.Equal(HttpStatusCode.OK, (await owner.PutAsJsonAsync("/api/v1/tenant/settings/schedule", closedBusiness)).StatusCode);
-        var schedule = new UpdateProfessionalScheduleRequest([date.DayOfWeek], startTime, new TimeOnly(13, 0));
+        var schedule = new UpdateProfessionalScheduleRequest([date.DayOfWeek], startTime, new TimeOnly(23, 0));
         Assert.Equal(HttpStatusCode.OK, (await owner.PutAsJsonAsync(professionalRoute + "/schedule", schedule)).StatusCode);
         Assert.Equal(1, await counts.CountEligibleAsync(tenantId));
-        await AssertSlotsAsync(startTime, nextTime, new TimeOnly(12, 0), new TimeOnly(12, 30));
+        await AssertSlotsAsync(startTime, nextTime, lastHour, lastTime);
 
-        var start = new DateTimeOffset(date.ToDateTime(startTime), TimeSpan.Zero);
+        // As 21h em São Paulo pertencem ao dia seguinte em UTC.
+        var zone = TimeZoneInfo.FindSystemTimeZoneById("America/Sao_Paulo");
+        var start = new DateTimeOffset(TimeZoneInfo.ConvertTimeToUtc(date.ToDateTime(startTime), zone));
+        Assert.Equal(date.AddDays(1), DateOnly.FromDateTime(start.UtcDateTime));
         var block = await owner.PostAsJsonAsync(professionalRoute + "/blocks",
             new CreateBlockRequest(start, start.AddMinutes(30), "Compromisso"));
         Assert.Equal(HttpStatusCode.Created, block.StatusCode);
-        await AssertSlotsAsync(nextTime, new TimeOnly(12, 0), new TimeOnly(12, 30));
+        await AssertSlotsAsync(nextTime, lastHour, lastTime);
         Assert.Equal(1, await counts.CountEligibleAsync(tenantId));
 
         const string rejectedPhone = "21999110002";
@@ -98,7 +103,7 @@ public sealed class ProfessionalAvailabilityIntegrationTests(PublicSiteApiFactor
         Assert.False(await db.Customers.AnyAsync(item => item.Phone == rejectedPhone));
 
         Assert.Equal(HttpStatusCode.NoContent, (await owner.DeleteAsync(block.Headers.Location)).StatusCode);
-        await AssertSlotsAsync(startTime, nextTime, new TimeOnly(12, 0), new TimeOnly(12, 30));
+        await AssertSlotsAsync(startTime, nextTime, lastHour, lastTime);
         Assert.Equal(1, await counts.CountEligibleAsync(tenantId));
         Assert.Equal(HttpStatusCode.Created,
             (await visitor.PostAsJsonAsync(bookingRoute, PublicRequest("21999110003", startTime))).StatusCode);

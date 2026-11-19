@@ -228,25 +228,31 @@ public sealed class AvailabilityServiceTests
         Assert.DoesNotContain(new TimeOnly(9, 0), slots);
     }
 
-    [Fact]
-    public async Task Bloqueio_Remove_O_Horario()
+    [Theory]
+    [InlineData(2026, 11, 23, 13)]
+    [InlineData(2018, 1, 15, 12)]
+    public async Task Bloqueio_Remove_O_Horario_Local_Usando_As_Regras_Do_Fuso(
+        int year, int month, int day, int utcHour)
     {
+        var date = new DateOnly(year, month, day);
         var repository = new FakeAvailabilityRepository();
         var professional = ProfessionalOn(DayOfWeek.Monday);
         repository.AddProfessional(professional);
         var catalogService = ServiceFor(repository, professional);
 
-        repository.AddBlock(ScheduleBlock.Create(
-            TenantId, professional.Id,
-            new DateTimeOffset(Monday.ToDateTime(new TimeOnly(10, 0)), TimeSpan.Zero),
-            new DateTimeOffset(Monday.ToDateTime(new TimeOnly(11, 0)), TimeSpan.Zero)));
+        var utcStart = new DateTimeOffset(year, month, day, utcHour, 0, 0, TimeSpan.Zero);
+        repository.AddBlock(ScheduleBlock.Create(TenantId, professional.Id, utcStart, utcStart.AddHours(1)));
 
         var service = new AvailabilityService(repository);
 
         var slots = await service.GetAvailableSlotsAsync(
-            TenantId, professional.Id, catalogService.Id, Monday);
+            TenantId, professional.Id, catalogService.Id, date);
 
         Assert.DoesNotContain(new TimeOnly(10, 0), slots);
+        Assert.Contains(new TimeOnly(utcHour, 0), slots);
+        var result = await service.CheckSlotAsync(
+            TenantId, professional.Id, catalogService.Id, date, new TimeOnly(10, 0));
+        Assert.False(result.IsAvailable);
     }
 
     [Fact]

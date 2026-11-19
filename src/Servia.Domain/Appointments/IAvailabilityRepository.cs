@@ -51,7 +51,7 @@ public interface IAvailabilityRepository
         DateOnly date,
         CancellationToken cancellationToken = default);
 
-    /// <summary>Bloqueios do profissional que tocam a data.</summary>
+    /// <summary>Bloqueios do profissional que tocam o dia local da agenda.</summary>
     Task<IReadOnlyList<Team.ScheduleBlock>> GetBlocksAsync(
         Guid tenantId,
         Guid professionalId,

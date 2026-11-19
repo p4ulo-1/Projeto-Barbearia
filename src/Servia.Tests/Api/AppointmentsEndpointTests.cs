@@ -363,8 +363,8 @@ public class AppointmentsEndpointTests : IClassFixture<IsolatedApiFactory>
             unlinkedServiceId = unlinked.Id;
             db.Services.Add(unlinked);
             db.ScheduleBlocks.Add(ScheduleBlock.Create(TenantId, _professionalId,
-                new DateTimeOffset(date.ToDateTime(new TimeOnly(11, 0)), TimeSpan.Zero),
-                new DateTimeOffset(date.ToDateTime(new TimeOnly(12, 0)), TimeSpan.Zero), "Teste"));
+                new DateTimeOffset(2026, 12, 28, 14, 0, 0, TimeSpan.Zero),
+                new DateTimeOffset(2026, 12, 28, 15, 0, 0, TimeSpan.Zero), "Teste"));
             db.SaveChanges();
         }
         var unlinkedSlots = await AgendaAsync(HttpMethod.Get,

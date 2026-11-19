@@ -214,7 +214,11 @@ public sealed class AvailabilityService(IAvailabilityRepository repository)
             return SlotAvailability.Conflict("Este horário conflita com outro agendamento.");
         }
 
-        var slotStart = new DateTimeOffset(date.ToDateTime(time), TimeSpan.Zero);
+        if (!BookingTimeZone.TryGetUtcInstant(date, time, out var slotStart))
+        {
+            return SlotAvailability.Unavailable("O horário não existe no fuso da agenda nesta data.");
+        }
+
         var slotEnd = slotStart.AddMinutes(durationMinutes);
 
         if (blocks.Any(block => block.Overlaps(slotStart, slotEnd)))
