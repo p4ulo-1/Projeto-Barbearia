@@ -2,12 +2,12 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Alert, Button } from "@/components/ui-sv";
 import { ApiError, IS_DEMO } from "@/lib/api/http";
-import { plansService } from "@/lib/api/plans";
+import { planBenefits, plansService } from "@/lib/api/plans";
 import { operations as api } from "@/lib/api/operations";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { hasPermission } from "@/lib/permissions";
 import { ModuleCard, QueryState, Pagination, RecordSelect } from "./OperationsUI";
-import { displayDate, field, useOperation } from "./forms";
+import { displayDate, useOperation } from "./forms";
 import { PageHeader } from "./PanelPage";
 import { fmtMoney } from "./status";
 import s from "./styles";
@@ -17,7 +17,7 @@ export function BillingPage() {
     <>
       <PageHeader
         title="Assinatura Servia"
-        description="Consulte o plano, as faturas e o uso dos recursos da plataforma."
+        description="Consulte o plano, as faturas e o histórico da assinatura."
       />
       {IS_DEMO ? (
         <Alert>Assinaturas e faturas ficam disponíveis ao conectar a API do Servia.</Alert>
@@ -32,6 +32,7 @@ function BillingDetails() {
   const { user } = useAuth();
   const write = hasPermission(user, "ManageBilling");
   const [page, setPage] = useState(1);
+  const [selectedPlan, setSelectedPlan] = useState("");
   const sub = useQuery({
     queryKey: ["panel", "subscription"],
     queryFn: () =>
@@ -45,7 +46,6 @@ function BillingDetails() {
     queryKey: ["panel", "invoices", page],
     queryFn: () => api.invoices(page),
   });
-  const usage = useQuery({ queryKey: ["panel", "usage"], queryFn: api.usage });
   const history = useQuery({
     queryKey: ["panel", "subscription-history"],
     queryFn: api.planHistory,
@@ -92,40 +92,44 @@ function BillingDetails() {
                     {suggestion.data.requiredPlanCode}.
                   </Alert>
                 )}
-                {write && data?.status !== "Cancelled" && (
+                {write && (
                   <QueryState query={plans}>
                     {(catalog) => {
-                      const options = catalog.filter((plan) => plan.code !== data?.planCode);
-                      return options.length ? (
-                        <form
-                          className={s.formGrid}
-                          onSubmit={(event) => {
-                            event.preventDefault();
-                            const code = field(new FormData(event.currentTarget), "plan");
-                            const plan = options.find((item) => item.code === code);
-                            if (
-                              plan &&
-                              window.confirm(
-                                `${data ? "Trocar para" : "Contratar"} ${plan.name} por ${fmtMoney(plan.monthlyPrice)} por mês?`,
-                              )
-                            )
-                              op.run(() => api.changePlan(code, !!data), "Plano atualizado.");
-                          }}
-                        >
+                      const selected = catalog.find((plan) => plan.code === selectedPlan);
+                      return catalog.length ? (
+                        <div className={s.formGrid}>
                           <RecordSelect
                             name="plan"
-                            label="Plano disponível"
-                            records={options.map((plan) => ({
+                            label="Selecionar plano para revisão"
+                            value={selectedPlan}
+                            onChange={setSelectedPlan}
+                            records={catalog.map((plan) => ({
                               id: plan.code,
                               name: `${plan.name} · ${fmtMoney(plan.monthlyPrice)}/mês`,
                             }))}
-                            required
                           />
-                          <Button type="submit" loading={op.busy}>
-                            {data ? "Alterar plano" : "Contratar plano"}
-                          </Button>
-                        </form>
-                      ) : null;
+                          {selected && (
+                            <div>
+                              <p>
+                                Opção selecionada: <strong>{selected.name}</strong>
+                                {selected.code === data?.planCode ? " (plano atual)" : ""}
+                              </p>
+                              <p>{fmtMoney(selected.monthlyPrice)} por mês</p>
+                              <ul>
+                                {planBenefits(selected).map((benefit) => (
+                                  <li key={benefit}>{benefit}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                          <p>
+                            A seleção é temporária e não altera sua assinatura, seu trial ou seus
+                            limites. A contratação online ainda não está habilitada.
+                          </p>
+                        </div>
+                      ) : (
+                        <p>Nenhum plano disponível no momento.</p>
+                      );
                     }}
                   </QueryState>
                 )}
@@ -147,37 +151,6 @@ function BillingDetails() {
                 )}
               </>
             )}
-          </QueryState>
-        </ModuleCard>
-        <ModuleCard title="Uso de recursos">
-          <QueryState query={usage}>
-            {(data) =>
-              data.length ? (
-                <ul className={s.recordList}>
-                  {data.map((item) => (
-                    <li key={item.resource}>
-                      <div>
-                        <strong>
-                          {{ AiUnits: "Créditos de IA", WhatsAppMessages: "Mensagens de WhatsApp" }[
-                            item.resource
-                          ] ?? item.resource}
-                        </strong>
-                        <p>
-                          {item.consumed.toLocaleString("pt-BR")} usados ·{" "}
-                          {item.included.toLocaleString("pt-BR")} incluídos ·{" "}
-                          {item.remaining.toLocaleString("pt-BR")} restantes
-                        </p>
-                        {item.consumedTokens != null && (
-                          <p>{item.consumedTokens.toLocaleString("pt-BR")} tokens consumidos</p>
-                        )}
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p>Nenhum consumo registrado no período.</p>
-              )
-            }
           </QueryState>
         </ModuleCard>
       </div>
@@ -227,7 +200,7 @@ function BillingDetails() {
                   <li key={item.id}>
                     {(
                       {
-                        Initial: "Contratação",
+                        Initial: "Início da assinatura",
                         Upgrade: "Upgrade",
                         Downgrade: "Downgrade",
                       } as Record<string, string>

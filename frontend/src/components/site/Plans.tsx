@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { Check, CloudOff, RefreshCw } from "lucide-react";
 import { IS_DEMO } from "@/lib/api/http";
-import { plansService } from "@/lib/api/plans";
+import { planBenefits, plansService } from "@/lib/api/plans";
 import s from "./styles";
 
 export function Plans() {
@@ -59,23 +59,15 @@ export function Plans() {
                     <small>/mês</small>
                   </div>
                   <ul>
-                    <li>
-                      <Check size={16} aria-hidden />
-                      {p.includedProfessionals === 0
-                        ? "Profissionais ilimitados"
-                        : `${p.includedProfessionals} profissionais`}
-                    </li>
-                    <li>
-                      <Check size={16} aria-hidden />
-                      {p.includedAiUnits.toLocaleString("pt-BR")} créditos de IA/mês
-                    </li>
-                    <li>
-                      <Check size={16} aria-hidden />
-                      Todos os módulos de gestão
-                    </li>
+                    {planBenefits(p).map((benefit) => (
+                      <li key={benefit}>
+                        <Check size={16} aria-hidden />
+                        {benefit}
+                      </li>
+                    ))}
                   </ul>
                   <Link to="/criar-conta" className={`${s.btn} ${s.btnGhost}`}>
-                    Começar teste de 14 dias
+                    Criar conta
                   </Link>
                 </article>
               ))}
