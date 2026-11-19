@@ -1,15 +1,17 @@
 # Roadmap — Servia
 
-> **Status:** v4 — atualizado em 2026-11-14.
+> **Status:** v5 — atualizado em 2026-11-19.
 > **Escopo do MVP:** F0–F21 entregues; operação comercial plena pendente (ver §"O que falta para operação comercial").
 > **Unidade de planejamento:** fases com entregas verificáveis. Prazos em semanas relativas ao início da fase.
 > **Documentos relacionados:** catálogo em [`../produto/funcionalidades.md`](../produto/funcionalidades.md); arquitetura em [`../arquitetura/ARCH.md`](../arquitetura/ARCH.md); decisões em [`../arquitetura/ADR.md`](../arquitetura/ADR.md).
 
 ---
 
-## Estado de execução (2026-11-14)
+## Estado de execução (2026-11-19)
 
 **Todas as 22 fases (F0–F21) foram implementadas, testadas e commitadas.** O que resta não é fase de roadmap: são pendências de operação comercial, segurança obrigatória e observabilidade, registradas em §"O que falta para operação comercial".
+
+> **Revisão 2026-11-19:** o ciclo financeiro de assinaturas (fatura, inadimplência, sincronização, checkout recorrente e webhooks) foi implementado após a revisão anterior. A homologação em sandbox do Mercado Pago continua pendente.
 
 | Fase | Escopo | Entregas | Situação |
 | --- | --- | --- | --- |
@@ -30,7 +32,7 @@
 | F14 | Frontend do SaaS | 10 | ✅ |
 | F15 | Go-live | 7 | ✅ |
 
-**Total:** 152 entregas das fases F0–F15, mais as entregas de F16–F21. **1011 atributos `[Fact]`/`[Theory]`** no código atual (verificado em 2026-11-14). Build sem erros.
+**Total:** 152 entregas das fases F0–F15, mais as entregas de F16–F21. **1146 atributos `[Fact]`/`[Theory]`** no código atual (1120 `[Fact]` + 26 `[Theory]`, verificado em 2026-11-19). Build sem erros.
 
 ### Auditoria de qualidade (2026-11-11)
 
@@ -65,7 +67,7 @@ As fases F0–F21 entregaram domínio, API, integrações e frontend. O que rest
 
 | # | Pendência | Impacto |
 | --- | --- | --- |
-| 1 | **Ciclo financeiro do billing** — gateway, fatura, inadimplência | O tenant contrata e nada é cobrado |
+| 1 | **Homologação do Mercado Pago em sandbox** — checkout recorrente e webhooks | Ciclo financeiro implementado e testado com dublê; cobrança real não validada |
 | 2 | **Cookie `HttpOnly` + CSRF + CORS** | Segurança obrigatória; o novo frontend depende |
 | 3 | **Política de consumo de IA** — compra de créditos, aquisição automática, notificação | Franquia e bloqueio existem; o resto não |
 | 4 | **Cobrança de alteração pós-publicação** | Tabela aprovada, não implementada |

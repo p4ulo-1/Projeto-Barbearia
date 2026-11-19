@@ -3,7 +3,8 @@
 > **Finalidade:** arquitetura de solução da plataforma multi-tenant, distinguindo o que está implementado, o que está aprovado e o que está planejado.
 > **Escopo:** camadas, isolamento, persistência, concorrência, integrações, segurança, observabilidade, testes e dívida arquitetural.
 > **Decisões:** ver [`ADR.md`](ADR.md). **Modelo de classes:** ver [`classes.md`](classes.md). **Catálogo de funcionalidades:** ver [`../produto/funcionalidades.md`](../produto/funcionalidades.md).
-> **Base:** código em `src/`, verificado em 2026-11-14.
+> **Base:** código em `src/`, verificado em 2026-11-19.
+> **Revisão 2026-11-19:** contagem de testes atualizada; ciclo financeiro de assinaturas e estado do Mercado Pago registrados (ver §9.1).
 
 ---
 
@@ -11,19 +12,19 @@
 
 > **Leitura obrigatória:** este documento distingue **implementado**, **aprovado** e **planejado**. Uma seção marcada como "planejado" **não** descreve o que existe hoje.
 
-### 0.1. Números reais (2026-11-14)
+### 0.1. Números reais (2026-11-19)
 
 | Métrica | Valor |
 | --- | --- |
 | Entidades `ITenantScoped` no domínio | **46** |
 | Contextos delimitados | 17 (`Ai`, `Appointments`, `Auditing`, `Billing`, `Catalog`, `Common`, `Customers`, `Finance`, `Identity`, `Loyalty`, `Memberships`, `Messaging`, `Operations`, `Policies`, `Sites`, `Team`, `Tenancy`) |
-| Migrations | **14** |
+| Migrations | **22** |
 | Tabelas no snapshot | **50** |
 | Configurações EF | **21** |
 | Controllers | **20** |
-| Serviços de aplicação | **8** |
-| Rotinas de job | **7** |
-| Atributos `[Fact]`/`[Theory]` | **1011** |
+| Serviços de aplicação | **14** |
+| Rotinas de job | **7** (2 agendadas: `mercadopago-inbox`, reconciliação de assinaturas) |
+| Atributos `[Fact]`/`[Theory]` | **1146** (1120 `[Fact]` + 26 `[Theory]`) |
 | Controllers com acesso direto a `AppDbContext` | **13 de 20** |
 
 ### 0.2. Camadas
@@ -34,7 +35,7 @@
 | Aplicação | `Servia.Application` | ✅ Implementado — 8 serviços, sem dependência de EF Core |
 | Infraestrutura | `Servia.Infrastructure` | ✅ Implementado — EF Core 10 + Npgsql, repositórios, integrações |
 | API | `Servia.Api` | ✅ Implementado — 20 controllers, middleware, autenticação, autorização |
-| Testes | `Servia.Tests` | ✅ Implementado — 1011 atributos, PostgreSQL 17 via Testcontainers |
+| Testes | `Servia.Tests` | ✅ Implementado — 1146 atributos, PostgreSQL 17 via Testcontainers |
 | Frontend | `web/` | ⚠️ Existente, **será substituído** — React 19 + React Router 7 + Vite 6 |
 
 ### 0.3. Isolamento multi-tenant — três camadas
@@ -444,7 +445,18 @@ Application ──► IPaymentGateway ──► MercadoPagoGateway
 
 - **Gateway confirmado:** Mercado Pago (Pix, boleto e cartão).
 - Contrato: registrar cliente, criar assinatura, criar cobrança, estornar, cancelar assinatura.
-- **Estado:** `IPaymentGateway` e `MercadoPagoGateway` implementados e testados (`ProviderTests`, 16). **Nenhum caso de uso chama o gateway** — infraestrutura sem fluxo.
+- **Estado (revisado em 2026-11-19):** `IPaymentGateway` e `MercadoPagoGateway` implementados e testados (`ProviderTests`, 16). O gateway **passou a ser chamado** pelos casos de uso de assinatura: `SubscriptionCheckoutService` cria `POST /preapproval`, `SubscriptionLifecycleService` cancela e altera plano, e `SubscriptionSynchronizationService` aplica o estado retornado pelo provedor.
+
+#### Checkout recorrente — estado por camada
+
+| Camada | Estado | Evidência |
+| --- | --- | --- |
+| **Implementação local** | ✅ Concluída | `MercadoPagoGateway.Checkout.cs` — `preapproval`, `preapproval_plan`, `authorized_payments`, cancelamento e alteração |
+| **Testes automatizados** | ✅ Concluídos, com **dublê** | `SubscriptionCheckoutIntegrationTests` e `SubscriptionReconciliationIntegrationTests` usam `CheckoutProviderStub` (fake `HttpMessageHandler`), não o provedor real |
+| **Webhooks** | ✅ Implementados | `WebhooksController` (`POST /webhooks/mercadopago`) + inbox durável (`MercadoPagoInboxJob`, 30 s) |
+| **Homologação em sandbox** | ❌ **Não realizada** | Nenhuma evidência de execução contra o ambiente de testes do Mercado Pago |
+
+> **Não tratar como pronto para produção.** O fluxo está implementado e coberto por testes com dublê, mas **não foi homologado em sandbox**. Credenciais reais e validação ponta a ponta permanecem pendentes (ver `funcionalidades.md` §5.2).
 
 ### 9.2. Mensageria (WhatsApp)
 
@@ -658,7 +670,7 @@ Ver [`ADR.md`](ADR.md) para o registro completo (ADR-001 a ADR-028).
 
 | # | Pendência | Origem |
 | --- | --- | --- |
-| P1 | Ciclo financeiro do billing (gateway, fatura, inadimplência) | Auditoria ARCH |
+| P1 | **Homologação do Mercado Pago em sandbox** — checkout recorrente e webhooks | Revisão 2026-11-19 |
 | P2 | Cookie `HttpOnly` + CSRF + CORS | Decisão obrigatória |
 | P3 | Observabilidade (logs, métricas, trace, alertas) | Auditoria ARCH |
 | P4 | Lock distribuído para jobs | Auditoria ARCH |

@@ -1,7 +1,8 @@
 # Funcionalidades — Catálogo do Servia
 
 > **Finalidade:** catálogo central das funcionalidades do Servia, com o estado real de cada uma.
-> **Fonte de verdade do estado:** código em `src/`, verificado em 2026-11-14.
+> **Fonte de verdade do estado:** código em `src/`, verificado em 2026-11-19.
+> **Revisão 2026-11-19:** ciclo financeiro de assinaturas da plataforma implementado; cobranças recorrentes do tenant e da plataforma separadas; homologação do Mercado Pago em sandbox pendente.
 > **Regra de leitura:** uma funcionalidade só é marcada como implementada quando o **fluxo funcional completo** existe — entrada (endpoint/job/evento) → regra → persistência → efeito observável. A existência isolada de entidade, interface ou endpoint **não** comprova implementação.
 > **Documentos relacionados:** visão e princípios em [`descricao_produto.md`](descricao_produto.md); arquitetura em [`../arquitetura/ARCH.md`](../arquitetura/ARCH.md); decisões em [`../arquitetura/ADR.md`](../arquitetura/ADR.md).
 
@@ -223,13 +224,15 @@
 
 ### 2.1. Assinaturas, clubes e pacotes
 
+> **Dois modelos financeiros distintos.** Esta seção trata das **assinaturas e clubes comercializados pelo próprio estabelecimento** aos seus clientes finais. A **assinatura SaaS que o estabelecimento contrata junto ao Servia** é outro contexto e está documentada em §6.
+
 | ID | Funcionalidade | Estado | Evidência |
 | --- | --- | --- | --- |
 | M01 | Clube de assinatura | ✅ | `GET/POST /api/v1/modules/membership-plans`, `POST /modules/memberships` |
 | M02 | Pacotes de serviços | ✅ | `GET/POST /api/v1/modules/packages` |
 | M03 | Controle de benefícios | ⚠️ | `MembershipBenefit`, `PackageUsage`; consumo parcial |
-| M04 | Cobrança recorrente | 🔧 | `MembershipRenewalJob` renova o período; sem cobrança |
-| M05 | Gestão de inadimplência | ❌ | Sem fluxo |
+| M04 | Cobrança recorrente do clube | 🔧 | `MembershipRenewalJob` renova o período; **sem cobrança automática** — o estabelecimento cobra fora da plataforma |
+| M05 | Gestão de inadimplência do clube | ❌ | Sem fluxo |
 
 ### 2.2. Comissões e remuneração
 
@@ -309,7 +312,7 @@
 | N09 | Acessibilidade WCAG 2.1 AA | ⚠️ | Parcial no frontend atual |
 | N10 | Escalabilidade | ⚠️ | Multi-tenant; jobs sem lock distribuído |
 | N11 | Observabilidade | ⚠️ | Health checks; sem logs estruturados, métricas ou trace |
-| N12 | Testes | ✅ | 1011 atributos `[Fact]`/`[Theory]` |
+| N12 | Testes | ✅ | 1146 atributos `[Fact]`/`[Theory]` (1120 `[Fact]` + 26 `[Theory]`) |
 | N13 | Testes de integração externa | ✅ | `ProviderTests`, `RetryAndIdempotencyTests` |
 | N14 | Núcleo sem condicionais de segmento | ⚠️ | Políticas existem; não injetadas |
 
@@ -337,7 +340,7 @@
 
 | # | Pendência | Origem |
 | --- | --- | --- |
-| P1 | Ciclo financeiro do billing (cobrança, fatura, inadimplência) | Auditoria ARCH |
+| P1 | **Homologação do Mercado Pago em sandbox** — checkout recorrente e webhooks | Revisão 2026-11-19 |
 | P2 | Política de consumo de IA: compra manual, aquisição automática, notificação | Decisão de produto |
 | P3 | Cobrança de alteração pós-publicação | Tabela aprovada, não implementada |
 | P4 | Cookie `HttpOnly` + CSRF + CORS | Decisão obrigatória |
@@ -347,6 +350,8 @@
 | P8 | Endpoint de escrita de `CustomDomain` | Catálogo |
 | P9 | Edição de serviço/profissional/cliente | Catálogo |
 | P10 | Integração com WhatsApp Business Platform | Pausada, condicionada à Meta |
+
+> **P1 — reclassificada em 2026-11-19.** O ciclo financeiro de assinaturas **foi implementado**: `SubscriptionCheckoutService` (checkout recorrente), `SubscriptionLifecycleService` (cancelamento e troca de plano), `SubscriptionSynchronizationService` (sincronização), `PlatformInvoice` (fatura), `DelinquencyPolicy` (inadimplência com carência de 48 h) e `WebhooksController` + `MercadoPagoInboxJob` (webhooks com inbox durável). Os testes usam **dublê** (`CheckoutProviderStub`), não o provedor real. O que resta é a **homologação em sandbox** — não a implementação.
 
 ### 5.3. Descartadas
 
@@ -367,6 +372,15 @@
 | **Billing da plataforma** | O Servia | Planos, assinaturas, faturas, inadimplência, consumo de IA |
 
 Nenhum dos dois referencia o outro em suas regras de negócio. Ver [`../arquitetura/ADR.md`](../arquitetura/ADR.md) ADR-020.
+
+### 6.1. Cobranças recorrentes — dois modelos distintos
+
+| Modelo | Quem cobra | De quem | Implementação | Estado |
+| --- | --- | --- | --- | --- |
+| **Assinatura SaaS** | O Servia | Do estabelecimento | `SubscriptionCheckoutService`, `SubscriptionLifecycleService`, `PlatformInvoice`, `DelinquencyPolicy`, `WebhooksController` | ✅ Implementado · ❌ Não homologado em sandbox |
+| **Clube do estabelecimento** | O estabelecimento | Dos clientes finais | `MembershipPlan`, `Membership`, `MembershipRenewalJob` | 🔧 Renovação de período; sem cobrança automática |
+
+**Não confundir os dois.** A assinatura SaaS usa checkout recorrente no Mercado Pago (`preapproval`), trial de 14 dias e fatura própria. O clube do estabelecimento apenas controla benefícios e validade — a cobrança acontece fora da plataforma.
 
 ---
 
