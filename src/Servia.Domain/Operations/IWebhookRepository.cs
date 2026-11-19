@@ -1,4 +1,3 @@
-using Servia.Domain.Billing;
 using Servia.Domain.Messaging;
 using Servia.Domain.Operations;
 
@@ -22,12 +21,6 @@ public interface IWebhookRepository
     /// <summary>Registra um evento processado.</summary>
     Task AddProcessedEventAsync(
         ProcessedEvent processedEvent,
-        CancellationToken cancellationToken = default);
-
-    /// <summary>Busca a fatura pelo identificador do pagamento no gateway.</summary>
-    Task<PlatformInvoice?> FindInvoiceByGatewayIdAsync(
-        Guid tenantId,
-        string gatewayPaymentId,
         CancellationToken cancellationToken = default);
 
     /// <summary>Busca a conversa aberta do número informado.</summary>

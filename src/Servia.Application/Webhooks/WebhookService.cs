@@ -1,4 +1,3 @@
-using Servia.Domain.Billing;
 using Servia.Domain.Common;
 using Servia.Domain.Messaging;
 using Servia.Domain.Operations;
@@ -24,76 +23,6 @@ public sealed class WebhookService(
     IWebhookRepository webhooks,
     TimeProvider timeProvider)
 {
-    /// <summary>
-    /// Processa um evento de pagamento (F17.1).
-    /// </summary>
-    public async Task<WebhookResult> HandlePaymentAsync(
-        Guid tenantId,
-        PaymentWebhookEvent payload,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(payload);
-
-        if (tenantId == Guid.Empty)
-        {
-            return WebhookResult.Rejected("Estabelecimento não identificado.");
-        }
-
-        if (string.IsNullOrWhiteSpace(payload.EventId))
-        {
-            return WebhookResult.Rejected("Evento sem identificador.");
-        }
-
-        var now = timeProvider.GetUtcNow();
-
-        if (await webhooks.WasProcessedAsync(tenantId, payload.EventId, "mercadopago", cancellationToken))
-        {
-            return WebhookResult.Duplicate();
-        }
-
-        var invoice = await webhooks.FindInvoiceByGatewayIdAsync(
-            tenantId, payload.GatewayPaymentId, cancellationToken);
-
-        if (invoice is null)
-        {
-            // Evento de um pagamento que nao conhecemos: registra e ignora.
-            await RecordAsync(tenantId, payload.EventId, "mercadopago", now, cancellationToken);
-            return WebhookResult.Ignored("Pagamento não corresponde a nenhuma fatura.");
-        }
-        if (invoice.IsPaid)
-        {
-            await RecordAsync(tenantId, payload.EventId, "mercadopago", now, cancellationToken);
-            return WebhookResult.Ignored("A fatura já está paga.");
-        }
-
-        try
-        {
-            if (payload.IsApproved)
-            {
-                invoice.MarkPaid(payload.GatewayPaymentId, now);
-            }
-            else if (payload.IsRejected)
-            {
-                invoice.MarkFailed();
-            }
-            else
-            {
-                // Status intermediario: registra e nao altera a fatura.
-                await RecordAsync(tenantId, payload.EventId, "mercadopago", now, cancellationToken);
-                return WebhookResult.Ignored($"Status '{payload.Status}' não altera a fatura.");
-            }
-        }
-        catch (DomainRuleException exception)
-        {
-            return WebhookResult.Rejected(exception.Message);
-        }
-
-        await RecordAsync(tenantId, payload.EventId, "mercadopago", now, cancellationToken);
-        await webhooks.SaveChangesAsync(cancellationToken);
-
-        return WebhookResult.Processed();
-    }
-
     /// <summary>
     /// Processa um evento de mensagem recebida (F17.2).
     /// </summary>
@@ -192,17 +121,6 @@ public enum WebhookOutcome
 
     /// <summary>Evento inválido ou que viola uma regra de negócio.</summary>
     Rejected = 4
-}
-
-/// <summary>Evento de pagamento recebido do provedor.</summary>
-public sealed record PaymentWebhookEvent(
-    string EventId,
-    string GatewayPaymentId,
-    string Status)
-{
-    public bool IsApproved => string.Equals(Status, "approved", StringComparison.OrdinalIgnoreCase);
-
-    public bool IsRejected => string.Equals(Status, "rejected", StringComparison.OrdinalIgnoreCase);
 }
 
 /// <summary>Evento de mensagem recebida do provedor.</summary>

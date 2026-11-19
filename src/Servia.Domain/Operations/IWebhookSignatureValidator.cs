@@ -17,18 +17,10 @@ public interface IWebhookSignatureValidator
 }
 
 /// <summary>
-/// Resolve o tenant de um webhook (F17).
-///
-/// O provedor não conhece o tenant: ele é descoberto pelo identificador
-/// que o Servia registrou ao criar a cobrança ou a conversa.
+/// Resolve o tenant de um webhook de mensagens pelo telefone da conversa.
 /// </summary>
 public interface IWebhookTenantResolver
 {
-    /// <summary>Resolve o tenant pelo identificador do pagamento no gateway.</summary>
-    Task<Guid?> ResolveByPaymentAsync(
-        string gatewayPaymentId,
-        CancellationToken cancellationToken = default);
-
     /// <summary>Resolve o tenant pelo número de telefone da conversa.</summary>
     Task<Guid?> ResolveByPhoneNumberAsync(
         string phoneNumber,

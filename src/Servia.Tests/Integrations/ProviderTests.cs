@@ -1,8 +1,8 @@
 using System.Net;
 using System.Text;
+using Microsoft.Extensions.Logging.Abstractions;
 using Servia.Domain.Ai;
 using Servia.Domain.Billing;
-using Servia.Domain.Common;
 using Servia.Domain.Messaging;
 using Servia.Domain.Sites;
 using Servia.Domain.Tenancy;
@@ -23,65 +23,11 @@ public class ProviderTests
     // ---------- F12.1: Mercado Pago ----------
 
     [Fact]
-    public async Task MercadoPago_Registra_Cliente()
-    {
-        var handler = new StubHandler(HttpStatusCode.Created,
-            """{"id":"cus_123","card":{"last_four_digits":"4242","payment_method":{"id":"visa"}}}""");
-
-        var gateway = NewMercadoPago(handler);
-
-        var customer = await gateway.RegisterCustomerAsync(TenantId, "a@b.com", "card-token");
-
-        Assert.Equal("cus_123", customer.CustomerId);
-        Assert.Equal("4242", customer.CardLastFour);
-        Assert.Equal("visa", customer.CardBrand);
-    }
-
-    [Fact]
-    public async Task MercadoPago_Cria_Assinatura()
-    {
-        var handler = new StubHandler(HttpStatusCode.Created,
-            """{"id":"pre_123","status":"authorized"}""");
-
-        var gateway = NewMercadoPago(handler);
-
-        var subscription = await gateway.CreateSubscriptionAsync(
-            "cus_123", Money.From(99m), "idem-1");
-
-        Assert.Equal("pre_123", subscription.SubscriptionId);
-        Assert.Equal(GatewaySubscriptionStatus.Active, subscription.Status);
-    }
-
-    [Fact]
-    public async Task MercadoPago_Envia_Chave_De_Idempotencia()
-    {
-        var handler = new StubHandler(HttpStatusCode.Created,
-            """{"id":"pay_1","status":"approved"}""");
-
-        var gateway = NewMercadoPago(handler);
-
-        await gateway.CreateChargeAsync("cus_123", Money.From(50m), "Cobrança", "idem-abc");
-
-        Assert.Contains("idem-abc", handler.LastRequestHeaders);
-    }
-
-    [Fact]
-    public async Task MercadoPago_Propaga_Erro_Do_Gateway()
-    {
-        var handler = new StubHandler(HttpStatusCode.BadRequest, """{"message":"cartão inválido"}""");
-
-        var gateway = NewMercadoPago(handler);
-
-        await Assert.ThrowsAsync<DomainRuleException>(() =>
-            gateway.RegisterCustomerAsync(TenantId, "a@b.com", "token"));
-    }
-
-    [Fact]
     public void MercadoPago_Sem_Token_Lanca_Excecao()
     {
         Assert.Throws<InvalidOperationException>(() =>
             new MercadoPagoGateway(new HttpClient(new StubHandler(HttpStatusCode.OK, "{}")),
-                new MercadoPagoOptions()));
+                new MercadoPagoOptions(), NullLogger<MercadoPagoGateway>.Instance));
     }
 
     [Fact]
@@ -96,6 +42,53 @@ public class ProviderTests
         var result = await gateway.FindAsync("sub_123", default);
         Assert.Equal("authorized", result.Status);
         Assert.Equal(99m, result.Amount);
+    }
+
+    [Fact]
+    public async Task MercadoPago_Preserva_RetryAfter_Sem_Ler_Corpo_De_Erro()
+    {
+        var gateway = NewMercadoPago(new RateLimitedMercadoPagoHandler());
+
+        var error = await Assert.ThrowsAsync<RecurringCheckoutGatewayException>(() =>
+            gateway.SearchByCorrelationAsync("payer@example.invalid", null, "reference", default));
+
+        Assert.True(error.RateLimited);
+        Assert.False(error.Rejected);
+        Assert.Equal(TimeSpan.FromSeconds(45), error.RetryAfter);
+        Assert.Null(error.InnerException);
+    }
+
+    [Fact]
+    public async Task MercadoPago_Resposta_Invalida_Eh_Convertida_Em_Erro_Controlado()
+    {
+        var gateway = NewMercadoPago(new StubHandler(HttpStatusCode.OK, """{"id":["sensitive-response-marker"]}"""));
+
+        var error = await Assert.ThrowsAsync<RecurringCheckoutGatewayException>(() => gateway.FindAsync("sub_123", default));
+
+        Assert.Equal("Não foi possível confirmar o resultado da operação no provedor de pagamento.", error.Message);
+        Assert.Null(error.InnerException);
+    }
+
+    private sealed class RateLimitedMercadoPagoHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromResult(new HttpResponseMessage(HttpStatusCode.TooManyRequests)
+            {
+                Headers = { RetryAfter = new(TimeSpan.FromSeconds(45)) },
+                Content = new UnreadableErrorContent()
+            });
+    }
+
+    private sealed class UnreadableErrorContent : HttpContent
+    {
+        protected override Task SerializeToStreamAsync(Stream stream, TransportContext? context) =>
+            throw new InvalidOperationException("O cliente tentou ler o corpo de erro.");
+
+        protected override bool TryComputeLength(out long length)
+        {
+            length = 0;
+            return false;
+        }
     }
 
     // ---------- F12.2: Meta WhatsApp ----------
@@ -244,8 +237,8 @@ public class ProviderTests
     // ---------- Auxiliares ----------
 
     private static MercadoPagoGateway NewMercadoPago(HttpMessageHandler handler) =>
-        new(new HttpClient(handler), new MercadoPagoOptions { AccessToken = "token-teste" },
-            new RetryPolicy(maxAttempts: 1));
+        new(new HttpClient(handler), new MercadoPagoOptions { AccessToken = "fixture-value" },
+            NullLogger<MercadoPagoGateway>.Instance);
 
     private static MetaWhatsAppProvider NewWhatsApp(HttpMessageHandler handler) =>
         new(new HttpClient(handler),

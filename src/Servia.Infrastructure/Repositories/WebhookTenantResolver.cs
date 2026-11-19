@@ -5,11 +5,7 @@ using Servia.Infrastructure.Persistence;
 namespace Servia.Infrastructure.Repositories;
 
 /// <summary>
-/// Resolve o tenant de um webhook (F17).
-///
-/// O provedor não conhece o tenant. Ele é descoberto pelo identificador
-/// que o próprio Servia registrou ao criar a cobrança ou a conversa —
-/// nunca por um header que o cliente controla.
+/// Resolve o tenant de um webhook de mensagens pelo telefone da conversa.
 ///
 /// As consultas usam `IgnoreQueryFilters` porque o webhook chega sem
 /// contexto de tenant: é justamente a busca que o descobre. O resultado
@@ -17,24 +13,6 @@ namespace Servia.Infrastructure.Repositories;
 /// </summary>
 public sealed class WebhookTenantResolver(AppDbContext context) : IWebhookTenantResolver
 {
-    public async Task<Guid?> ResolveByPaymentAsync(
-        string gatewayPaymentId,
-        CancellationToken cancellationToken = default)
-    {
-        if (string.IsNullOrWhiteSpace(gatewayPaymentId))
-        {
-            return null;
-        }
-
-        var tenantId = await context.PlatformInvoices
-            .IgnoreQueryFilters()
-            .Where(invoice => invoice.GatewayPaymentId == gatewayPaymentId && invoice.RecurringDueAtUtc == null)
-            .Select(invoice => (Guid?)invoice.TenantId)
-            .SingleOrDefaultAsync(cancellationToken);
-
-        return tenantId;
-    }
-
     public async Task<Guid?> ResolveByPhoneNumberAsync(
         string phoneNumber,
         CancellationToken cancellationToken = default)

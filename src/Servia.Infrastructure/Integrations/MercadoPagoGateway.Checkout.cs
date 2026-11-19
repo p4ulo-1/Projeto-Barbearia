@@ -1,8 +1,10 @@
 using System.Globalization;
 using System.Net;
 using System.Net.Http.Json;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Microsoft.Extensions.Logging;
 using Servia.Domain.Billing;
 using Servia.Domain.Common;
 
@@ -21,6 +23,7 @@ public sealed partial class MercadoPagoGateway
     {
         if (!_trialPlanIds.TryGetValue(planCode, out var id) || string.IsNullOrWhiteSpace(id))
         {
+            _logger.LogWarning("Mercado Pago: plano de trial sem associação local.");
             throw new RecurringCheckoutGatewayException();
         }
         using var request = new HttpRequestMessage(HttpMethod.Get, $"/preapproval_plan/{Uri.EscapeDataString(id)}");
@@ -32,6 +35,7 @@ public sealed partial class MercadoPagoGateway
                 BillingDayProportional: null or false, Repetitions: null or 0 } recurring
             || recurring.TransactionAmount != amount.Amount || recurring.CurrencyId != amount.Currency)
         {
+            _logger.LogWarning("Mercado Pago: plano remoto não atende aos requisitos do trial.");
             throw new RecurringCheckoutGatewayException();
         }
         return id;
@@ -266,15 +270,18 @@ public sealed partial class MercadoPagoGateway
             : new(DueAt: debit, InvoiceAmount: amount.Amount, Currency: amount.Currency);
     }
 
-    private async Task<T> SendCheckoutAsync<T>(HttpRequestMessage request, CancellationToken cancellationToken)
+    private async Task<T> SendCheckoutAsync<T>(HttpRequestMessage request, CancellationToken cancellationToken,
+        [CallerMemberName] string operation = "")
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(10));
         try
         {
-            using var response = await _httpClient.SendAsync(request, timeout.Token);
+            using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
             if (!response.IsSuccessStatusCode)
             {
+                _logger.LogWarning("Mercado Pago: operação {Operation} retornou HTTP {StatusCode}.",
+                    operation, (int)response.StatusCode);
                 // 400 documenta recusa da requisição de criação. Falhas de transporte,
                 // timeouts, conflitos e outros resultados não liberam uma nova criação.
                 var retry = response.Headers.RetryAfter;
@@ -283,13 +290,17 @@ public sealed partial class MercadoPagoGateway
                     response.StatusCode == HttpStatusCode.TooManyRequests,
                     retry?.Delta ?? (retry?.Date - DateTimeOffset.UtcNow));
             }
-            return await response.Content.ReadFromJsonAsync<T>(CheckoutJson, timeout.Token)
-                ?? throw new RecurringCheckoutGatewayException();
+            // JSON de API usa UTF-8. O corpo e os cabeçalhos da resposta não entram no diagnóstico.
+            using var body = await response.Content.ReadAsStreamAsync(timeout.Token);
+            return await JsonSerializer.DeserializeAsync<T>(body, CheckoutJson, timeout.Token)
+                ?? throw new JsonException();
         }
         catch (Exception exception) when (exception is HttpRequestException or JsonException
             or NotSupportedException or IOException
             || exception is OperationCanceledException && !cancellationToken.IsCancellationRequested)
         {
+            _logger.LogWarning("Mercado Pago: operação {Operation} sem resposta utilizável ({FailureType}).",
+                operation, exception.GetType().Name);
             throw new RecurringCheckoutGatewayException();
         }
     }
@@ -306,7 +317,7 @@ public sealed partial class MercadoPagoGateway
     private static DateTimeOffset? AtDatabasePrecision(DateTimeOffset? instant) => instant is { UtcTicks: var ticks }
         ? new DateTimeOffset(ticks - ticks % 10, TimeSpan.Zero) : null;
 
-    private static bool IsExternalId(string? id) => id is { Length: > 0 and <= 100 }
+    internal static bool IsExternalId(string? id) => id is { Length: > 0 and <= 100 }
         && id.All(character => char.IsAsciiLetterOrDigit(character) || character is '_' or '-');
 
     private sealed record PreapprovalSearch(InvoicePaging? Paging, PreapprovalSearchItem[]? Results);

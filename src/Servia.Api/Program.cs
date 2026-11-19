@@ -181,7 +181,7 @@ builder.Services.AddHostedService<JobHostedService>();
 // rejeita tudo — falhar fechado em fronteira de confianca.
 builder.Services.AddSingleton<IWebhookSignatureValidator>(provider =>
     new WebhookSignatureValidator(
-        provider.GetService<MercadoPagoOptions>() ?? new MercadoPagoOptions(),
+        provider.GetRequiredService<MercadoPagoOptions>(),
         provider.GetService<MetaWhatsAppOptions>() ?? new MetaWhatsAppOptions()));
 
 // Preserva os nomes de claim originais (tenant_id, role) em vez de
@@ -227,14 +227,15 @@ builder.Services.AddSingleton<IIdempotencyStore, InMemoryIdempotencyStore>();
 // Os provedores so sao registrados quando configurados. Sem credencial,
 // a aplicacao sobe e o endpoint responde 503 ao tentar usar o recurso,
 // em vez de falhar na inicializacao inteira.
-var mercadoPagoOptions = builder.Configuration.GetSection("MercadoPago").Get<MercadoPagoOptions>();
+var mercadoPagoOptions = builder.Configuration.GetSection("MercadoPago").Get<MercadoPagoOptions>() ?? new();
+mercadoPagoOptions.Validate();
 var metaOptions = builder.Configuration.GetSection("MetaWhatsApp").Get<MetaWhatsAppOptions>();
 var aiOptions = builder.Configuration.GetSection("Ai").Get<AiOptions>();
 
-builder.Services.AddSingleton(mercadoPagoOptions ?? new MercadoPagoOptions());
-if (!string.IsNullOrWhiteSpace(mercadoPagoOptions?.AccessToken))
+builder.Services.AddSingleton(mercadoPagoOptions);
+if (mercadoPagoOptions.HasAccessToken)
 {
-    builder.Services.AddHttpClient<IPaymentGateway, MercadoPagoGateway>();
+    // Os logs padrão incluem a URL, que pode conter e-mails e IDs financeiros.
     builder.Services.AddHttpClient<IRecurringCheckoutGateway, MercadoPagoGateway>()
         .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false })
         .RemoveAllLoggers();

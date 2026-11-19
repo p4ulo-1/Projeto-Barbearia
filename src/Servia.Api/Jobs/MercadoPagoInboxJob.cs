@@ -1,6 +1,5 @@
 using Servia.Application.Billing;
 using Servia.Application.Jobs;
-using Servia.Application.Webhooks;
 using Servia.Domain.Billing;
 using Servia.Domain.Operations;
 using Servia.Domain.Tenancy;
@@ -86,7 +85,7 @@ public sealed class MercadoPagoInboxJob(
                 return await planChanges.SynchronizeAsync(change.TenantId, change.SubscriptionId, cancellationToken,
                     propagateGatewayError: true) ? "UnconfirmedPayment" : "Current";
             }
-            return await ProcessLegacyPaymentAsync(item, payment, services, tenantContext, cancellationToken);
+            return "UnlinkedResource";
         }
 
         var authorization = await gateway.FindAsync(externalId, cancellationToken);
@@ -116,23 +115,5 @@ public sealed class MercadoPagoInboxJob(
                 or "AwaitingExternalConfirmation" => "UnconfirmedPayment",
             _ => state
         };
-    }
-
-    private static async Task<string> ProcessLegacyPaymentAsync(MercadoPagoNotification item,
-        RecurringNotificationPayment? payment, IServiceProvider services, ITenantContext tenantContext,
-        CancellationToken cancellationToken)
-    {
-        var tenant = await services.GetRequiredService<IWebhookTenantResolver>()
-            .ResolveByPaymentAsync(item.ResourceId, cancellationToken);
-        if (tenant is null) return "UnlinkedResource";
-        if (payment?.PaymentStatus is not ("approved" or "rejected")) return "PaymentPending";
-
-        tenantContext.SetTenant(tenant.Value);
-        var webhooks = services.GetRequiredService<WebhookService>();
-        var repository = services.GetRequiredService<ISubscriptionRepository>();
-        var result = await repository.ExecuteSerializableAsync(token => webhooks.HandlePaymentAsync(tenant.Value,
-            new PaymentWebhookEvent($"mp-inbox:{item.Id:N}", item.ResourceId, payment.PaymentStatus), token),
-            cancellationToken);
-        return result.Outcome.ToString();
     }
 }

@@ -1,5 +1,4 @@
 using Servia.Application.Webhooks;
-using Servia.Domain.Billing;
 using Servia.Domain.Common;
 using Servia.Domain.Messaging;
 using Servia.Domain.Operations;
@@ -22,86 +21,7 @@ public class WebhookServiceTests
 
     private WebhookService NewService() => new(_repository, new FixedTimeProvider(Now));
 
-    /// <summary>
-    /// Cria uma fatura pendente. O identificador do gateway e atribuido
-    /// pelo proprio dominio em MarkPaid; aqui o teste usa a fatura pelo
-    /// identificador que o repositorio conhece.
-    /// </summary>
-    private PlatformInvoice SeedInvoice(string gatewayPaymentId)
-    {
-        var invoice = PlatformInvoice.Create(
-            TenantId, Guid.NewGuid(), new DateOnly(2026, 11, 1), new DateOnly(2026, 11, 30),
-            new DateOnly(2026, 12, 10));
-
-        _repository.AddInvoice(invoice, gatewayPaymentId);
-
-        return invoice;
-    }
-
-    // ---------- F17.1: pagamento ----------
-
-    [Fact]
-    public async Task Pagamento_Aprovado_Confirma_A_Fatura()
-    {
-        var invoice = SeedInvoice("pay-123");
-
-        var result = await NewService().HandlePaymentAsync(
-            TenantId, new PaymentWebhookEvent("evt-1", "pay-123", "approved"));
-
-        Assert.Equal(WebhookOutcome.Processed, result.Outcome);
-        Assert.Equal(InvoiceStatus.Paid, invoice.Status);
-    }
-
-    [Fact]
-    public async Task Pagamento_Rejeitado_Marca_A_Fatura_Como_Falha()
-    {
-        var invoice = SeedInvoice("pay-456");
-
-        var result = await NewService().HandlePaymentAsync(
-            TenantId, new PaymentWebhookEvent("evt-2", "pay-456", "rejected"));
-
-        Assert.Equal(WebhookOutcome.Processed, result.Outcome);
-        Assert.Equal(InvoiceStatus.Failed, invoice.Status);
-    }
-
-    [Fact]
-    public async Task Pagamento_De_Fatura_Desconhecida_Eh_Ignorado()
-    {
-        var result = await NewService().HandlePaymentAsync(
-            TenantId, new PaymentWebhookEvent("evt-3", "pay-inexistente", "approved"));
-
-        Assert.Equal(WebhookOutcome.Ignored, result.Outcome);
-    }
-
-    [Fact]
-    public async Task Status_Intermediario_Nao_Altera_A_Fatura()
-    {
-        var invoice = SeedInvoice("pay-789");
-
-        var result = await NewService().HandlePaymentAsync(
-            TenantId, new PaymentWebhookEvent("evt-4", "pay-789", "pending"));
-
-        Assert.Equal(WebhookOutcome.Ignored, result.Outcome);
-        Assert.Equal(InvoiceStatus.Pending, invoice.Status);
-    }
-
     // ---------- F17.4: idempotencia ----------
-
-    [Fact]
-    public async Task Evento_Repetido_Nao_Processa_De_Novo()
-    {
-        SeedInvoice("pay-dup");
-        var service = NewService();
-
-        var first = await service.HandlePaymentAsync(
-            TenantId, new PaymentWebhookEvent("evt-dup", "pay-dup", "approved"));
-
-        var second = await service.HandlePaymentAsync(
-            TenantId, new PaymentWebhookEvent("evt-dup", "pay-dup", "approved"));
-
-        Assert.Equal(WebhookOutcome.Processed, first.Outcome);
-        Assert.Equal(WebhookOutcome.Duplicate, second.Outcome);
-    }
 
     [Fact]
     public async Task Evento_Repetido_Nao_Gera_Mensagem_Duplicada()
@@ -157,26 +77,6 @@ public class WebhookServiceTests
         Assert.Empty(_repository.Conversations);
     }
 
-    // ---------- F17.5: evento desconhecido ----------
-
-    [Fact]
-    public async Task Evento_Sem_Identificador_Eh_Rejeitado()
-    {
-        var result = await NewService().HandlePaymentAsync(
-            TenantId, new PaymentWebhookEvent("  ", "pay-1", "approved"));
-
-        Assert.Equal(WebhookOutcome.Rejected, result.Outcome);
-    }
-
-    [Fact]
-    public async Task Evento_Sem_Tenant_Eh_Rejeitado()
-    {
-        var result = await NewService().HandlePaymentAsync(
-            Guid.Empty, new PaymentWebhookEvent("evt-9", "pay-1", "approved"));
-
-        Assert.Equal(WebhookOutcome.Rejected, result.Outcome);
-    }
-
     // ---------- F17.4: entidade ----------
 
     [Fact]
@@ -200,18 +100,9 @@ public class WebhookServiceTests
 internal sealed class FakeWebhookRepository : IWebhookRepository
 {
     private readonly List<ProcessedEvent> _processed = [];
-    private readonly List<PlatformInvoice> _invoices = [];
     private readonly List<Conversation> _conversations = [];
 
     public IReadOnlyList<Conversation> Conversations => _conversations;
-
-    private readonly Dictionary<string, PlatformInvoice> _byGatewayId = [];
-
-    public void AddInvoice(PlatformInvoice invoice, string gatewayPaymentId)
-    {
-        _invoices.Add(invoice);
-        _byGatewayId[gatewayPaymentId] = invoice;
-    }
 
     public Task<bool> WasProcessedAsync(
         Guid tenantId, string eventId, string source, CancellationToken cancellationToken = default) =>
@@ -226,13 +117,6 @@ internal sealed class FakeWebhookRepository : IWebhookRepository
         _processed.Add(processedEvent);
         return Task.CompletedTask;
     }
-
-    public Task<PlatformInvoice?> FindInvoiceByGatewayIdAsync(
-        Guid tenantId, string gatewayPaymentId, CancellationToken cancellationToken = default) =>
-        Task.FromResult(_byGatewayId.TryGetValue(gatewayPaymentId, out var invoice)
-            && invoice.TenantId == tenantId
-                ? invoice
-                : null);
 
     public Task<Conversation?> FindOpenConversationAsync(
         Guid tenantId, string phoneNumber, CancellationToken cancellationToken = default) =>

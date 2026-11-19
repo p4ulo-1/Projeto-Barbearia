@@ -9,9 +9,11 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Servia.Api.Contracts;
 using Servia.Api.Controllers;
 using Servia.Api.Jobs;
+using Servia.Application.Billing;
 using Servia.Application.Jobs;
 using Servia.Domain.Appointments;
 using Servia.Domain.Billing;
@@ -36,6 +38,50 @@ public sealed class SubscriptionCheckoutIntegrationTests(CheckoutApiFactory fact
     private const string Password = "SenhaCheckout123!";
     private const string Billing = "/api/v1/billing/subscription";
     private const string Webhook = "/api/v1/webhooks/mercadopago";
+
+    [Fact]
+    public async Task MercadoPago_Erros_Preservam_Resposta_Publica_E_Diagnostico_Sem_Dados_Sensiveis()
+    {
+        using var tenant = await SignUpAsync();
+        await using var scope = factory.Services.CreateAsyncScope();
+        var services = scope.ServiceProvider;
+        Assert.IsType<MercadoPagoGateway>(Assert.Single(services.GetServices<IRecurringCheckoutGateway>()));
+        Assert.True(services.GetRequiredService<SubscriptionCheckoutService>().CanStartCheckout);
+        Assert.NotNull(services.GetRequiredService<SubscriptionLifecycleService>());
+        Assert.NotNull(services.GetRequiredService<SubscriptionPlanChangeService>());
+        var jobs = services.GetServices<IScheduledJob>();
+        Assert.Single(jobs.OfType<MercadoPagoInboxJob>());
+        Assert.Single(jobs.OfType<SubscriptionReconciliationJob>());
+
+        var request = new StartCheckoutRequest(Guid.NewGuid(), "PRO", "opaque-test-token");
+        factory.MercadoPagoLog.Clear();
+        factory.Stub.Reset("plan-error");
+        using var plan = await tenant.Client.PostAsJsonAsync(Checkout, request);
+        Assert.Equal(HttpStatusCode.BadRequest, plan.StatusCode);
+        Assert.Equal("O plano de trial não está disponível para autorização.",
+            (await plan.Content.ReadFromJsonAsync<ErrorResponse>())!.Message);
+        Assert.Equal(0, factory.Stub.Posts);
+
+        factory.Stub.Reset("refused");
+        using var refused = await tenant.Client.PostAsJsonAsync(Checkout, request);
+        Assert.Equal(HttpStatusCode.OK, refused.StatusCode);
+        Assert.Equal("Failed", (await refused.Content.ReadFromJsonAsync<CheckoutResponse>())!.State);
+        Assert.Equal(1, factory.Stub.Posts);
+
+        var logs = factory.MercadoPagoLog.Messages.ToArray();
+        Assert.Contains(logs, message => message.Contains("VerifyTrialPlanAsync") && message.Contains("502"));
+        Assert.Contains(logs, message => message.Contains("CreateAsync") && message.Contains("400"));
+        Assert.DoesNotContain(logs, message => message.Contains("System.Net.Http.HttpClient"));
+        var output = string.Join('\n', logs.Concat([
+            await plan.Content.ReadAsStringAsync(), await refused.Content.ReadAsStringAsync(),
+            plan.Headers.ToString(), refused.Headers.ToString()
+        ]));
+        foreach (var value in new[] { "provider-body-marker", "provider-header-marker", "X-Provider-Detail",
+            "opaque-test-token", "fixture-value", "provider-payment-id", "example.invalid", "trial_pro", "Authorization" })
+        {
+            Assert.DoesNotContain(value, output, StringComparison.OrdinalIgnoreCase);
+        }
+    }
 
     [Fact]
     public async Task Consulta_Atual_Recupera_Tentativa_Pendente_Somente_Do_Proprio_Tenant()
@@ -895,32 +941,60 @@ public sealed class CheckoutApiFactory : IsolatedApiFactory
 {
     internal const string WebhookSecret = "isolated-webhook-fixture-key";
     public CheckoutProviderStub Stub { get; } = new();
+    internal CheckoutLogProvider MercadoPagoLog { get; } = new();
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         base.ConfigureWebHost(builder);
+        builder.UseSetting("MercadoPago:AccessToken", "fixture-value");
         builder.UseSetting("MercadoPago:WebhookSecret", WebhookSecret);
+        builder.UseSetting("MercadoPago:ReturnUrl", "https://servia.example/checkout-return");
+        builder.UseSetting("MercadoPago:TrialPlanIds:PRO", "trial_pro");
+        builder.ConfigureLogging(logging =>
+        {
+            logging.AddProvider(MercadoPagoLog);
+            logging.AddFilter<CheckoutLogProvider>(null, LogLevel.Trace);
+        });
         builder.ConfigureServices(services =>
         {
             services.RemoveAll<IHostedService>();
-            services.RemoveAll<IRecurringCheckoutGateway>();
             services.RemoveAll<ISignupThrottle>();
             services.RemoveAll<TimeProvider>();
             services.AddSingleton<TimeProvider>(new CheckoutClock(Stub));
             services.AddSingleton<ISignupThrottle, UnlimitedSignupThrottle>();
-            services.AddScoped<IRecurringCheckoutGateway>(_ =>
-                new MercadoPagoGateway(new HttpClient(Stub, disposeHandler: false), new MercadoPagoOptions
-                {
-                    AccessToken = "fake-token",
-                    ReturnUrl = "https://servia.example/checkout-return",
-                    TrialPlanIds = new() { ["PRO"] = "trial_pro" }
-                }));
+            services.AddHttpClient(nameof(IRecurringCheckoutGateway))
+                .ConfigurePrimaryHttpMessageHandler(() => Stub)
+                .SetHandlerLifetime(Timeout.InfiniteTimeSpan);
         });
     }
 
     private sealed class CheckoutClock(CheckoutProviderStub stub) : TimeProvider
     {
         public override DateTimeOffset GetUtcNow() => stub.Instant;
+    }
+}
+
+internal sealed class CheckoutLogProvider : ILoggerProvider
+{
+    public System.Collections.Concurrent.ConcurrentQueue<string> Messages { get; } = new();
+
+    public ILogger CreateLogger(string categoryName) => new CheckoutLogger(this, categoryName);
+    public void Clear() => Messages.Clear();
+    public void Dispose() { }
+
+    private sealed class CheckoutLogger(CheckoutLogProvider provider, string category) : ILogger
+    {
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => category == typeof(MercadoPagoGateway).FullName
+            || category.StartsWith("System.Net.Http.HttpClient." + nameof(IRecurringCheckoutGateway), StringComparison.Ordinal);
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            if (IsEnabled(logLevel))
+                provider.Messages.Enqueue($"{category} {formatter(state, exception)} {exception}");
+        }
     }
 }
 
@@ -1007,6 +1081,7 @@ public sealed class CheckoutProviderStub : HttpMessageHandler
         Assert.Equal("Bearer", request.Headers.Authorization?.Scheme);
         if (uri.AbsolutePath == "/preapproval_plan/trial_pro")
         {
+            if (Outcome == "plan-error") return SensitiveError(HttpStatusCode.BadGateway);
             return Reply(HttpStatusCode.OK, new
             {
                 id = "trial_pro", status = "active",
@@ -1089,7 +1164,7 @@ public sealed class CheckoutProviderStub : HttpMessageHandler
                 await release.Task.WaitAsync(cancellationToken);
             }
             if (Outcome == "timeout") throw new TaskCanceledException();
-            if (Outcome == "refused") return Reply(HttpStatusCode.BadRequest, new { message = "refused" });
+            if (Outcome == "refused") return SensitiveError(HttpStatusCode.BadRequest);
             if (Outcome == "ambiguous") return Reply(HttpStatusCode.Created, new { id });
             return Authorization(id, trialPlan is null ? "pending" : "authorized", HttpStatusCode.Created);
         }
@@ -1173,6 +1248,13 @@ public sealed class CheckoutProviderStub : HttpMessageHandler
             auto_recurring = new { currency_id = "BRL", frequency = 1, frequency_type = "months",
                 transaction_amount = NewRecurringAmount ?? attempt.Amount }
         });
+    }
+
+    private static HttpResponseMessage SensitiveError(HttpStatusCode status)
+    {
+        var response = Reply(status, new { message = "provider-body-marker", payment_id = "provider-payment-id" });
+        response.Headers.Add("X-Provider-Detail", "provider-header-marker");
+        return response;
     }
 
     private static HttpResponseMessage Reply(HttpStatusCode status, object body) =>

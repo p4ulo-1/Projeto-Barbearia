@@ -1,5 +1,4 @@
 using Microsoft.EntityFrameworkCore;
-using Servia.Domain.Billing;
 using Servia.Domain.Messaging;
 using Servia.Domain.Operations;
 using Servia.Infrastructure.Persistence;
@@ -35,17 +34,6 @@ public sealed class WebhookRepository(AppDbContext context) : IWebhookRepository
 
         await context.ProcessedEvents.AddAsync(processedEvent, cancellationToken);
     }
-
-    public Task<PlatformInvoice?> FindInvoiceByGatewayIdAsync(
-        Guid tenantId,
-        string gatewayPaymentId,
-        CancellationToken cancellationToken = default) =>
-        context.PlatformInvoices
-            .FirstOrDefaultAsync(
-                invoice => invoice.TenantId == tenantId
-                           && invoice.RecurringDueAtUtc == null
-                           && invoice.GatewayPaymentId == gatewayPaymentId,
-                cancellationToken);
 
     public Task<Conversation?> FindOpenConversationAsync(
         Guid tenantId,
