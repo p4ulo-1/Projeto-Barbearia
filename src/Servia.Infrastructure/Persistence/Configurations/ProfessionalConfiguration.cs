@@ -10,7 +10,7 @@ namespace Servia.Infrastructure.Persistence.Configurations;
 /// A jornada é <b>composição</b>: mapeada como <i>owned type</i>, sem tabela
 /// própria. As colunas da jornada vivem na tabela <c>Professionals</c>, o que
 /// reflete a decisão de modelagem de que a jornada não existe sem o
-/// profissional (ver docs/av2/modelo-de-classes.md §3).
+/// profissional (ver docs/arquitetura/classes.md §2.4).
 /// </summary>
 internal sealed class ProfessionalConfiguration : IEntityTypeConfiguration<Professional>
 {

@@ -7,7 +7,7 @@ namespace Servia.Tests.Api;
 
 /// <summary>
 /// Verifica o tratamento central de exceções pela API.
-/// Cobre os critérios S1-CA, S2-CA e S3-CA (docs/av2/especificacao.md §5).
+/// Cobre os critérios S1-CA, S2-CA e S3-CA (docs/arquitetura/classes.md §12).
 ///
 /// Os testes exercitam o pipeline real, com o middleware registrado, e não
 /// apenas a classe isolada.

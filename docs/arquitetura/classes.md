@@ -1670,6 +1670,55 @@ A regra não é global — depende do segmento. Foi introduzida a política `IOv
 | Booleano `AllowsOvernight` no agendamento | A variação é de comportamento, não de dado; exigiria condicionais no núcleo |
 | Validar apenas em `Appointment.Create` | Remédio local, sem contrato explícito nem testabilidade isolada |
 
+### Técnica de depuração utilizada (E04)
+
+> **Nota de honestidade histórica.** Não há registro de sessão de depuração interativa (breakpoint, passo a passo) preservado no repositório. O que existe e é verificável é o **teste de reprodução** (`DefectReproTests`) e a **análise estática do código**. A investigação abaixo foi **executada nesta auditoria** e é reproduzível.
+
+**Técnica efetivamente aplicada: reprodução por teste automatizado + análise estática do código.**
+
+| Etapa | Procedimento | Observação obtida |
+| --- | --- | --- |
+| 1. Reprodução | Executar `dotnet test --filter FullyQualifiedName~DefectReproTests` | 7 testes, 7 aprovados — o comportamento atual é o corrigido |
+| 2. Análise estática | Ler `TimeRange.From` | `EndMinutes = startMinutes + durationMinutes`, sem limite de 1440 |
+| 3. Cálculo do defeito | `23:50` + `60 min` → `StartMinutes=1430`, `EndMinutes=1490` | `1490 > 1440`: o intervalo ultrapassa o fim do dia |
+| 4. Conversão | `TimeOnly.FromTimeSpan(1490 min)` | Resulta em `00:50` — hora do dia seguinte, mas o agendamento pertence à data anterior |
+| 5. Localização da causa | `TimeRange` não impõe a invariante "intervalo dentro de um dia" | A causa é a ausência da validação, não a linha de cálculo |
+
+**Evidência reproduzível (executada em 2026-11-19):**
+
+```text
+$ dotnet test --filter "FullyQualifiedName~DefectReproTests"
+Passed  DEF002_Sem_Politica_Rejeita_Atendimento_Que_Ultrapassa_Meia_Noite
+Passed  DEF002_NoOvernightPolicy_Rejeita_Atendimento_Que_Ultrapassa_Meia_Noite
+Passed  DEF002_NoOvernightPolicy_Aceita_Atendimento_Que_Termina_Na_Meia_Noite
+Passed  DEF002_AllowOvernightPolicy_Aceita_Atendimento_Que_Ultrapassa_Meia_Noite
+Passed  DEF002_AllowOvernightPolicy_Rejeita_Sessao_Acima_Do_Limite
+Passed  DEF002_Atendimento_Diurno_Continua_Aceito_Em_Ambas_As_Politicas
+Passed  DEF002_Politicas_Divergem_Para_A_Mesma_Entrada
+Total: 7 · Passed: 7 · Failed: 0
+```
+
+**Limitação registrada:** não foi possível comprovar o uso de breakpoint ou inspeção de variáveis em sessão interativa durante a correção original, pois não há artefato histórico dessa sessão. A técnica comprovável é a reprodução por teste e a análise estática.
+
+### Comparação de técnicas de depuração (E06)
+
+| Critério | Reprodução por teste automatizado (utilizada) | Breakpoint com execução passo a passo (alternativa) |
+| --- | --- | --- |
+| **Como localiza a causa** | Fixa a entrada e observa o resultado; a asserção aponta a divergência | Interrompe a execução e inspeciona o estado em cada linha |
+| **Vantagem** | Reproduzível, versionada, roda em CI, serve de regressão permanente | Mostra o estado real em cada passo; útil para fluxos com muitas ramificações |
+| **Limitação** | Não mostra o estado intermediário; exige hipótese prévia sobre a entrada | Não deixa artefato permanente; depende de ambiente interativo; não previne regressão |
+| **Adequação ao DEF-002** | **Alta** — o defeito é aritmético e determinístico; uma entrada fixa (`23:50` + `60`) expõe o erro e a correção | Média — mostraria `EndMinutes=1490` na linha, mas não impediria o retorno do defeito |
+
+**Conclusão da comparação:** para um defeito determinístico de cálculo, a reprodução por teste é mais adequada porque **permanece como barreira de regressão**. O breakpoint seria útil para defeitos de estado em fluxos longos, onde a causa não é previsível pela entrada.
+
+**Verificação antes/depois:**
+
+| Momento | Evidência | Natureza |
+| --- | --- | --- |
+| **Antes** (comportamento defeituoso) | `EndMinutes = 1490` sem rejeição — cálculo reproduzido nesta auditoria | Verificação atual (aritmética do código) |
+| **Depois** (comportamento corrigido) | `NoOvernightPolicy.EnsureAllowed` lança `DomainRuleException`; 7 testes aprovados | Verificação atual (execução dos testes) |
+| **Histórico** | Commit da correção e `DefectReproTests` no repositório | Evidência histórica (código versionado) |
+
 ---
 
 ## 10. Revisão de código: endpoint de criação de agendamento
@@ -1708,7 +1757,188 @@ A regra não é global — depende do segmento. Foi introduzida a política `IOv
 
 ---
 
-## 11. Referências
+## 12. Tratamento de exceções na API
+
+> **Origem:** documentação do critério D01 (controle de exceções). Descreve exclusivamente o comportamento implementado em `src/Servia.Api/Middleware/ExceptionHandlingMiddleware.cs`, `src/Servia.Api/Contracts/ErrorResponse.cs` e `src/Servia.Api/Controllers/DiagnosticsController.cs`.
+
+O tratamento é **centralizado em um único middleware**. Nenhum controller repete `try/catch`: cada um lança a exceção de domínio e o middleware a traduz em resposta HTTP. O contrato de erro é sempre `ErrorResponse` (`Message`, `TraceId?`), serializado como `application/json`.
+
+### 12.1. Visão geral das três naturezas
+
+| Situação | Exceção | Status | Mensagem ao cliente | `TraceId` |
+| --- | --- | --- | --- | --- |
+| **S1** — violação de regra de domínio | `DomainRuleException` | `400` | Vem do domínio, segura para o usuário | Ausente |
+| **S2** — recurso não encontrado | `NotFoundException` | `404` | Genérica: `"Recurso não encontrado."` | Ausente |
+| **S3** — falha inesperada | Qualquer outra exceção | `500` | Genérica: `"Ocorreu um erro inesperado. Informe o identificador ao suporte."` | **Presente** |
+
+O middleware também trata `ConcurrencyConflictException` → `409` e `BillingAccessDeniedException` → `403`, e ignora `OperationCanceledException` quando o cliente abortou a requisição (não é falha do servidor).
+
+### 12.2. S1 — Violação de regra de domínio
+
+| Aspecto | Descrição |
+| --- | --- |
+| **Condição** | Uma regra de negócio é violada — por exemplo, concluir atendimento futuro (`Appointment.Complete`), jornada com início posterior ao fim (`WorkSchedule.Create`) ou horário indisponível |
+| **Componente responsável** | A entidade de domínio que protege a invariante, lançando `DomainRuleException` |
+| **Propagação** | Entidade → caso de uso (`AppointmentService`) → controller → `ExceptionHandlingMiddleware.InvokeAsync` |
+| **Tratamento** | `catch (DomainRuleException)` → `ErrorResponse.FromRuleViolation(exception.Message)` |
+| **Resposta** | HTTP `400` com a mensagem de negócio; sem `TraceId` |
+| **Teste** | `ExceptionHandlingTests.RegraDeNegocio_Retorna_400` e `RegraDeNegocio_Nao_Expoe_Detalhe_Interno` |
+
+### 12.3. S2 — Recurso não encontrado
+
+| Aspecto | Descrição |
+| --- | --- |
+| **Condição** | O recurso solicitado não existe no tenant corrente — por exemplo, agendamento inexistente ao remarcar |
+| **Componente responsável** | O repositório ou caso de uso, lançando `NotFoundException.For(tipo, chave)` |
+| **Propagação** | Repositório → caso de uso → controller → `ExceptionHandlingMiddleware.InvokeAsync` |
+| **Tratamento** | `catch (NotFoundException)` → registra `LogInformation` com o detalhe → `ErrorResponse.FromNotFound()` |
+| **Resposta** | HTTP `404` com mensagem genérica; o identificador consultado **não** é revelado |
+| **Teste** | `ExceptionHandlingTests.RecursoInexistente_Retorna_404` e `RecursoInexistente_Nao_Expoe_Identificador_Interno` |
+
+### 12.4. S3 — Falha inesperada
+
+| Aspecto | Descrição |
+| --- | --- |
+| **Condição** | Qualquer exceção não prevista — falha de infraestrutura, `InvalidOperationException`, erro de serialização |
+| **Componente responsável** | `ExceptionHandlingMiddleware` (último `catch`) |
+| **Propagação** | Qualquer ponto do pipeline → `catch (Exception)` |
+| **Tratamento** | `logger.LogError(exception, ...)` com stack trace completo; `TraceId` obtido de `Activity.Current?.Id ?? context.TraceIdentifier` |
+| **Resposta** | HTTP `500` com `ErrorResponse.FromUnexpected(traceId)`; **nenhum** detalhe interno (tipo, stack trace, caminho de arquivo, connection string) é exposto |
+| **Teste** | `ExceptionHandlingTests.FalhaInesperada_Retorna_500_Sem_Vazar_Detalhe` e `FalhaInesperada_Retorna_TraceId_Para_Correlacao` |
+
+### 12.5. Reprodução controlada
+
+O `DiagnosticsController` expõe três endpoints que lançam cada situação de forma determinística, restritos ao ambiente de desenvolvimento (`EnsureDevelopment()` responde `404` fora dele):
+
+| Endpoint | Lança | Status esperado |
+| --- | --- | --- |
+| `GET /api/diagnostics/rule-violation` | `DomainRuleException` | `400` |
+| `GET /api/diagnostics/not-found` | `NotFoundException.For("Agendamento", Guid.Empty)` | `404` |
+| `GET /api/diagnostics/unexpected` | `InvalidOperationException` | `500` |
+
+### 12.6. Proteção contra exposição de detalhes
+
+`ErrorResponse` é o **único** formato de erro exposto. Os testes verificam que a resposta nunca contém `DomainRuleException`, `InvalidOperationException`, `at Servia`, `.cs` ou a connection string usada na falha simulada. Em S2, o detalhe fica no log do servidor; em S3, o cliente recebe apenas o `TraceId` para correlação com o log.
+
+---
+
+## 13. Especificação verificável dos fluxos e regras (G01)
+
+> **Origem:** critério G01 — especificação verificável dos três fluxos e das cinco regras. Reaproveita R1–R6 da §7. Cada critério de aceitação aponta para implementação e teste existentes. **Nenhuma regra foi alterada para se adequar à documentação.**
+
+### 13.1. Os três fluxos funcionais
+
+| Fluxo | Descrição | Implementação | Testes de integração |
+| --- | --- | --- | --- |
+| **F1 — Criação de agendamento (canal interno)** | A equipe cria um agendamento pela agenda interna; a duração vem do serviço | `AgendaController.CreateAsync` → `AppointmentService.CreateAsync` → `AvailabilityService.EvaluateAsync` | `BusinessApiTests`, `AppointmentsEndpointTests` |
+| **F2 — Remarcação de agendamento** | O agendamento muda de data/hora preservando a duração original | `AgendaController.RescheduleAsync` → `AppointmentService.RescheduleAsync` | `AppointmentServiceTests.Remarcar_*`, `AppointmentConcurrencyTests` |
+| **F3 — Reserva pública** | Visitante reserva pelo site publicado, sem sessão, com as mesmas regras do canal interno | `PublicSiteController.BookAsync` → `AppointmentService.CreateAsync` | `PublicSiteIntegrationTests`, `PublicBookingThrottleIntegrationTests` |
+
+### 13.2. Pré-condições e critérios de aceitação por fluxo
+
+| Fluxo | Pré-condições | Resultado observável | Critério de aceitação | Estado |
+| --- | --- | --- | --- | --- |
+| **F1** | Profissional ativo, serviço ativo, vínculo profissional–serviço, jornada configurada | `201` com agendamento persistido; horário removido da disponibilidade | `AppointmentServiceTests.Criar_Aceita_Horario_Livre` | ✅ Comprovado |
+| **F1** | Horário já ocupado | `409`; nenhum agendamento criado | `AppointmentServiceTests.Criar_Rejeita_Sobreposicao_De_Horario` | ✅ Comprovado |
+| **F1** | Profissional sem vínculo com o serviço | Sem horários disponíveis | `AvailabilityServiceTests.Profissional_Sem_Vinculo_Nao_Tem_Horario_Para_O_Servico` | ✅ Comprovado |
+| **F2** | Agendamento `Confirmed` e novo horário livre | Novo horário persistido; duração original preservada | `AppointmentServiceTests.Remarcar_Para_Horario_Livre_Persiste` | ✅ Comprovado |
+| **F2** | Novo horário ocupado | `409`; agendamento original inalterado | `AppointmentServiceTests.Remarcar_Para_Horario_Ocupado_Falha_E_Nao_Altera_O_Original` | ✅ Comprovado |
+| **F2** | Duração do serviço alterada após a criação | Remarcação mantém a duração registrada | `AppointmentServiceTests.Remarcar_Apos_Aumento_Da_Duracao_Do_Servico_Preserva_A_Duracao_Original` | ✅ Comprovado |
+| **F3** | Site publicado, serviço e profissional válidos | `201`; reserva persiste e remove o horário | `PublicSiteIntegrationTests` (reserva pública) | ✅ Comprovado |
+| **F3** | Requisição sem `serviceId` | `400` (erro de requisição, não ausência de horários) | `PublicSiteIntegrationTests.Disponibilidade_Publica_Sem_Servico_Retorna_400` | ✅ Comprovado |
+| **F3** | Envio duplicado do mesmo horário | Primeiro `201`, segundo `409` | `PublicBookingThrottleIntegrationTests` | ✅ Comprovado |
+
+### 13.3. As cinco regras exigidas (R1–R5) e a regra adicional R6
+
+| Regra | Enunciado | Implementação | Critério de aceitação | Estado |
+| --- | --- | --- | --- | --- |
+| **R1** | Só agendamentos `Confirmed` mudam de estado | `Appointment.EnsureConfirmed` | `AppointmentTests.Cancelar_Agendamento_Ja_Cancelado_Lanca_Excecao` | ✅ Comprovado |
+| **R2** | Não concluir atendimento futuro | `Appointment.Complete` | `AppointmentTests.Concluir_Atendimento_Futuro_Lanca_Excecao` | ✅ Comprovado |
+| **R3** | Jornada exige início anterior ao fim | `WorkSchedule` (construtor) | `WorkScheduleTests.Criar_Jornada_Inicio_Maior_Fim_Lanca_Excecao` | ✅ Comprovado |
+| **R4** | Serviço deve caber na jornada | `WorkSchedule.FitsWithinSchedule` | `WorkScheduleTests.FitsWithinSchedule_Rejeita_Horario_Que_Ultrapassa_Fim` | ✅ Comprovado |
+| **R5** | Dois agendamentos do mesmo profissional não se sobrepõem | `AppointmentService.HasOverlap` + `ScheduleLock` | `AppointmentServiceTests.Criar_Rejeita_Sobreposicao_De_Horario`; `AppointmentConcurrencyTests.Requisicoes_Simultaneas_No_Mesmo_Horario_Aceitam_Apenas_Uma` | ✅ Comprovado |
+| **R6** (adicional) | Atendimento após meia-noite depende da política | `Appointment.Create` + `IOvernightPolicy` | `DefectReproTests.DEF002_*` | ✅ Comprovado |
+
+### 13.4. Critérios ainda não verificados
+
+| Item | Motivo |
+| --- | --- |
+| Homologação do fluxo público em navegador real | Coberto por testes de API; a navegação em `/agendar` do `frontend/` não foi exercitada nesta auditoria |
+| Conclusão de atendimento pelo canal público | O botão de conclusão só aparece para horários passados; coberto por testes de API, não por UI |
+
+---
+
+## 14. Matriz de rastreabilidade (F05)
+
+> **Origem:** critério F05 — rastreabilidade entre fluxos, regras, implementação e testes. Todas as referências apontam para componentes e testes existentes no repositório.
+
+| Fluxo | Regra | Implementação | Teste | Resultado esperado |
+| --- | --- | --- | --- | --- |
+| F1 — Criação interna | R1 | `Appointment.EnsureConfirmed` | `AppointmentTests.Cancelar_Agendamento_Ja_Cancelado_Lanca_Excecao` | `DomainRuleException`; estado preservado |
+| F1 — Criação interna | R2 | `Appointment.Complete` | `AppointmentTests.Concluir_Atendimento_Futuro_Lanca_Excecao` | `DomainRuleException`; permanece `Confirmed` |
+| F1 — Criação interna | R3 | `WorkSchedule` (construtor) | `WorkScheduleTests.Criar_Jornada_Inicio_Maior_Fim_Lanca_Excecao` | `DomainRuleException` |
+| F1 — Criação interna | R4 | `WorkSchedule.FitsWithinSchedule` | `WorkScheduleTests.FitsWithinSchedule_Rejeita_Horario_Que_Ultrapassa_Fim` | Horário rejeitado |
+| F1 — Criação interna | R5 | `AppointmentService.HasOverlap` | `AppointmentServiceTests.Criar_Rejeita_Sobreposicao_De_Horario` | `409`; nada persistido |
+| F1 — Criação interna | R5 (concorrência) | `ScheduleLock` + transação `Serializable` | `AppointmentConcurrencyTests.Requisicoes_Simultaneas_No_Mesmo_Horario_Aceitam_Apenas_Uma` | Apenas uma reserva aceita |
+| F1 — Criação interna | R6 | `Appointment.Create` + `NoOvernightPolicy` | `DefectReproTests.DEF002_Sem_Politica_Rejeita_Atendimento_Que_Ultrapassa_Meia_Noite` | `DomainRuleException` |
+| F2 — Remarcação | R1 | `Appointment.EnsureConfirmed` | `AppointmentTests.Remarcar_Agendamento_Cancelado_Lanca_Excecao` | `DomainRuleException` |
+| F2 — Remarcação | R5 | `AppointmentService.HasOverlap` (exclui o próprio) | `AppointmentServiceTests.Remarcar_Para_O_Proprio_Intervalo_Nao_Gera_Falso_Conflito` | Remarcação aceita |
+| F2 — Remarcação | R5 | `AppointmentService.HasOverlap` | `AppointmentServiceTests.Remarcar_Para_Horario_Ocupado_Falha_E_Nao_Altera_O_Original` | `409`; original intacto |
+| F2 — Remarcação | R4 | `AvailabilityService.EvaluateAsync` | `AppointmentServiceTests.Remarcar_Fora_Da_Jornada_Falha_E_Nao_Altera_O_Original` | Rejeitado; original intacto |
+| F3 — Reserva pública | R5 | `AppointmentService.CreateAsync` (mesma regra) | `PublicSiteIntegrationTests` (reserva pública) | `201`; horário removido |
+| F3 — Reserva pública | R5 | `AppointmentService.CreateAsync` | `PublicBookingThrottleIntegrationTests` | Duplicata → `409` |
+| F3 — Reserva pública | R4 | `AvailabilityService.EvaluateAsync` | `PublicSiteIntegrationTests.Disponibilidade_Publica_Valida_Sem_Horarios_Retorna_200_Vazio` | `200` com lista vazia |
+
+**Cobertura:** os três fluxos compartilham as mesmas regras (R1–R6) por construção — `AppointmentService` é o único dono da validação, e o canal público reutiliza o mesmo caso de uso. Não há regra implementada em apenas um canal.
+
+---
+
+## 15. Trabalho com agente de IA — DsCode (G02)
+
+> **Origem:** critério G02 — especificação destinada ao DsCode, associada a uma alteração funcional, com evidência de inspeção. **A atividade registrada abaixo foi efetivamente executada neste repositório em 2026-11-19.** Nenhum prompt ou resultado histórico foi fabricado.
+
+### 15.1. Objetivo da tarefa delegada
+
+Inspecionar a alteração funcional de **elegibilidade de profissionais para ocupar vagas do plano SaaS** e verificar se a regra implementada corresponde ao critério aprovado no `ESCOPO_AV2` §2.3, identificando riscos de concorrência.
+
+### 15.2. Especificação/instruções utilizadas
+
+A tarefa foi delimitada com escopo explícito: investigar exclusivamente `BookingEligibility.OccupiesPlanSlot`, `PlanSlotService` e `TeamController.LinkServiceAsync`; responder quatro perguntas objetivas; citar arquivos e métodos; **não modificar arquivos, não executar testes, não consultar documentação extensa**.
+
+### 15.3. Arquivos e comportamentos inspecionados
+
+| Arquivo | Comportamento verificado |
+| --- | --- |
+| `src/Servia.Domain/Team/BookingEligibility.cs` | Predicado `OccupiesPlanSlot` = ativo + serviço ativo vinculado + jornada |
+| `src/Servia.Application/Billing/PlanSlotService.cs` | `ExecuteWithSlotCheckAsync` — contagem antes/depois dentro de transação serializável |
+| `src/Servia.Api/Controllers/TeamController.cs` | `LinkServiceAsync` delega a `PlanSlotService`; vínculo idempotente |
+| `src/Servia.Infrastructure/Repositories/SubscriptionRepository.cs` | `ExecuteSerializableAsync`; `CountEligibleAsync` |
+
+### 15.4. Resultado da inspeção
+
+1. **Regra de vaga:** ativo + serviço ativo associado + jornada configurada. `IsServiceProvider` não participa.
+2. **Proteção de concorrência:** transação serializável com contagem antes/depois; conflito → `ConcurrencyConflictException` → `409`.
+3. **Segundo serviço no mesmo profissional:** não consome vaga extra (comparação de aumento líquido).
+4. **Risco identificado:** a proteção serializável cobre apenas o caminho que passa por `PlanSlotService`; outras transições de elegibilidade (ativar/desativar profissional, ativar serviço, alterar jornada) não passam por ele.
+
+### 15.5. Evidências técnicas verificáveis
+
+| Evidência | Como verificar |
+| --- | --- |
+| Predicado de vaga | `BookingEligibility.OccupiesPlanSlot` — leitura direta do código |
+| Transação serializável | `SubscriptionRepository.ExecuteSerializableAsync` |
+| Teste de concorrência real | `src/Servia.Tests/Persistence/PlanSlotConcurrencyTests.cs` (PostgreSQL) |
+| Teste de limite na associação | `src/Servia.Tests/Api/PlanLimitOnLinkTests.cs` |
+
+### 15.6. Limitações identificadas
+
+- A inspeção foi **estática**; não executou a suíte de concorrência nesta rodada.
+- O risco de transições fora de `PlanSlotService` foi registrado como pendência, não corrigido — está fora do escopo da inspeção.
+- Não há registro de sessão DsCode anterior preservado; a evidência é a atividade executada nesta auditoria.
+
+---
+
+## 16. Referências
 
 | Assunto | Documento |
 | --- | --- |

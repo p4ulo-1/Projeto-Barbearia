@@ -20,7 +20,7 @@ namespace Servia.Application.Appointments;
 ///
 /// <b>A regra de não sobreposição (R5)</b> depende do conjunto de agendamentos
 /// do profissional — não pode ser protegida por uma única entidade sem que ela
-/// passe a depender de dados externos (ver docs/av2/analise-do-modelo.md,
+/// passe a depender de dados externos (ver docs/arquitetura/classes.md §8,
 /// Decisão 1). Por isso vive aqui, junto com a verificação e a gravação na
 /// mesma transação serializável.
 ///

@@ -12,7 +12,7 @@ namespace Servia.Tests.Repro;
 ///
 /// A correção introduz a política <see cref="IOvernightPolicy"/>: o
 /// comportamento passa a depender do segmento, e não de uma regra global.
-/// Ver docs/av2/registro-de-depuracao.md.
+/// Ver docs/arquitetura/classes.md §9.
 /// </summary>
 public class DefectReproTests
 {

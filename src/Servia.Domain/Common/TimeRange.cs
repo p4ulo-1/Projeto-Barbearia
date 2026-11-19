@@ -7,7 +7,7 @@ namespace Servia.Domain.Common;
 /// <see cref="TimeOnly"/>. Motivo: <c>TimeOnly</c> é cíclico — somar 30 minutos
 /// a 23:50 resulta em 00:20, o que quebra qualquer comparação de intervalos
 /// que cruze a meia-noite. Este tipo elimina essa classe de defeito na origem
-/// (ver DEF-001 em docs/av2/registro-de-depuracao.md).
+/// (ver DEF-002 em docs/arquitetura/classes.md §9).
 /// </summary>
 public readonly record struct TimeRange
 {

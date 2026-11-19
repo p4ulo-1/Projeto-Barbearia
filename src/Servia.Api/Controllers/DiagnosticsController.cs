@@ -7,7 +7,7 @@ namespace Servia.Api.Controllers;
 /// Endpoints de diagnóstico do tratamento de exceções.
 ///
 /// Existem para tornar as três situações de falha reproduzíveis e testáveis
-/// (ver docs/av2/especificacao.md §5). Não expõem dados de negócio e ficam
+/// (ver docs/arquitetura/classes.md §12). Não expõem dados de negócio e ficam
 /// restritos ao ambiente de desenvolvimento.
 /// </summary>
 [ApiController]

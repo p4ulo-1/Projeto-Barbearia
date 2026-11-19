@@ -10,7 +10,7 @@ namespace Servia.Api.Middleware;
 ///
 /// Concentra em um único ponto a tradução de exceções em respostas HTTP,
 /// evitando que cada controller repita try/catch. Distingue três naturezas
-/// de falha (ver docs/av2/especificacao.md §5):
+/// de falha (ver docs/arquitetura/classes.md §12):
 ///
 ///   S1 — <see cref="DomainRuleException"/>  → 400, mensagem de negócio
 ///   S2 — <see cref="NotFoundException"/>    → 404, mensagem genérica
