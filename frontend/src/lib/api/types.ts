@@ -11,6 +11,7 @@ export interface UserDto {
   establishmentName: string;
   segment: string;
   onboardingStatus: OnboardingStatus;
+  billingSetupRequired?: boolean;
   /** Access profile defined by the backend. The API remains the final authority. */
   role?: UserRole | undefined;
   permissions?: string[] | undefined;

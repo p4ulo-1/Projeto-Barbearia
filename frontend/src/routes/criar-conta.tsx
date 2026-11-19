@@ -90,7 +90,7 @@ function SignUp() {
         document: f.document ? onlyDigits(f.document) : undefined,
         email: f.email.trim(),
       });
-      void navigate({ to: "/onboarding", replace: true });
+      void navigate({ to: IS_DEMO ? "/onboarding" : "/painel/assinatura", replace: true });
     } catch (err) {
       if (err instanceof ApiError) {
         const fields = err.fieldErrors;

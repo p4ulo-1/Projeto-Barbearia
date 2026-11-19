@@ -110,6 +110,31 @@ export interface Subscription {
   periodStart: string;
   periodEnd: string;
   trialEndsAt: string | null;
+  trialStartedAtUtc?: string | null;
+  trialEndsAtUtc?: string | null;
+  nextChargeAtUtc?: string | null;
+  cancellationEffectiveAtUtc?: string | null;
+  pastDueSince?: string | null;
+  cancellationRequested?: boolean;
+  billingAccess?: string | null;
+}
+export interface Checkout {
+  checkoutKey: string;
+  attemptId: string;
+  state: string;
+  checkoutUrl: string | null;
+  resumeOn: string | null;
+  trialStartsAt: string | null;
+  trialEndsAt: string | null;
+  planCode?: string | null;
+}
+export interface Lifecycle {
+  subscriptionId: string;
+  state: string;
+  status: string;
+  nextChargeAt: string | null;
+  pastDueSince: string | null;
+  cancellationEffectiveAt: string | null;
 }
 export interface Invoice {
   id: string;
@@ -339,7 +364,19 @@ export const realOperations = {
     >(billing + "/subscription/upgrade-suggestion"),
   changePlan: (planCode: string, existing: boolean) =>
     send<Subscription>(billing + "/subscription", existing ? "PATCH" : "POST", { planCode }),
-  cancelPlan: () => send<Subscription>(billing + "/subscription/cancel", "POST"),
+  currentCheckout: async () =>
+    (await get<Checkout | undefined>(billing + "/subscription/checkout/current")) ?? null,
+  checkout: (key: string) => get<Checkout>(`${billing}/subscription/checkout/${key}`),
+  startCheckout: (checkoutKey: string, planCode: string, cardToken?: string) =>
+    send<Checkout>(billing + "/subscription/checkout", "POST", {
+      checkoutKey,
+      planCode,
+      ...(cardToken ? { cardToken } : {}),
+    }),
+  verifyCheckout: (key: string) =>
+    send<Checkout>(`${billing}/subscription/checkout/${key}/verify`, "POST"),
+  verifySubscription: () => send<Lifecycle>(billing + "/subscription/verify", "POST"),
+  cancelPlan: () => send<Lifecycle>(billing + "/subscription/cancel", "POST"),
   transactions: (page = 1, from?: string, to?: string) =>
     paged<Transaction>(finance + "/transactions", page, { from, to }),
   report: (from: string, to: string) => get<FinanceReport>(finance + "/report", { from, to }),
@@ -759,6 +796,11 @@ export const demoOperations: typeof realOperations = {
   planHistory: unavailable,
   upgradeSuggestion: unavailable,
   changePlan: unavailable,
+  currentCheckout: unavailable,
+  checkout: unavailable,
+  startCheckout: unavailable,
+  verifyCheckout: unavailable,
+  verifySubscription: unavailable,
   cancelPlan: unavailable,
   transactions: unavailable,
   report: unavailable,

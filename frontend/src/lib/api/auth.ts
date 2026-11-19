@@ -83,6 +83,15 @@ async function userFromSession(
 ) {
   const user = { ...profileFromToken(tokens.accessToken), ...fallback };
   if (!hasPermission(user, "ViewTenantSettings")) return user;
+  if (user.role === "owner") {
+    try {
+      const subscription = await http<{ status: string }>("/api/v1/billing/subscription");
+      if (subscription.status === "AwaitingTrialAuthorization")
+        return { ...user, billingSetupRequired: true };
+    } catch {
+      // A sessão continua utilizável mesmo quando a consulta financeira falha.
+    }
+  }
   try {
     const session = await latestSession();
     if (!session)

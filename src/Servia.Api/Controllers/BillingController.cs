@@ -27,7 +27,8 @@ public sealed class BillingController(
     ITenantContext tenantContext,
     SubscriptionService subscriptions,
     SubscriptionCheckoutService checkout,
-    SubscriptionLifecycleService lifecycle) : ControllerBase
+    SubscriptionLifecycleService lifecycle,
+    SubscriptionAccessService subscriptionAccess) : ControllerBase
 {
     /// <summary>Consulta a assinatura vigente.</summary>
     [HttpGet("subscription")]
@@ -55,7 +56,9 @@ public sealed class BillingController(
             subscription.CurrentPeriodStart,
             subscription.CurrentPeriodEnd,
             subscription.TrialEndsAt, subscription.TrialStartedAtUtc, subscription.TrialDeadline,
-            subscription.ChargeDeadline, subscription.CancellationDeadline));
+            subscription.ChargeDeadline, subscription.CancellationDeadline,
+            subscription.PastDueSince, subscription.CancellationRequestedOn.HasValue,
+            (await subscriptionAccess.GetAsync(tenantId, cancellationToken)).ToString()));
     }
 
     /// <summary>Lista as faturas da plataforma, com paginação.</summary>
@@ -168,6 +171,26 @@ public sealed class BillingController(
             request.PlanCode, cancellationToken, request.CardToken);
         var response = CheckoutResponse.From(result);
         return result.State is "Active" or "Failed" or "Trialing" ? Ok(response) : Accepted(response);
+    }
+
+    [HttpGet("subscription/checkout/current")]
+    [RequirePermission(Permission.ManageBilling)]
+    [ProducesResponseType<CheckoutResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    public async Task<IActionResult> GetCurrentCheckoutAsync(CancellationToken cancellationToken)
+    {
+        var tenantId = RequireTenant();
+        var pending = await context.Subscriptions.AsNoTracking()
+            .Where(item => item.TenantId == tenantId && item.CheckoutKey != null
+                && (item.Status == SubscriptionStatus.PendingCheckout
+                    || item.Status == SubscriptionStatus.PendingConfirmation
+                    || item.Status == SubscriptionStatus.AuthorizedAwaitingFirstPayment))
+            .Select(item => new { item.CheckoutKey, item.PlanId })
+            .FirstOrDefaultAsync(cancellationToken);
+        if (pending?.CheckoutKey is not { } key) return NoContent();
+        var planCode = await context.Plans.AsNoTracking().Where(plan => plan.Id == pending.PlanId)
+            .Select(plan => plan.Code).FirstOrDefaultAsync(cancellationToken);
+        return Ok(CheckoutResponse.From(await checkout.GetAsync(tenantId, key, cancellationToken)) with { PlanCode = planCode });
     }
 
     [HttpGet("subscription/checkout/{key:guid}")]
@@ -321,7 +344,8 @@ public sealed record StartCheckoutRequest(Guid CheckoutKey, [Required, MaxLength
     [MaxLength(200)] string? CardToken = null);
 
 public sealed record CheckoutResponse(Guid CheckoutKey, Guid AttemptId, string State,
-    string? CheckoutUrl, DateOnly? ResumeOn, DateTimeOffset? TrialStartsAt = null, DateTimeOffset? TrialEndsAt = null)
+    string? CheckoutUrl, DateOnly? ResumeOn, DateTimeOffset? TrialStartsAt = null, DateTimeOffset? TrialEndsAt = null,
+    string? PlanCode = null)
 {
     public static CheckoutResponse From(CheckoutResult result) =>
         new(result.Attempt.CheckoutKey!.Value, result.Attempt.Id, result.State,
@@ -353,7 +377,8 @@ public sealed record SubscriptionResponse(
     Guid Id, string PlanCode, string PlanName, string Status,
     DateOnly PeriodStart, DateOnly PeriodEnd, DateOnly? TrialEndsAt,
     DateTimeOffset? TrialStartedAtUtc = null, DateTimeOffset? TrialEndsAtUtc = null,
-    DateTimeOffset? NextChargeAtUtc = null, DateTimeOffset? CancellationEffectiveAtUtc = null);
+    DateTimeOffset? NextChargeAtUtc = null, DateTimeOffset? CancellationEffectiveAtUtc = null,
+    DateTimeOffset? PastDueSince = null, bool CancellationRequested = false, string? BillingAccess = null);
 
 /// <summary>Representação de fatura.</summary>
 public sealed record InvoiceResponse(

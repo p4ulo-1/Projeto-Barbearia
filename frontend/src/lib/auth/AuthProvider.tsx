@@ -120,7 +120,10 @@ export function useAuth() {
   return value;
 }
 
-export function homeFor(user: UserDto): "/onboarding" | "/onboarding/previa" | "/painel" {
+export function homeFor(
+  user: UserDto,
+): "/onboarding" | "/onboarding/previa" | "/painel" | "/painel/assinatura" {
+  if (user.billingSetupRequired) return "/painel/assinatura";
   switch (user.onboardingStatus) {
     case "published":
       return "/painel";

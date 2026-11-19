@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Alert, Button } from "@/components/ui-sv";
 import { ApiError, IS_DEMO } from "@/lib/api/http";
 import { planBenefits, plansService } from "@/lib/api/plans";
@@ -7,9 +7,11 @@ import { operations as api } from "@/lib/api/operations";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { hasPermission } from "@/lib/permissions";
 import { ModuleCard, QueryState, Pagination, RecordSelect } from "./OperationsUI";
-import { displayDate, useOperation } from "./forms";
+import { displayDate } from "./forms";
+import { operationErrorMessage } from "@/lib/operation-feedback";
+import { CheckoutFlow } from "./CheckoutFlow";
 import { PageHeader } from "./PanelPage";
-import { fmtMoney } from "./status";
+import { fmtMoney, fmtDateTime } from "./status";
 import s from "./styles";
 
 export function BillingPage() {
@@ -30,7 +32,8 @@ export function BillingPage() {
 
 function BillingDetails() {
   const { user } = useAuth();
-  const write = hasPermission(user, "ManageBilling");
+  const write = !!user?.permissions && hasPermission(user, "ManageBilling");
+  const qc = useQueryClient();
   const [page, setPage] = useState(1);
   const [selectedPlan, setSelectedPlan] = useState("");
   const sub = useQuery({
@@ -55,11 +58,17 @@ function BillingDetails() {
     queryFn: async () => (await api.upgradeSuggestion()) ?? null,
     enabled: !!sub.data,
   });
-  const op = useOperation();
+  const cancel = useMutation({
+    mutationFn: api.cancelPlan,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["panel"] }),
+  });
+  const verify = useMutation({
+    mutationFn: api.verifySubscription,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["panel"] }),
+  });
 
   return (
     <>
-      {op.feedback}
       <div className={s.moduleGrid}>
         <ModuleCard title="Plano atual">
           <QueryState query={sub}>
@@ -75,13 +84,50 @@ function BillingDetails() {
                           Active: "Ativa",
                           PastDue: "Em atraso",
                           Cancelled: "Cancelada",
+                          AwaitingTrialAuthorization: "Aguardando autorização para iniciar o trial",
+                          AuthorizedAwaitingFirstPayment: "Primeira cobrança pendente",
+                          PendingCheckout: "Contratação pendente",
+                          PendingConfirmation: "Autorização em confirmação",
+                          Expired: "Expirada",
                         } as Record<string, string>
                       )[data.status] ?? data.status}
                     </p>
-                    <p>
-                      Período de {displayDate(data.periodStart)} a {displayDate(data.periodEnd)}.
-                    </p>
-                    {data.trialEndsAt && <p>Fim do teste em {displayDate(data.trialEndsAt)}.</p>}
+                    {data.status !== "AwaitingTrialAuthorization" && (
+                      <p>
+                        Período de {displayDate(data.periodStart)} a {displayDate(data.periodEnd)}.
+                      </p>
+                    )}
+                    {data.status === "Trialing" &&
+                      data.trialStartedAtUtc &&
+                      data.trialEndsAtUtc && (
+                        <p>
+                          Trial autorizado: {fmtDateTime(data.trialStartedAtUtc)} até{" "}
+                          {fmtDateTime(data.trialEndsAtUtc)}. Primeira cobrança prevista para o
+                          vencimento.
+                        </p>
+                      )}
+                    {data.status === "Trialing" && !data.trialStartedAtUtc && data.trialEndsAt && (
+                      <p>Fim do teste em {displayDate(data.trialEndsAt)}.</p>
+                    )}
+                    {data.nextChargeAtUtc && (
+                      <p>Próxima cobrança prevista: {fmtDateTime(data.nextChargeAtUtc)}.</p>
+                    )}
+                    {(data.status === "PastDue" ||
+                      data.billingAccess === "NoNewBookings" ||
+                      (data.status === "Active" && data.billingAccess === "OwnerReadOnly")) && (
+                      <Alert tone="error">
+                        Pagamento pendente. Novos agendamentos estão bloqueados.{" "}
+                        {data.billingAccess === "OwnerReadOnly" &&
+                          "O acesso está restrito ao proprietário, em modo de leitura."}
+                      </Alert>
+                    )}
+                    {data.cancellationRequested && (
+                      <p>
+                        {data.cancellationEffectiveAtUtc
+                          ? `Cancelamento confirmado para ${fmtDateTime(data.cancellationEffectiveAtUtc)}.`
+                          : "Cancelamento solicitado; aguardando confirmação."}
+                      </p>
+                    )}
                   </>
                 ) : (
                   <p>Nenhuma assinatura cadastrada.</p>
@@ -123,8 +169,8 @@ function BillingDetails() {
                             </div>
                           )}
                           <p>
-                            A seleção é temporária e não altera sua assinatura, seu trial ou seus
-                            limites. A contratação online ainda não está habilitada.
+                            A seleção não altera o plano vigente. A contratação depende de
+                            confirmação pelo servidor.
                           </p>
                         </div>
                       ) : (
@@ -133,17 +179,46 @@ function BillingDetails() {
                     }}
                   </QueryState>
                 )}
-                {write && data && data.status !== "Cancelled" && (
+                {write && <CheckoutFlow subscription={data} selectedPlan={selectedPlan} />}
+                {write && data && (
+                  <Button
+                    variant="subtle"
+                    loading={verify.isPending}
+                    onClick={() => verify.mutate()}
+                  >
+                    Atualizar situação financeira
+                  </Button>
+                )}
+                {verify.data && (
+                  <p>
+                    {verify.data.state === "PaymentRejected"
+                      ? "Pagamento recusado; aguardando regularização."
+                      : `Situação consultada: ${verify.data.status}.`}
+                  </p>
+                )}
+                {(verify.error || cancel.error) && (
+                  <Alert tone="error">{operationErrorMessage(verify.error ?? cancel.error)}</Alert>
+                )}
+                {cancel.data && (
+                  <p>
+                    {cancel.data.state === "Cancelled"
+                      ? "Cancelamento confirmado."
+                      : cancel.data.state === "CancellationScheduled"
+                        ? "Cancelamento confirmado para o fim do período pago."
+                        : "Cancelamento solicitado; aguardando confirmação."}
+                  </p>
+                )}
+                {write && data && data.status !== "Cancelled" && !data.cancellationRequested && (
                   <Button
                     variant="ghost"
-                    disabled={op.busy}
+                    disabled={cancel.isPending}
                     onClick={() => {
                       if (
                         window.confirm(
-                          "Cancelar a assinatura Servia? O acesso permanece até o fim do período pago.",
+                          "Solicitar o cancelamento da assinatura? Durante o trial, o encerramento depende da confirmação; o período pago será respeitado quando aplicável.",
                         )
                       )
-                        op.run(api.cancelPlan, "Assinatura cancelada.");
+                        cancel.mutate();
                     }}
                   >
                     Cancelar assinatura

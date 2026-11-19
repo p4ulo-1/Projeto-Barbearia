@@ -38,6 +38,26 @@ public sealed class SubscriptionCheckoutIntegrationTests(CheckoutApiFactory fact
     private const string Webhook = "/api/v1/webhooks/mercadopago";
 
     [Fact]
+    public async Task Consulta_Atual_Recupera_Tentativa_Pendente_Somente_Do_Proprio_Tenant()
+    {
+        using var tenant = await SignUpAsync();
+        using var other = await SignUpAsync();
+        using var anonymous = factory.CreateClient();
+        factory.Stub.Reset();
+        Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.GetAsync($"{Checkout}/current")).StatusCode);
+        var subscription = await tenant.Client.GetFromJsonAsync<SubscriptionResponse>(Billing);
+        Assert.Equal("Operational", subscription!.BillingAccess);
+        Assert.Equal(HttpStatusCode.NoContent, (await other.Client.GetAsync($"{Checkout}/current")).StatusCode);
+        var request = new StartCheckoutRequest(Guid.NewGuid(), "PRO");
+        var issued = await StartAsync(tenant.Client, request, "WaitingForTrialEnd");
+        var recovered = await tenant.Client.GetFromJsonAsync<CheckoutResponse>($"{Checkout}/current");
+        Assert.Equal(issued.CheckoutKey, recovered!.CheckoutKey);
+        Assert.Equal(issued.State, recovered.State);
+        Assert.Equal("PRO", recovered.PlanCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await other.Client.GetAsync($"{Checkout}/current")).StatusCode);
+    }
+
+    [Fact]
     public async Task Webhook_Autentica_Envelope_Persiste_Deduplica_E_Nao_Confirma_Falha_Do_Banco()
     {
         using var client = factory.CreateClient();
