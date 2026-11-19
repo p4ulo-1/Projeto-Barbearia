@@ -28,6 +28,7 @@ public sealed class BillingController(
     SubscriptionService subscriptions,
     SubscriptionCheckoutService checkout,
     SubscriptionLifecycleService lifecycle,
+    SubscriptionPlanChangeService planChanges,
     SubscriptionAccessService subscriptionAccess,
     TimeProvider clock) : ControllerBase
 {
@@ -277,20 +278,45 @@ public sealed class BillingController(
     [HttpPost("subscription/verify")]
     [RequirePermission(Permission.ManageBilling)]
     [ProducesResponseType<LifecycleResponse>(StatusCodes.Status200OK)]
-    public async Task<IActionResult> VerifySubscriptionAsync(CancellationToken cancellationToken) =>
-        Ok(LifecycleResponse.From(await lifecycle.VerifyAsync(RequireTenant(), cancellationToken)));
+    public async Task<IActionResult> VerifySubscriptionAsync(CancellationToken cancellationToken)
+    {
+        var tenant = RequireTenant();
+        var current = await subscriptions.FindCurrentAsync(tenant, cancellationToken);
+        if (current is not null) await planChanges.SynchronizeAsync(tenant, current.Id, cancellationToken);
+        return Ok(LifecycleResponse.From(await lifecycle.VerifyAsync(tenant, cancellationToken)));
+    }
 
     [HttpPost("subscription/plan-change")]
     [RequirePermission(Permission.ManageBilling)]
     [ProducesResponseType<PlanChangeRequestResponse>(StatusCodes.Status202Accepted)]
-    public async Task<IActionResult> RequestPlanChangeAsync([FromBody] SubscribePlanRequest request,
+    public async Task<IActionResult> RequestPlanChangeAsync([FromBody] RequestPlanChange request,
         CancellationToken cancellationToken)
     {
-        var change = await lifecycle.RequestChangeAsync(RequireTenant(), RequireUserId(), request.PlanCode, cancellationToken);
-        return Accepted(new PlanChangeRequestResponse(change.Id, change.ToPlanId, change.Reason.ToString(),
-            change.Reason == PlanChangeReason.Upgrade ? "AwaitingFinancialTerms" : "AwaitingCycleConfirmation",
-            change.EffectiveAtUtc));
+        var change = await planChanges.RequestAsync(RequireTenant(), RequireUserId(), request.PlanCode,
+            request.OperationKey ?? Guid.NewGuid(), cancellationToken);
+        return Accepted(await DescribeChangeAsync(change, cancellationToken));
     }
+
+    [HttpGet("subscription/plan-change")]
+    [RequirePermission(Permission.ManageBilling)]
+    public async Task<IActionResult> GetPlanChangeAsync(CancellationToken cancellationToken)
+    {
+        var change = await planChanges.GetLatestAsync(RequireTenant(), cancellationToken);
+        return change is null ? NoContent() : Ok(await DescribeChangeAsync(change, cancellationToken));
+    }
+
+    [HttpPost("subscription/plan-change/{id:guid}/payment")]
+    [RequirePermission(Permission.ManageBilling)]
+    public async Task<IActionResult> ConfirmPlanChangePaymentAsync(Guid id, [FromBody] ConfirmPlanChangePayment request,
+        CancellationToken cancellationToken) =>
+        Accepted(await DescribeChangeAsync(await planChanges.ConfirmPaymentAsync(RequireTenant(), RequireUserId(),
+            id, request.CardToken, request.PaymentMethod, cancellationToken), cancellationToken));
+
+    private async Task<PlanChangeRequestResponse> DescribeChangeAsync(PlanChange change, CancellationToken ct) =>
+        PlanChangeRequestResponse.From(change) with
+        {
+            TargetPlanCode = await context.Plans.Where(plan => plan.Id == change.ToPlanId).Select(plan => plan.Code).SingleAsync(ct)
+        };
 
     /// <summary>Histórico de mudanças de plano (F16.5).</summary>
     [HttpGet("subscription/history")]
@@ -381,8 +407,29 @@ public sealed record LifecycleResponse(Guid SubscriptionId, string State, string
         result.Subscription.CancellationDeadline);
 }
 
+public sealed record RequestPlanChange([Required, MaxLength(30)] string PlanCode, Guid? OperationKey = null);
+public sealed record ConfirmPlanChangePayment([Required, MaxLength(200)] string CardToken,
+    [Required, MaxLength(50)] string PaymentMethod);
 public sealed record PlanChangeRequestResponse(Guid Id, Guid TargetPlanId, string Reason, string State,
-    DateTimeOffset? EffectiveAt);
+    DateTimeOffset? EffectiveAt, decimal? SourcePrice = null, decimal? TargetPrice = null,
+    decimal? AdditionalAmount = null, string? Currency = null, DateTimeOffset? CycleEnd = null,
+    string? Issue = null, bool PaymentApproved = false, bool RecurrenceConfirmed = false, DateTimeOffset? QuoteExpiresAt = null,
+    string? TargetPlanCode = null)
+{
+    public static PlanChangeRequestResponse From(PlanChange change) => new(change.Id, change.ToPlanId, change.Reason.ToString(),
+        change.Status switch
+        {
+            PlanChangeStatus.Effective => "Effective",
+            PlanChangeStatus.Failed => "Failed",
+            _ when change.Issue is not null && change.HasExternalEffects => "RequiresReconciliation",
+            _ when change.Reason == PlanChangeReason.Downgrade => "AwaitingCycleConfirmation",
+            _ when change.AdditionalAmount is > 0 && !change.PaymentDispatchedAt.HasValue => "AwaitingPaymentConsent",
+            _ when change.AdditionalAmount is > 0 && !change.PaymentApprovedAt.HasValue => "AwaitingPaymentConfirmation",
+            _ => "AwaitingRecurringConfirmation"
+        }, change.EffectiveAtUtc, change.SourcePrice, change.RequestedPrice, change.AdditionalAmount,
+        change.RequestedCurrency, change.CycleEnd, change.Issue, change.PaymentApprovedAt.HasValue,
+        change.RecurrenceConfirmedAt.HasValue, change.AdditionalAmount > 0 ? change.ChangedAt.AddMinutes(15) : null);
+}
 
 /// <summary>Representação de mudança de plano.</summary>
 public sealed record PlanChangeResponse(

@@ -64,4 +64,8 @@ public sealed class MercadoPagoInbox(AppDbContext context)
         context.Subscriptions.IgnoreQueryFilters().AsNoTracking().SingleOrDefaultAsync(item =>
             item.Id == reference && item.CheckoutKey != null && item.CheckoutDispatchedAt != null
             && item.GatewaySubscriptionId == null && item.Status == SubscriptionStatus.PendingCheckout, cancellationToken);
+
+    public Task<PlanChange?> FindUpgradeAsync(Guid id, CancellationToken cancellationToken) =>
+        context.PlanChanges.IgnoreQueryFilters().AsNoTracking().SingleOrDefaultAsync(item =>
+            item.Id == id && item.OperationKey.HasValue && item.PaymentDispatchedAt.HasValue, cancellationToken);
 }

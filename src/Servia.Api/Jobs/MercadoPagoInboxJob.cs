@@ -74,6 +74,18 @@ public sealed class MercadoPagoInboxJob(
         var externalId = preapproval ? item.ResourceId : payment?.SubscriptionId;
         if (externalId is null)
         {
+            const string upgradePrefix = "servia-upgrade:";
+            if (payment?.ExternalReference is { } referenceText && referenceText.StartsWith(upgradePrefix, StringComparison.Ordinal)
+                && Guid.TryParseExact(referenceText[upgradePrefix.Length..], "N", out var changeId))
+            {
+                var change = await inbox.FindUpgradeAsync(changeId, cancellationToken);
+                if (change is null) return "UnlinkedResource";
+                if (change.Status != PlanChangeStatus.Requested) return "Superseded";
+                tenantContext.SetTenant(change.TenantId);
+                var planChanges = services.GetRequiredService<SubscriptionPlanChangeService>();
+                return await planChanges.SynchronizeAsync(change.TenantId, change.SubscriptionId, cancellationToken,
+                    propagateGatewayError: true) ? "UnconfirmedPayment" : "Current";
+            }
             return await ProcessLegacyPaymentAsync(item, payment, services, tenantContext, cancellationToken);
         }
 

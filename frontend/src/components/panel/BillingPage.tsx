@@ -10,6 +10,7 @@ import { ModuleCard, QueryState, Pagination, RecordSelect } from "./OperationsUI
 import { displayDate } from "./forms";
 import { operationErrorMessage } from "@/lib/operation-feedback";
 import { CheckoutFlow } from "./CheckoutFlow";
+import { PlanChangeFlow } from "./PlanChangeFlow";
 import { PageHeader } from "./PanelPage";
 import { fmtMoney, fmtDateTime } from "./status";
 import s from "./styles";
@@ -111,12 +112,14 @@ function BillingDetails() {
                     )}
                     {data.firstPaymentStatus && (
                       <p>
-                        {({
-                          Scheduled: "Primeira cobrança programada para o fim do trial.",
-                          Pending: "Primeira cobrança aguardando confirmação.",
-                          Rejected: "A primeira cobrança foi recusada. Aguardando regularização.",
-                          Paid: "Primeira cobrança paga e confirmada.",
-                        })[data.firstPaymentStatus]}
+                        {
+                          {
+                            Scheduled: "Primeira cobrança programada para o fim do trial.",
+                            Pending: "Primeira cobrança aguardando confirmação.",
+                            Rejected: "A primeira cobrança foi recusada. Aguardando regularização.",
+                            Paid: "Primeira cobrança paga e confirmada.",
+                          }[data.firstPaymentStatus]
+                        }
                       </p>
                     )}
                     {(data.status === "PastDue" ||
@@ -187,6 +190,17 @@ function BillingDetails() {
                   </QueryState>
                 )}
                 {write && <CheckoutFlow subscription={data} selectedPlan={selectedPlan} />}
+                {write && data && ["Trialing", "Active", "PastDue"].includes(data.status) && (
+                  <PlanChangeFlow
+                    key={`${data.id}:${selectedPlan}`}
+                    subscription={data}
+                    selectedPlan={selectedPlan}
+                    downgrade={
+                      (plans.data?.find((plan) => plan.code === selectedPlan)?.monthlyPrice ?? 0) <
+                      (plans.data?.find((plan) => plan.code === data.planCode)?.monthlyPrice ?? 0)
+                    }
+                  />
+                )}
                 {write && data && (
                   <Button
                     variant="subtle"

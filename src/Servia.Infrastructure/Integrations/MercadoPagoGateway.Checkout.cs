@@ -112,6 +112,50 @@ public sealed partial class MercadoPagoGateway
         await SendCheckoutAsync<Preapproval>(request, cancellationToken);
     }
 
+    public async Task UpdateRecurringPriceAsync(string subscriptionId, Money amount, CancellationToken cancellationToken)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Put, $"/preapproval/{Uri.EscapeDataString(subscriptionId)}")
+        {
+            Content = JsonContent.Create(new { auto_recurring = new { transaction_amount = amount.Amount, currency_id = amount.Currency } })
+        };
+        await SendCheckoutAsync<Preapproval>(request, cancellationToken);
+    }
+
+    public async Task<bool> IsCreditCardMethodAsync(string method, CancellationToken cancellationToken)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/v1/payment_methods");
+        var methods = await SendCheckoutAsync<PaymentMethod[]>(request, cancellationToken);
+        return methods.Any(item => item.Id == method && item.PaymentTypeId == "credit_card" && item.Status == "active");
+    }
+
+    public async Task CreateUpgradePaymentAsync(Guid operationId, Money amount, string token, string method,
+        string email, CancellationToken cancellationToken)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/v1/payments")
+        {
+            Content = JsonContent.Create(new { transaction_amount = amount.Amount, token, installments = 1,
+                payment_method_id = method, payer = new { email }, external_reference = UpgradeReference(operationId),
+                description = "Diferença proporcional de plano Servia" })
+        };
+        request.Headers.Add("X-Idempotency-Key", operationId.ToString("D"));
+        await SendCheckoutAsync<RecurringPayment>(request, cancellationToken);
+    }
+
+    public async Task<UpgradePaymentEvidence?> FindUpgradePaymentAsync(Guid operationId, CancellationToken cancellationToken)
+    {
+        var reference = UpgradeReference(operationId);
+        using var request = new HttpRequestMessage(HttpMethod.Get,
+            $"/v1/payments/search?external_reference={Uri.EscapeDataString(reference)}&limit=2");
+        var result = await SendCheckoutAsync<PaymentSearch>(request, cancellationToken);
+        if (result is not { Paging.Total: 1, Results: [{ Id: > 0 } match] }) return null;
+        var payment = await ReadPaymentAsync(match.Id, cancellationToken);
+        return payment.ExternalReference == reference ? new(payment.Id.ToString(CultureInfo.InvariantCulture),
+            payment.Status, payment.TransactionAmount, payment.CurrencyId, payment.PaymentTypeId,
+            payment.TransactionAmountRefunded, payment.DateApproved) : null;
+    }
+
+    private static string UpgradeReference(Guid operationId) => $"servia-upgrade:{operationId:N}";
+
     public async Task<RecurringNotificationPayment> ReadNotificationPaymentAsync(string resourceId, bool isInvoice,
         CancellationToken cancellationToken)
     {
@@ -139,7 +183,7 @@ public sealed partial class MercadoPagoGateway
         var result = await SendCheckoutAsync<InvoiceSearch>(search, cancellationToken);
         if (result is { Paging: { Offset: 0, Total: 0 }, Results.Length: 0 })
         {
-            return new(null, null, PaymentStatus(notified));
+            return new(null, null, PaymentStatus(notified), notified.ExternalReference);
         }
         if (result is not { Paging: { Offset: 0, Total: 1 }, Results: [var match] }
             || match is not { Type: "scheduled", Payment.Id: var paymentId, DebitDate: not null }
@@ -195,29 +239,31 @@ public sealed partial class MercadoPagoGateway
         {
             return new(NoInvoice: true);
         }
-        if (first.Length != 1 || first[0] is not { Type: "scheduled", DebitDate: { } debit }
-            || first[0].TransactionAmount != amount.Amount || first[0].CurrencyId != amount.Currency)
+        if (first.Length != 1 || first[0] is not { Type: "scheduled", DebitDate: { } debit })
         {
             return new();
         }
+        if (first[0].TransactionAmount != amount.Amount || first[0].CurrencyId != amount.Currency)
+            return new(InvoiceAmount: first[0].TransactionAmount, Currency: first[0].CurrencyId);
         if (first[0].Payment is not { Id: > 0 } linked)
         {
-            return new(DueAt: debit);
+            return new(DueAt: debit, InvoiceAmount: amount.Amount, Currency: amount.Currency);
         }
 
         var id = linked.Id.ToString(CultureInfo.InvariantCulture);
         var payment = await ReadPaymentAsync(linked.Id, cancellationToken);
         if (payment.TransactionAmount != amount.Amount || payment.CurrencyId != amount.Currency)
         {
-            return new();
+            return new(InvoiceAmount: amount.Amount, Currency: amount.Currency);
         }
         if (payment.Status == "rejected")
         {
-            return new(Rejected: true, DueAt: debit);
+            return new(Rejected: true, DueAt: debit, InvoiceAmount: amount.Amount, Currency: amount.Currency);
         }
         return linked.Status == "approved" && payment.Status == "approved"
             && payment.TransactionAmountRefunded == 0m && payment.DateApproved is { } approved
-            ? new(new ApprovedRecurringPayment(id, debit, approved), DueAt: debit) : new(DueAt: debit);
+            ? new(new ApprovedRecurringPayment(id, debit, approved), DueAt: debit, InvoiceAmount: amount.Amount, Currency: amount.Currency)
+            : new(DueAt: debit, InvoiceAmount: amount.Amount, Currency: amount.Currency);
     }
 
     private async Task<T> SendCheckoutAsync<T>(HttpRequestMessage request, CancellationToken cancellationToken)
@@ -254,8 +300,11 @@ public sealed partial class MercadoPagoGateway
         return new RecurringAuthorization(id, item.ExternalReference, item.Status,
             item.AutoRecurring?.TransactionAmount, item.AutoRecurring?.CurrencyId,
             item.AutoRecurring?.Frequency, item.AutoRecurring?.FrequencyType,
-            item.PreapprovalPlanId, item.DateCreated, item.NextPaymentDate);
+            item.PreapprovalPlanId, AtDatabasePrecision(item.DateCreated), AtDatabasePrecision(item.NextPaymentDate));
     }
+
+    private static DateTimeOffset? AtDatabasePrecision(DateTimeOffset? instant) => instant is { UtcTicks: var ticks }
+        ? new DateTimeOffset(ticks - ticks % 10, TimeSpan.Zero) : null;
 
     private static bool IsExternalId(string? id) => id is { Length: > 0 and <= 100 }
         && id.All(character => char.IsAsciiLetterOrDigit(character) || character is '_' or '-');
@@ -278,5 +327,8 @@ public sealed partial class MercadoPagoGateway
         decimal? TransactionAmount, string? CurrencyId, InvoicePayment? Payment);
     private sealed record InvoicePayment(long Id, string? Status);
     private sealed record RecurringPayment(long Id, string? Status, decimal? TransactionAmount,
-        string? CurrencyId, decimal? TransactionAmountRefunded, DateTimeOffset? DateApproved);
+        string? CurrencyId, decimal? TransactionAmountRefunded, DateTimeOffset? DateApproved,
+        string? ExternalReference, string? PaymentTypeId);
+    private sealed record PaymentMethod(string? Id, string? PaymentTypeId, string? Status);
+    private sealed record PaymentSearch(InvoicePaging? Paging, RecurringPayment[]? Results);
 }

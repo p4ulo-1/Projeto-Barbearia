@@ -3,7 +3,23 @@ import { Alert, Button, TextField } from "@/components/ui-sv";
 import s from "./styles";
 
 type SecureField = { mount(id: string): SecureField; unmount(): void };
+type CardPaymentSettings = {
+  initialization: { amount: number };
+  customization: { paymentMethods: { maxInstallments: number; types: { excluded: string[] } } };
+  callbacks: {
+    onReady: () => void;
+    onError: () => void;
+    onSubmit: (data: { token?: string; payment_method_id?: string }) => Promise<void>;
+  };
+};
 type MercadoPagoInstance = {
+  bricks(): {
+    create(
+      type: "cardPayment",
+      containerId: string,
+      settings: CardPaymentSettings,
+    ): Promise<{ unmount(): void }>;
+  };
   fields: {
     create(type: string, options: { placeholder: string }): SecureField;
     createCardToken(input: {
@@ -34,6 +50,75 @@ function loadSdk() {
     sdkLoading = undefined;
     throw new Error("Não foi possível carregar o formulário seguro do Mercado Pago.");
   }));
+}
+
+export function UpgradePaymentCard({
+  amount,
+  onPayment,
+}: {
+  amount: number;
+  onPayment: (token: string, method: string) => Promise<void>;
+}) {
+  const submit = useRef(onPayment);
+  submit.current = onPayment;
+  const [error, setError] = useState("");
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    let active = true;
+    let sending = false;
+    let brick: { unmount(): void } | undefined;
+    const key = publicKey;
+    if (!key) {
+      setError("O pagamento por cartão está indisponível.");
+      return;
+    }
+    void loadSdk()
+      .then(async () => {
+        if (!active || !window.MercadoPago) return;
+        const mp = new window.MercadoPago(key, { locale: "pt-BR" });
+        brick = await mp.bricks().create("cardPayment", "mp-upgrade-payment", {
+          initialization: { amount },
+          customization: {
+            paymentMethods: {
+              maxInstallments: 1,
+              types: { excluded: ["debit_card", "prepaid_card"] },
+            },
+          },
+          callbacks: {
+            onReady: () => {
+              if (active) setReady(true);
+            },
+            onError: () => {
+              if (active) setError("O formulário de pagamento não está disponível.");
+            },
+            onSubmit: async ({ token, payment_method_id: method }) => {
+              if (!active || sending) return;
+              if (!token || !method) throw new Error("Dados do cartão incompletos.");
+              sending = true;
+              try {
+                await submit.current(token, method);
+              } finally {
+                sending = false;
+              }
+            },
+          },
+        });
+        if (!active) brick.unmount();
+      })
+      .catch(() => {
+        if (active) setError("Não foi possível carregar o formulário de pagamento.");
+      });
+    return () => {
+      active = false;
+      brick?.unmount();
+    };
+  }, [amount]);
+  return (
+    <>
+      {error ? <Alert tone="error">{error}</Alert> : !ready && <p>Carregando formulário seguro…</p>}
+      <div id="mp-upgrade-payment" />
+    </>
+  );
 }
 
 export function CheckoutCard({

@@ -135,6 +135,22 @@ export interface Lifecycle {
   pastDueSince: string | null;
   cancellationEffectiveAt: string | null;
 }
+
+export interface PlanChangeOperation {
+  id: string;
+  targetPlanCode: string;
+  reason: "Upgrade" | "Downgrade";
+  state: string;
+  effectiveAt?: string | null;
+  cycleEnd?: string | null;
+  sourcePrice?: number | null;
+  targetPrice?: number | null;
+  additionalAmount?: number | null;
+  quoteExpiresAt?: string | null;
+  paymentApproved: boolean;
+  recurrenceConfirmed: boolean;
+  issue?: string | null;
+}
 export interface Invoice {
   id: string;
   periodStart: string;
@@ -357,6 +373,18 @@ export const realOperations = {
   invoices: (page = 1) => paged<Invoice>(billing + "/invoices", page),
   usage: () => get<Usage[]>(billing + "/usage"),
   planHistory: () => get<PlanChange[]>(billing + "/subscription/history"),
+  planChangeOperation: async () =>
+    (await get<PlanChangeOperation | undefined>(billing + "/subscription/plan-change")) ?? null,
+  requestPlanChange: (planCode: string, operationKey: string) =>
+    send<PlanChangeOperation>(billing + "/subscription/plan-change", "POST", {
+      planCode,
+      operationKey,
+    }),
+  confirmPlanChangePayment: (id: string, cardToken: string, paymentMethod: string) =>
+    send<PlanChangeOperation>(`${billing}/subscription/plan-change/${id}/payment`, "POST", {
+      cardToken,
+      paymentMethod,
+    }),
   upgradeSuggestion: () =>
     get<
       { currentPlanCode: string; requiredPlanCode: string; professionalCount: number } | undefined
@@ -794,6 +822,9 @@ export const demoOperations: typeof realOperations = {
   usage: unavailable,
   planHistory: unavailable,
   upgradeSuggestion: unavailable,
+  planChangeOperation: unavailable,
+  requestPlanChange: unavailable,
+  confirmPlanChangePayment: unavailable,
   changePlan: unavailable,
   currentCheckout: unavailable,
   checkout: unavailable,

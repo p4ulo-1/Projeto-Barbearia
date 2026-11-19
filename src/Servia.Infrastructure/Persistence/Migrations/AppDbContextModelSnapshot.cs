@@ -2192,6 +2192,14 @@ namespace Servia.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid");
 
+                    b.Property<decimal?>("AdditionalAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<string>("AdditionalPaymentId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
                     b.Property<DateTimeOffset?>("AppliedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
@@ -2200,6 +2208,12 @@ namespace Servia.Infrastructure.Persistence.Migrations
 
                     b.Property<Guid?>("ChangedBy")
                         .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("CycleEnd")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("CycleStart")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<DateTimeOffset?>("EffectiveAtUtc")
                         .HasColumnType("timestamp with time zone");
@@ -2210,16 +2224,39 @@ namespace Servia.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("FromPlanId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("Issue")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<Guid?>("OperationKey")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("PaymentApprovedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("PaymentDispatchedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("Reason")
                         .IsRequired()
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
+
+                    b.Property<DateTimeOffset?>("RecurrenceConfirmedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("RecurrenceDispatchedAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("RequestedCurrency")
                         .HasMaxLength(3)
                         .HasColumnType("character varying(3)");
 
                     b.Property<decimal?>("RequestedPrice")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<decimal?>("SourcePrice")
                         .HasPrecision(18, 2)
                         .HasColumnType("numeric(18,2)");
 
@@ -2239,9 +2276,23 @@ namespace Servia.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("ToPlanId")
                         .HasColumnType("uuid");
 
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
                     b.HasKey("Id");
 
+                    b.HasIndex("AdditionalPaymentId")
+                        .IsUnique()
+                        .HasFilter("\"AdditionalPaymentId\" IS NOT NULL");
+
                     b.HasIndex("TenantId", "ChangedAt");
+
+                    b.HasIndex("TenantId", "OperationKey")
+                        .IsUnique()
+                        .HasFilter("\"OperationKey\" IS NOT NULL");
 
                     b.HasIndex(new[] { "TenantId", "SubscriptionId" }, "UX_PlanChanges_RequestedSubscription")
                         .IsUnique()
@@ -2319,6 +2370,9 @@ namespace Servia.Infrastructure.Persistence.Migrations
 
                     b.Property<DateTimeOffset?>("NextChargeAtUtc")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("OriginalCheckoutPlanId")
+                        .HasColumnType("uuid");
 
                     b.Property<DateTimeOffset?>("PastDueSince")
                         .HasColumnType("timestamp with time zone");

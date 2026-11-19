@@ -65,6 +65,7 @@ public sealed class Subscription : ITenantScoped
     public DateTimeOffset? NextChargeAtUtc { get; private set; }
     public string? GatewayTrialPlanId { get; private set; }
     public Guid? TrialPlanId { get; private set; }
+    public Guid? OriginalCheckoutPlanId { get; private set; }
     public Guid EffectivePlanId => FirstPaymentId is null && TrialPlanId is { } trialPlan ? trialPlan : PlanId;
 
     /// <summary>Identificador do cliente no gateway de pagamento.</summary>
@@ -318,7 +319,19 @@ public sealed class Subscription : ITenantScoped
         {
             throw new DomainRuleException("O plano de destino não comporta a equipe ou já está vigente.");
         }
+        OriginalCheckoutPlanId ??= PlanId;
         PlanId = plan.Id;
+        ContractPriceAmount = recurringAmount.Amount;
+        ContractCurrency = recurringAmount.Currency;
+    }
+
+    public void ApplyConfirmedTrialUpgrade(Plan plan, int eligibleProfessionals, Money recurringAmount)
+    {
+        if (!IsOnTrial || !plan.AllowsProfessionals(eligibleProfessionals) || plan.Id == EffectivePlanId)
+            throw new DomainRuleException("O trial ou a capacidade não permite a mudança de plano.");
+        OriginalCheckoutPlanId ??= PlanId;
+        PlanId = plan.Id;
+        TrialPlanId = plan.Id;
         ContractPriceAmount = recurringAmount.Amount;
         ContractCurrency = recurringAmount.Currency;
     }

@@ -13,6 +13,9 @@ const mocks = vi.hoisted(() => ({
   subscription: vi.fn(),
   invoices: vi.fn(),
   planHistory: vi.fn(),
+  planChangeOperation: vi.fn(),
+  requestPlanChange: vi.fn(),
+  confirmPlanChangePayment: vi.fn(),
   upgradeSuggestion: vi.fn(),
   changePlan: vi.fn(),
   cancelPlan: vi.fn(),
@@ -28,6 +31,11 @@ vi.mock("@/components/panel/CheckoutCard", () => ({
   CheckoutCard: ({ onToken }: { onToken: (token: string) => Promise<void> }) => (
     <button onClick={() => void onToken("opaque-token")}>Autorizar cartão</button>
   ),
+  UpgradePaymentCard: ({
+    onPayment,
+  }: {
+    onPayment: (token: string, method: string) => Promise<void>;
+  }) => <button onClick={() => void onPayment("fresh-token", "visa")}>Pagar com cartão</button>,
 }));
 vi.mock("@/lib/api/plans", async (original) => ({
   ...(await original<typeof import("@/lib/api/plans")>()),
@@ -85,8 +93,115 @@ beforeEach(() => {
     hasPrevious: false,
   });
   mocks.planHistory.mockResolvedValue([]);
+  mocks.planChangeOperation.mockResolvedValue(null);
   mocks.upgradeSuggestion.mockResolvedValue(null);
   mocks.currentCheckout.mockResolvedValue(null);
+});
+
+it("recupera a cotação paga após recarga e mantém o plano até confirmação", async () => {
+  mocks.subscription.mockResolvedValue({
+    id: "paid",
+    planCode: "ESSENCIAL",
+    planName: "Essencial",
+    status: "Active",
+    billingAccess: "Operational",
+    periodStart: "2026-11-01",
+    periodEnd: "2026-12-01",
+  });
+  const quote = {
+    id: "change",
+    targetPlanCode: "PRO",
+    reason: "Upgrade",
+    state: "AwaitingPaymentConsent",
+    sourcePrice: 111.5,
+    targetPrice: 222.5,
+    additionalAmount: 32.42,
+    cycleEnd: "2026-12-01T15:00:00Z",
+    paymentApproved: false,
+    recurrenceConfirmed: false,
+  };
+  mocks.planChangeOperation.mockResolvedValue(quote);
+  const pending = { ...quote, state: "AwaitingPaymentConfirmation" };
+  mocks.confirmPlanChangePayment.mockImplementation(async () => {
+    mocks.planChangeOperation.mockResolvedValue(pending);
+    return pending;
+  });
+  show(<BillingPage />);
+  expect(await screen.findByText(/diferença proporcional.*32,42/i)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Pagar com cartão" }));
+  expect(
+    await screen.findByText(/aguardando confirmação da cobrança adicional/i),
+  ).toBeInTheDocument();
+  expect(mocks.confirmPlanChangePayment).toHaveBeenCalledExactlyOnceWith(
+    "change",
+    "fresh-token",
+    "visa",
+  );
+  expect(screen.getByText("Essencial", { selector: "strong" }).closest("p")).toHaveTextContent(
+    "Ativa",
+  );
+  expect(mocks.requestPlanChange).not.toHaveBeenCalled();
+});
+
+it("mostra o downgrade programado e o plano superior ainda vigente", async () => {
+  mocks.subscription.mockResolvedValue({
+    id: "paid",
+    planCode: "PRO",
+    planName: "Pro",
+    status: "Active",
+    billingAccess: "Operational",
+    periodStart: "2026-11-01",
+    periodEnd: "2026-12-01",
+  });
+  mocks.planChangeOperation.mockResolvedValue({
+    id: "change",
+    targetPlanCode: "ESSENCIAL",
+    reason: "Downgrade",
+    state: "AwaitingCycleConfirmation",
+    sourcePrice: 222.5,
+    targetPrice: 111.5,
+    cycleEnd: "2026-12-01T15:00:00Z",
+    paymentApproved: false,
+    recurrenceConfirmed: true,
+  });
+  show(<BillingPage />);
+  expect(await screen.findByText(/downgrade programado/i)).toBeInTheDocument();
+  expect(screen.getByText(/sem reembolso automático/i)).toBeInTheDocument();
+  expect(screen.getByText("Pro", { selector: "strong" }).closest("p")).toHaveTextContent("Ativa");
+  expect(screen.queryByRole("button", { name: "Pagar com cartão" })).not.toBeInTheDocument();
+});
+
+it("solicita upgrade no trial somente após confirmação explícita", async () => {
+  mocks.subscription.mockResolvedValue({
+    id: "trial",
+    planCode: "ESSENCIAL",
+    planName: "Essencial",
+    status: "Trialing",
+    billingAccess: "Operational",
+    periodStart: "2026-11-01",
+    periodEnd: "2026-11-15",
+  });
+  mocks.requestPlanChange.mockResolvedValue({
+    id: "change",
+    targetPlanCode: "PRO",
+    reason: "Upgrade",
+    state: "AwaitingRecurringConfirmation",
+    cycleEnd: "2026-11-15T15:00:00Z",
+    paymentApproved: false,
+    recurrenceConfirmed: false,
+  });
+  show(<BillingPage />);
+  fireEvent.change(await screen.findByLabelText("Selecionar plano para revisão"), {
+    target: { value: "PRO" },
+  });
+  fireEvent.click(await screen.findByRole("button", { name: "Revisar mudança de plano" }));
+  expect(screen.getByText(/upgrade mantém o vencimento original/i)).toBeInTheDocument();
+  expect(mocks.requestPlanChange).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Confirmar solicitação" }));
+  await waitFor(() =>
+    expect(mocks.requestPlanChange).toHaveBeenCalledWith("PRO", expect.any(String)),
+  );
+  expect(mocks.confirmPlanChangePayment).not.toHaveBeenCalled();
 });
 
 describe("oferta e seleção de planos", () => {
@@ -139,8 +254,12 @@ describe("oferta e seleção de planos", () => {
 describe("contratação e acompanhamento", () => {
   it("recupera cobrança programada, pendente, recusada e paga em novas consultas e sessões", async () => {
     const base = {
-      planCode: "PRO", planName: "Pro", status: "AuthorizedAwaitingFirstPayment",
-      periodStart: "2026-11-01", periodEnd: "2026-11-15", trialEndsAt: "2026-11-15",
+      planCode: "PRO",
+      planName: "Pro",
+      status: "AuthorizedAwaitingFirstPayment",
+      periodStart: "2026-11-01",
+      periodEnd: "2026-11-15",
+      trialEndsAt: "2026-11-15",
     };
     mocks.subscription.mockResolvedValue({ ...base, firstPaymentStatus: "Scheduled" });
     let view = show(<BillingPage />);
@@ -178,18 +297,32 @@ describe("contratação e acompanhamento", () => {
 
   it("atualiza a recusa após regularização confirmada na API", async () => {
     const subscription = {
-      planCode: "PRO", planName: "Pro", status: "AuthorizedAwaitingFirstPayment",
-      periodStart: "2026-11-01", periodEnd: "2026-11-15", trialEndsAt: "2026-11-15",
+      planCode: "PRO",
+      planName: "Pro",
+      status: "AuthorizedAwaitingFirstPayment",
+      periodStart: "2026-11-01",
+      periodEnd: "2026-11-15",
+      trialEndsAt: "2026-11-15",
       firstPaymentStatus: "Rejected",
     };
     mocks.subscription.mockResolvedValue(subscription);
-    mocks.currentCheckout.mockResolvedValue({ checkoutKey: "key", attemptId: "attempt", state: "FirstPaymentRejected" });
+    mocks.currentCheckout.mockResolvedValue({
+      checkoutKey: "key",
+      attemptId: "attempt",
+      state: "FirstPaymentRejected",
+    });
     mocks.verifySubscription.mockImplementation(async () => {
-      mocks.subscription.mockResolvedValue({ ...subscription, status: "Active", firstPaymentStatus: "Paid" });
+      mocks.subscription.mockResolvedValue({
+        ...subscription,
+        status: "Active",
+        firstPaymentStatus: "Paid",
+      });
       return { state: "Renewed", status: "Active" };
     });
     show(<BillingPage />);
-    expect((await screen.findAllByText(/primeira cobrança foi recusada/i)).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText(/primeira cobrança foi recusada/i)).length).toBeGreaterThan(
+      0,
+    );
     fireEvent.click(screen.getByRole("button", { name: "Atualizar situação financeira" }));
     expect(await screen.findByText(/Primeira cobrança paga e confirmada/)).toBeInTheDocument();
     expect(screen.queryByText(/primeira cobrança foi recusada/i)).not.toBeInTheDocument();

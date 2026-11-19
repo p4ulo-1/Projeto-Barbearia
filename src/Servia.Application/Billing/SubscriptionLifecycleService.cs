@@ -30,6 +30,10 @@ public sealed class SubscriptionLifecycleService(
             EnsureSame(snapshot, current);
             if (current.Status != SubscriptionStatus.Cancelled && !current.CancellationRequestedOn.HasValue)
             {
+                var change = await PendingChangeAsync(current, token);
+                if (change is { HasExternalEffects: true })
+                    throw new ConcurrencyConflictException("Aguarde a confirmação da alteração do plano antes de cancelar.");
+                change?.Fail("CancellationRequested");
                 current.RequestCancellation(Today(clock.GetUtcNow()));
                 await repository.SaveChangesAsync(token);
             }
@@ -96,32 +100,6 @@ public sealed class SubscriptionLifecycleService(
         }
         return await ConfirmCancellationAsync(snapshot, cancellationToken);
     }
-
-    public Task<PlanChange> RequestChangeAsync(Guid tenantId, Guid userId, string targetCode,
-        CancellationToken cancellationToken) =>
-        repository.ExecuteSerializableAsync(async token =>
-        {
-            var current = await CurrentAsync(tenantId, token, readOnly: false);
-            var target = await plans.FindByCodeAsync(targetCode, token) ?? throw NotFoundException.For("Plano", targetCode);
-            var pending = await PendingChangeAsync(current, token);
-            if (pending is not null)
-            {
-                return pending.ToPlanId == target.Id ? pending
-                    : throw new ConcurrencyConflictException("Já existe uma alteração de plano pendente.");
-            }
-            var now = clock.GetUtcNow();
-            if (current.GatewaySubscriptionId is null || current.FirstPaymentId is null
-                || current.ChargeDeadline <= now || current.CancellationRequestedOn.HasValue)
-            {
-                throw new DomainRuleException("A assinatura não permite solicitar alteração neste momento.");
-            }
-            var from = await plans.FindByIdAsync(current.PlanId, token) ?? throw NotFoundException.For("Plano", current.PlanId);
-            var count = await professionals.CountEligibleAsync(tenantId, token);
-            var change = PlanChange.Request(current, from, target, count, userId, now);
-            await repository.AddChangeAsync(change, token);
-            await repository.SaveChangesAsync(token);
-            return change;
-        }, cancellationToken);
 
     public async Task<LifecycleResult> VerifyAsync(Guid tenantId, CancellationToken cancellationToken,
         Guid? expectedSubscriptionId = null, DateTimeOffset? expectedDue = null,
@@ -203,10 +181,20 @@ public sealed class SubscriptionLifecycleService(
         try
         {
             evidence = await gateway.FindCyclePaymentAsync(snapshot.GatewaySubscriptionId, due, amount, cancellationToken);
+            if (downgrade?.OperationKey is not null && evidence.InvoiceAmount == price && price != amount.Amount)
+            {
+                amount = Money.From(price, currency);
+                evidence = await gateway.FindCyclePaymentAsync(snapshot.GatewaySubscriptionId, due, amount, cancellationToken);
+            }
         }
         catch (RecurringCheckoutGatewayException) when (!backgroundVerification)
         {
             return new(snapshot, cancellationObserved ? "CancellationPending" : "RequiresReconciliation");
+        }
+        if (downgrade?.OperationKey is not null &&
+            (evidence.InvoiceAmount != amount.Amount || evidence.Currency != amount.Currency))
+        {
+            return new(snapshot, "RequiresReconciliation");
         }
         if (cancellationObserved && evidence.Payment is null && !evidence.NoInvoice && !evidence.Rejected)
         {
@@ -242,7 +230,7 @@ public sealed class SubscriptionLifecycleService(
                 {
                     return new LifecycleResult(current, "RequiresReconciliation");
                 }
-                if (downgrade is not null)
+                if (downgrade is not null && amount.Amount != price)
                 {
                     confirmedChange = await PendingChangeAsync(current, token);
                     if (confirmedChange?.Id != downgrade.Id || confirmedChange.FromPlanId != current.PlanId)
@@ -253,6 +241,8 @@ public sealed class SubscriptionLifecycleService(
                     if (target is not { IsActive: true }
                         || !target.AllowsProfessionals(await professionals.CountEligibleAsync(tenantId, token)))
                     {
+                        confirmedChange.Flag("CapacityExceeded");
+                        await repository.SaveChangesAsync(token);
                         return new LifecycleResult(current, "CapacityExceeded");
                     }
                 }
@@ -281,6 +271,11 @@ public sealed class SubscriptionLifecycleService(
                 {
                     current.ApplyConfirmedPlan(target, await professionals.CountEligibleAsync(tenantId, token), amount);
                     confirmedChange!.ConfirmScheduledDowngrade(due, now);
+                }
+                else if (downgrade?.OperationKey is not null)
+                {
+                    var blocked = await PendingChangeAsync(current, token);
+                    if (blocked?.Id == downgrade.Id) blocked.Flag("CycleChargedAtOriginalPrice");
                 }
             }
             if (cancellationObserved)

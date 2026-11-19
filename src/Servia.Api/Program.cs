@@ -106,6 +106,7 @@ builder.Services.AddScoped<SubscriptionService>();
 builder.Services.AddScoped<SubscriptionCheckoutService>();
 builder.Services.AddScoped<SubscriptionAccessService>();
 builder.Services.AddScoped<SubscriptionLifecycleService>();
+builder.Services.AddScoped<SubscriptionPlanChangeService>();
 
 // Limite de vagas do plano, verificado atomicamente (transação serializável).
 builder.Services.AddScoped<PlanSlotService>();

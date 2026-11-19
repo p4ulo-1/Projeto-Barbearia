@@ -68,6 +68,7 @@ public sealed class SubscriptionReconciliationJob(IServiceScopeFactory scopes, T
         var next = healthy
             ? due <= now ? now.Add(Interval) : due < regular ? due!.Value : regular
             : intervention ? now.AddDays(1) : now.AddMinutes(Math.Min(360, 5 * Math.Pow(2, attempts - 1)));
+        if (result == "PlanChangePending" && !intervention && due > now && due < next) next = due.Value;
         DateTimeOffset? rateLimitedUntil = cooldown.HasValue ? now.Add(cooldown.Value) : null;
         if (rateLimitedUntil > next) next = rateLimitedUntil.Value;
         await repository.FinishAsync(claim, result, now, next, attempts, intervention, rateLimitedUntil, cancellationToken);

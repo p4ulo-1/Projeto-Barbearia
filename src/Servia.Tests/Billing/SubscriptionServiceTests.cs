@@ -99,6 +99,9 @@ public class SubscriptionServiceTests
 /// <summary>Repositório de assinaturas em memória.</summary>
 internal sealed class FakeSubscriptionRepository : ISubscriptionRepository
 {
+    public Task<DateTimeOffset?> FindPaidCycleStartAsync(Guid tenantId, Guid subscriptionId, DateOnly periodStart,
+        CancellationToken cancellationToken) => Task.FromResult<DateTimeOffset?>(null);
+
     public Task<PlatformInvoice?> FindRecurringInvoiceAsync(Guid tenantId, Guid subscriptionId, DateTimeOffset dueAt,
         CancellationToken cancellationToken) => Task.FromResult<PlatformInvoice?>(null);
 

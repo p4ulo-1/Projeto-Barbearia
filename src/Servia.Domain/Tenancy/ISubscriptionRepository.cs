@@ -25,6 +25,8 @@ public interface ISubscriptionRepository
 
     Task<PlatformInvoice?> FindRecurringInvoiceAsync(Guid tenantId, Guid subscriptionId, DateTimeOffset dueAt,
         CancellationToken cancellationToken);
+    Task<DateTimeOffset?> FindPaidCycleStartAsync(Guid tenantId, Guid subscriptionId, DateOnly periodStart,
+        CancellationToken cancellationToken);
 
     Task AddRecurringInvoiceAsync(PlatformInvoice invoice, CancellationToken cancellationToken);
 

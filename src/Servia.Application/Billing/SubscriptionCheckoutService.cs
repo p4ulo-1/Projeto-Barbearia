@@ -502,7 +502,7 @@ public sealed class SubscriptionCheckoutService(
 
     private static void CheckReplayPlan(Subscription attempt, Plan plan)
     {
-        if (attempt.PlanId != plan.Id)
+        if ((attempt.OriginalCheckoutPlanId ?? attempt.PlanId) != plan.Id)
         {
             throw new ConcurrencyConflictException("A chave já pertence a uma tentativa para outro plano.");
         }

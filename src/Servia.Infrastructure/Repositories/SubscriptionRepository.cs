@@ -52,10 +52,17 @@ public sealed class SubscriptionRepository(AppDbContext context) : ISubscription
     public async Task AddRecurringInvoiceAsync(PlatformInvoice invoice, CancellationToken cancellationToken) =>
         await context.PlatformInvoices.AddAsync(invoice, cancellationToken);
 
+    public Task<DateTimeOffset?> FindPaidCycleStartAsync(Guid tenantId, Guid subscriptionId, DateOnly periodStart,
+        CancellationToken cancellationToken) =>
+        context.PlatformInvoices.Where(item => item.TenantId == tenantId && item.SubscriptionId == subscriptionId
+            && item.PeriodStart == periodStart && item.RecurringDueAtUtc != null && item.Status == InvoiceStatus.Paid)
+            .Select(item => item.RecurringDueAtUtc).SingleOrDefaultAsync(cancellationToken);
+
     public async Task<bool> IsRecurringPaymentUsedAsync(string paymentId, CancellationToken cancellationToken) =>
         await context.Subscriptions.IgnoreQueryFilters().AnyAsync(s => s.FirstPaymentId == paymentId, cancellationToken)
         || await context.PlatformInvoices.IgnoreQueryFilters()
-            .AnyAsync(invoice => invoice.RecurringDueAtUtc != null && invoice.GatewayPaymentId == paymentId, cancellationToken);
+            .AnyAsync(invoice => invoice.RecurringDueAtUtc != null && invoice.GatewayPaymentId == paymentId, cancellationToken)
+        || await context.PlanChanges.IgnoreQueryFilters().AnyAsync(change => change.AdditionalPaymentId == paymentId, cancellationToken);
 
     public async Task AddAsync(
         Subscription subscription,
@@ -129,7 +136,8 @@ public sealed class SubscriptionRepository(AppDbContext context) : ISubscription
                         or "UX_Subscriptions_EffectiveTenant" or "UX_Subscriptions_PendingTenant"
                         or "IX_Subscriptions_TenantId_CheckoutKey" or "IX_Subscriptions_GatewaySubscriptionId"
                         or "IX_Subscriptions_FirstPaymentId" or "UX_PlatformInvoices_RecurringPayment"
-                        or "UX_PlatformInvoices_RecurringCycle" or "UX_PlanChanges_RequestedSubscription"))
+                        or "UX_PlatformInvoices_RecurringCycle" or "UX_PlanChanges_RequestedSubscription"
+                        or "IX_PlanChanges_TenantId_OperationKey" or "IX_PlanChanges_AdditionalPaymentId"))
                 throw new ConcurrencyConflictException(
                     "Outra alteração que afeta a capacidade do plano ocorreu ao mesmo tempo. Tente novamente.", exception);
             throw;

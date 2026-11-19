@@ -425,12 +425,17 @@ public sealed class SubscriptionCheckoutIntegrationTests(CheckoutApiFactory fact
             Assert.Equal(next, (await scheduled.Content.ReadFromJsonAsync<PlanChangeRequestResponse>())!.EffectiveAt);
             Assert.Equal("Current", (await VerifyCycleAsync(tenant.Client)).State);
             Assert.Equal("PRO", (await tenant.Client.GetFromJsonAsync<SubscriptionResponse>(Billing))!.PlanCode);
+            Assert.Equal(0, gateway.RecurringUpdates);
+            gateway.Now = next.AddHours(-24);
+            gateway.ProviderNextCharge = next;
+            Assert.Equal("Current", (await VerifyCycleAsync(tenant.Client)).State);
+            Assert.Equal(1, gateway.RecurringUpdates);
+            Assert.Equal(99m, gateway.NewRecurringAmount);
 
             await SetProfessionalAsync(tenant.Id, extra, true);
             gateway.Now = next;
             gateway.CycleDue = next;
             gateway.NewPayment();
-            gateway.NewRecurringAmount = 99m;
             Assert.Equal("CapacityExceeded", (await VerifyCycleAsync(tenant.Client)).State);
             Assert.Equal("PRO", (await tenant.Client.GetFromJsonAsync<SubscriptionResponse>(Billing))!.PlanCode);
             await SetProfessionalAsync(tenant.Id, extra, false);
@@ -440,7 +445,7 @@ public sealed class SubscriptionCheckoutIntegrationTests(CheckoutApiFactory fact
 
             var upgrade = await tenant.Client.PostAsJsonAsync(Billing + "/plan-change", new SubscribePlanRequest("PRO"));
             Assert.Equal(HttpStatusCode.Accepted, upgrade.StatusCode);
-            Assert.Equal("AwaitingFinancialTerms", (await upgrade.Content.ReadFromJsonAsync<PlanChangeRequestResponse>())!.State);
+            Assert.Equal("AwaitingPaymentConsent", (await upgrade.Content.ReadFromJsonAsync<PlanChangeRequestResponse>())!.State);
             Assert.Equal("ESSENCIAL", (await tenant.Client.GetFromJsonAsync<SubscriptionResponse>(Billing))!.PlanCode);
             var cancelled = await tenant.Client.PostAsync(Billing + "/cancel", null);
             Assert.Equal(HttpStatusCode.OK, cancelled.StatusCode);
@@ -459,6 +464,106 @@ public sealed class SubscriptionCheckoutIntegrationTests(CheckoutApiFactory fact
             Assert.Equal(HttpStatusCode.Forbidden, (await tenant.Client.PostAsJsonAsync("/api/v1/catalog/services", create)).StatusCode);
         }
         finally { gateway.Now = null; }
+    }
+
+    [Fact]
+    public async Task Mudanca_Upgrade_De_Trial_E_Pago_Confirma_Valor_E_Recupera_Respostas_Perdidas()
+    {
+        var gateway = factory.Stub;
+        using var tenant = await SignUpAsync();
+        using var other = await SignUpAsync();
+        gateway.Now = DateTimeOffset.FromUnixTimeSeconds(DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+        var initial = new StartCheckoutRequest(Guid.NewGuid(), "PRO", "opaque-test-token");
+        var issued = await StartAsync(tenant.Client, initial, "AwaitingExternalConfirmation");
+        var trial = await VerifyAsync(tenant.Client, initial.CheckoutKey);
+        var cutoff = trial.TrialEndsAt!.Value;
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var provider = scope.ServiceProvider.GetRequiredService<IRecurringCheckoutGateway>();
+            var remote = await provider.FindAsync($"sub_{issued.AttemptId:N}", default);
+            Assert.Equal(cutoff, remote.NextChargeAt);
+            Assert.True((await provider.FindCyclePaymentAsync(remote.Id!, cutoff, Money.From(299m), default)).NoInvoice);
+        }
+        var trialRequest = new RequestPlanChange("PREMIUM", Guid.NewGuid());
+        gateway.RecurringUpdateTimeout = true;
+        using var upgradeResponse = await tenant.Client.PostAsJsonAsync(Billing + "/plan-change", trialRequest);
+        Assert.Equal(HttpStatusCode.Accepted, upgradeResponse.StatusCode);
+        var waiting = (await upgradeResponse.Content.ReadFromJsonAsync<PlanChangeRequestResponse>())!;
+        Assert.Equal("AwaitingRecurringConfirmation", waiting.State);
+        Assert.Equal(199m, waiting.SourcePrice);
+        Assert.Equal(299m, waiting.TargetPrice);
+        Assert.Equal(cutoff, waiting.CycleEnd);
+        Assert.Null(waiting.Issue);
+        var before = (await tenant.Client.GetFromJsonAsync<SubscriptionResponse>(Billing))!;
+        Assert.Equal("ESSENCIAL", before.PlanCode);
+        Assert.Equal(1, gateway.RecurringUpdates);
+        Assert.Equal(0, gateway.UpgradePosts);
+        await VerifyCycleAsync(tenant.Client);
+        var upgradedTrial = (await tenant.Client.GetFromJsonAsync<SubscriptionResponse>(Billing))!;
+        Assert.Equal("PREMIUM", upgradedTrial.PlanCode);
+        Assert.Equal(trial.TrialStartsAt, upgradedTrial.TrialStartedAtUtc);
+        Assert.Equal(cutoff, upgradedTrial.TrialEndsAtUtc);
+        Assert.Equal(1, gateway.Posts);
+        Assert.Equal(1, gateway.RecurringUpdates);
+
+        gateway.Now = gateway.CycleDue = cutoff;
+        gateway.Approved = true;
+        Assert.Equal("Active", (await VerifyAsync(tenant.Client, initial.CheckoutKey)).State);
+        var paid = (await tenant.Client.GetFromJsonAsync<SubscriptionResponse>(Billing))!;
+        var next = paid.NextChargeAtUtc!.Value;
+        gateway.ProviderNextCharge = next;
+        gateway.Now = cutoff.AddTicks((next - cutoff).Ticks / 2);
+        var paidRequest = new RequestPlanChange("BUSINESS", Guid.NewGuid());
+        var requested = (await (await tenant.Client.PostAsJsonAsync(Billing + "/plan-change", paidRequest))
+            .Content.ReadFromJsonAsync<PlanChangeRequestResponse>())!;
+        Assert.Equal("AwaitingPaymentConsent", requested.State);
+        Assert.Equal(100m, requested.AdditionalAmount);
+        var replay = (await (await tenant.Client.PostAsJsonAsync(Billing + "/plan-change", paidRequest))
+            .Content.ReadFromJsonAsync<PlanChangeRequestResponse>())!;
+        Assert.Equal(requested.Id, replay.Id);
+        var paymentUrl = $"{Billing}/plan-change/{requested.Id}/payment";
+        var payment = new ConfirmPlanChangePayment("new-payment-token", "visa");
+        Assert.Equal(HttpStatusCode.NotFound, (await other.Client.PostAsJsonAsync(paymentUrl, payment)).StatusCode);
+        gateway.UpgradeStatus = "rejected";
+        using var refused = await tenant.Client.PostAsJsonAsync(paymentUrl, payment);
+        Assert.Equal("Failed", (await refused.Content.ReadFromJsonAsync<PlanChangeRequestResponse>())!.State);
+        Assert.Equal(1, gateway.RecurringUpdates);
+        requested = (await (await tenant.Client.PostAsJsonAsync(Billing + "/plan-change",
+            paidRequest with { OperationKey = Guid.NewGuid() })).Content.ReadFromJsonAsync<PlanChangeRequestResponse>())!;
+        paymentUrl = $"{Billing}/plan-change/{requested.Id}/payment";
+        gateway.UpgradePaymentTimeout = true;
+        gateway.UpgradeStatus = "pending";
+        using var pendingResponse = await tenant.Client.PostAsJsonAsync(paymentUrl, payment);
+        Assert.Equal(HttpStatusCode.Accepted, pendingResponse.StatusCode);
+        Assert.Equal("AwaitingPaymentConfirmation",
+            (await pendingResponse.Content.ReadFromJsonAsync<PlanChangeRequestResponse>())!.State);
+        Assert.Equal("PREMIUM", (await tenant.Client.GetFromJsonAsync<SubscriptionResponse>(Billing))!.PlanCode);
+        await tenant.Client.PostAsJsonAsync(paymentUrl, payment);
+        Assert.Equal(2, gateway.UpgradePosts);
+        Assert.Equal(HttpStatusCode.Conflict, (await tenant.Client.PostAsync(Billing + "/cancel", null)).StatusCode);
+
+        gateway.UpgradeStatus = "approved";
+        using var anonymous = factory.CreateClient();
+        var eventId = Guid.NewGuid().ToString("N");
+        Assert.Equal(HttpStatusCode.OK, await NotifyAsync(anonymous, "payment", gateway.UpgradePaymentId, eventId));
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var worker = scope.ServiceProvider.GetServices<IScheduledJob>().OfType<MercadoPagoInboxJob>().Single();
+            Assert.True(await worker.ProcessNextAsync(default));
+        }
+        Assert.Equal(2, gateway.RecurringUpdates);
+        Assert.Equal("PREMIUM", (await tenant.Client.GetFromJsonAsync<SubscriptionResponse>(Billing))!.PlanCode);
+        await VerifyCycleAsync(tenant.Client);
+        var upgradedPaid = (await tenant.Client.GetFromJsonAsync<SubscriptionResponse>(Billing))!;
+        Assert.Equal("BUSINESS", upgradedPaid.PlanCode);
+        Assert.Equal(next, upgradedPaid.NextChargeAtUtc);
+        Assert.Equal(2, gateway.RecurringUpdates);
+        Assert.Equal(2, gateway.UpgradePosts);
+        var complete = (await tenant.Client.GetFromJsonAsync<PlanChangeRequestResponse>(Billing + "/plan-change"))!;
+        Assert.Equal("Effective", complete.State);
+        Assert.True(complete.PaymentApproved);
+        Assert.True(complete.RecurrenceConfirmed);
+        Assert.Equal(1, gateway.Posts);
     }
 
     private Task SetProfessionalAsync(Guid tenantId, Guid professionalId, bool active) =>
@@ -843,6 +948,15 @@ public sealed class CheckoutProviderStub : HttpMessageHandler
     public DateTimeOffset? Now { get; set; }
     public DateTimeOffset Instant => Now ?? DateTimeOffset.UtcNow;
     public decimal? NewRecurringAmount { get; set; }
+    public bool RecurringUpdateTimeout { get; set; }
+    public int RecurringUpdates { get; private set; }
+    public bool UpgradePaymentTimeout { get; set; }
+    public string UpgradeStatus { get; set; } = "pending";
+    public int UpgradePosts { get; private set; }
+    public string UpgradePaymentId => _upgradeId.ToString(System.Globalization.CultureInfo.InvariantCulture);
+    private string? _upgradeReference;
+    private long _upgradeId;
+    private decimal _upgradeAmount;
     public bool NotificationUnavailable { get; set; }
     public bool AuthorizationPending { get; set; }
     public string? SearchBehavior { get; set; }
@@ -873,6 +987,10 @@ public sealed class CheckoutProviderStub : HttpMessageHandler
         ProviderNextCharge = null;
         BeforeCycleResponse = null;
         NewRecurringAmount = null;
+        RecurringUpdateTimeout = UpgradePaymentTimeout = false;
+        RecurringUpdates = UpgradePosts = 0;
+        UpgradeStatus = "pending";
+        _upgradeReference = null;
         Outcome = outcome;
         ReleasePost = null;
         PostEntered = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -899,11 +1017,45 @@ public sealed class CheckoutProviderStub : HttpMessageHandler
         }
         if (request.Method == HttpMethod.Put)
         {
+            var body = await request.Content!.ReadFromJsonAsync<JsonElement>(cancellationToken);
+            if (body.TryGetProperty("auto_recurring", out var recurring))
+            {
+                RecurringUpdates++;
+                NewRecurringAmount = recurring.GetProperty("transaction_amount").GetDecimal();
+                Assert.Single(body.EnumerateObject());
+                Assert.Equal(2, recurring.EnumerateObject().Count());
+                if (RecurringUpdateTimeout) throw new TaskCanceledException();
+                return Authorization(uri.Segments[^1], "authorized");
+            }
             CancellationPosts++;
             if (CancellationTimeout) throw new TaskCanceledException();
             Cancelled = true;
             return Authorization(uri.Segments[^1], "cancelled");
         }
+        if (uri.AbsolutePath == "/v1/payment_methods")
+            return Reply(HttpStatusCode.OK, new[] { new { id = "visa", payment_type_id = "credit_card", status = "active" } });
+        if (uri.AbsolutePath == "/v1/payments" && request.Method == HttpMethod.Post)
+        {
+            var body = await request.Content!.ReadFromJsonAsync<JsonElement>(cancellationToken);
+            _upgradeReference = body.GetProperty("external_reference").GetString()!;
+            Assert.Equal($"servia-upgrade:{Guid.Parse(request.Headers.GetValues("X-Idempotency-Key").Single()):N}", _upgradeReference);
+            Assert.Equal("new-payment-token", body.GetProperty("token").GetString());
+            Assert.Equal(1, body.GetProperty("installments").GetInt32());
+            _upgradeAmount = body.GetProperty("transaction_amount").GetDecimal();
+            _upgradeId = Interlocked.Increment(ref _nextPaymentId);
+            UpgradePosts++;
+            if (UpgradePaymentTimeout) throw new TaskCanceledException();
+            return Reply(HttpStatusCode.Created, new { id = _upgradeId });
+        }
+        if (uri.AbsolutePath == "/v1/payments/search")
+            return Reply(HttpStatusCode.OK, new { paging = new { total = 1 }, results = new[] { new { id = _upgradeId } } });
+        if (uri.AbsolutePath == "/authorized_payments/search" && _upgradeReference is not null &&
+            uri.Query.StartsWith($"?payment_id={UpgradePaymentId}&", StringComparison.Ordinal))
+            return Reply(HttpStatusCode.OK, new { paging = new { offset = 0, total = 0 }, results = Array.Empty<object>() });
+        if (uri.AbsolutePath == $"/v1/payments/{_upgradeId}" && _upgradeReference is not null)
+            return Reply(HttpStatusCode.OK, new { id = _upgradeId, currency_id = "BRL", payment_type_id = "credit_card",
+                external_reference = _upgradeReference, status = UpgradeStatus, date_approved = Instant,
+                transaction_amount = _upgradeAmount, transaction_amount_refunded = 0 });
         if (request.Method == HttpMethod.Post)
         {
             Assert.Equal("/preapproval", uri.AbsolutePath);

@@ -29,6 +29,14 @@ internal sealed class PlanChangeConfiguration : IEntityTypeConfiguration<PlanCha
             .HasDefaultValue(PlanChangeStatus.Effective);
         builder.Property(change => change.RequestedPrice).HasPrecision(18, 2);
         builder.Property(change => change.RequestedCurrency).HasMaxLength(3);
+        builder.Property(change => change.SourcePrice).HasPrecision(18, 2);
+        builder.Property(change => change.AdditionalAmount).HasPrecision(18, 2);
+        builder.Property(change => change.AdditionalPaymentId).HasMaxLength(100);
+        builder.Property(change => change.Issue).HasMaxLength(64);
+        builder.Property<uint>("Version").IsRowVersion();
+        builder.HasIndex(change => new { change.TenantId, change.OperationKey }).IsUnique()
+            .HasFilter("\"OperationKey\" IS NOT NULL");
+        builder.HasIndex(change => change.AdditionalPaymentId).IsUnique().HasFilter("\"AdditionalPaymentId\" IS NOT NULL");
         builder.HasIndex(change => new { change.TenantId, change.SubscriptionId }, "UX_PlanChanges_RequestedSubscription")
             .IsUnique().HasFilter("\"Status\" = 'Requested'");
 

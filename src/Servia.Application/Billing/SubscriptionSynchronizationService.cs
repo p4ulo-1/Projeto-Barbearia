@@ -4,7 +4,7 @@ using Servia.Domain.Tenancy;
 namespace Servia.Application.Billing;
 
 public sealed class SubscriptionSynchronizationService(SubscriptionCheckoutService checkout,
-    SubscriptionLifecycleService lifecycle, TimeProvider clock)
+    SubscriptionLifecycleService lifecycle, SubscriptionPlanChangeService planChanges, TimeProvider clock)
 {
     public async Task<LifecycleResult> ApplyAsync(Subscription subscription, RecurringAuthorization authorization,
         CancellationToken cancellationToken, DateTimeOffset? expectedDue = null, bool authorizationOnly = false)
@@ -30,6 +30,13 @@ public sealed class SubscriptionSynchronizationService(SubscriptionCheckoutServi
         }
 
         var cancelled = authorization.Status is "cancelled" or "canceled";
+        if (!cancelled)
+        {
+            var pending = await planChanges.SynchronizeAsync(subscription.TenantId, subscription.Id,
+                cancellationToken, propagateGatewayError: true);
+            if (pending && subscription.ChargeDeadline > clock.GetUtcNow() && !authorizationOnly)
+                return new(subscription, "PlanChangePending");
+        }
         if (subscription.FirstPaymentId is not null || (subscription.IsOnTrial && subscription.TrialDeadline > clock.GetUtcNow()
             && (cancelled || subscription.CancellationRequestedOn.HasValue)))
         {

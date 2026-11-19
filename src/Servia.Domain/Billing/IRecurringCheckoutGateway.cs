@@ -13,6 +13,11 @@ public interface IRecurringCheckoutGateway
     Task<RecurringCycleEvidence> FindCyclePaymentAsync(string subscriptionId, DateTimeOffset dueAt,
         Money amount, CancellationToken cancellationToken);
     Task RequestCancellationAsync(string subscriptionId, CancellationToken cancellationToken);
+    Task UpdateRecurringPriceAsync(string subscriptionId, Money amount, CancellationToken cancellationToken);
+    Task<bool> IsCreditCardMethodAsync(string method, CancellationToken cancellationToken);
+    Task CreateUpgradePaymentAsync(Guid operationId, Money amount, string token, string method, string email,
+        CancellationToken cancellationToken);
+    Task<UpgradePaymentEvidence?> FindUpgradePaymentAsync(Guid operationId, CancellationToken cancellationToken);
     Task<RecurringNotificationPayment> ReadNotificationPaymentAsync(string resourceId, bool isInvoice,
         CancellationToken cancellationToken);
 }
@@ -26,8 +31,11 @@ public sealed record RecurringAuthorization(string? Id, string? ExternalReferenc
 
 public sealed record ApprovedRecurringPayment(string Id, DateTimeOffset DueAt, DateTimeOffset ApprovedAt);
 public sealed record RecurringCycleEvidence(ApprovedRecurringPayment? Payment = null, bool Rejected = false,
-    DateTimeOffset? DueAt = null, bool NoInvoice = false);
-public sealed record RecurringNotificationPayment(string? SubscriptionId, DateTimeOffset? DueAt, string? PaymentStatus);
+    DateTimeOffset? DueAt = null, bool NoInvoice = false, decimal? InvoiceAmount = null, string? Currency = null);
+public sealed record RecurringNotificationPayment(string? SubscriptionId, DateTimeOffset? DueAt, string? PaymentStatus,
+    string? ExternalReference = null);
+public sealed record UpgradePaymentEvidence(string Id, string? Status, decimal? Amount, string? Currency,
+    string? PaymentType, decimal? Refunded, DateTimeOffset? ApprovedAt);
 
 /// <summary>Erro seguro para a aplicação, sem corpo ou credenciais do provedor.</summary>
 public sealed class RecurringCheckoutGatewayException(bool rejected = false, bool rateLimited = false,
