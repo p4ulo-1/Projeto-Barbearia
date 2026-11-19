@@ -74,6 +74,8 @@ beforeEach(() => {
     periodStart: "2026-11-01",
     periodEnd: "2026-11-15",
     trialEndsAt: "2026-11-15",
+    trialStartedAtUtc: "2026-11-01T12:00:00Z",
+    trialEndsAtUtc: "2026-11-15T12:00:00Z",
   });
   mocks.invoices.mockResolvedValue({
     items: [],
@@ -110,7 +112,7 @@ describe("oferta e seleção de planos", () => {
     expect(screen.getByText("Até 8 profissionais elegíveis")).toBeInTheDocument();
     expect(screen.getByText("Personalização do site: avançada")).toBeInTheDocument();
     expect(screen.getByText(/Em teste/).closest("p")).toHaveTextContent("Essencial");
-    expect(screen.getByText(/Fim do teste em/)).toBeInTheDocument();
+    expect(screen.getByText(/Trial autorizado:/)).toBeInTheDocument();
     expect(screen.getByText(/seleção não altera o plano vigente/)).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: /alterar plano|contratar plano/i }),
@@ -139,8 +141,6 @@ describe("contratação e acompanhamento", () => {
     checkoutKey: "key-1",
     attemptId: "attempt-1",
     state: "AwaitingExternalConfirmation",
-    checkoutUrl: null,
-    resumeOn: null,
     trialStartsAt: null,
     trialEndsAt: null,
   };

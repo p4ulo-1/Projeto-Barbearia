@@ -15,8 +15,7 @@ namespace Servia.Application.Billing;
 public sealed class SubscriptionService(
     ISubscriptionRepository subscriptions,
     IPlanRepository plans,
-    IProfessionalCountReader professionalCounts,
-    TimeProvider timeProvider)
+    IProfessionalCountReader professionalCounts)
 {
     private const string FinancialConfirmationRequired =
         "Operação temporariamente indisponível até que a confirmação financeira esteja habilitada.";
@@ -31,44 +30,6 @@ public sealed class SubscriptionService(
 
     public Task<Subscription?> FindCurrentAsync(Guid tenantId, CancellationToken cancellationToken = default) =>
         subscriptions.FindCurrentAsync(tenantId, cancellationToken);
-
-    /// <summary>Encerra o trial local. O cancelamento pago depende de confirmação externa.</summary>
-    public Task<SubscriptionResult> CancelAsync(
-        Guid tenantId, CancellationToken cancellationToken = default) =>
-        subscriptions.ExecuteSerializableAsync(token => CancelTrialAsync(tenantId, token), cancellationToken);
-
-    private async Task<SubscriptionResult> CancelTrialAsync(
-        Guid tenantId,
-        CancellationToken cancellationToken)
-    {
-        var subscription = await subscriptions.FindCurrentAsync(tenantId, cancellationToken);
-
-        if (subscription is null)
-        {
-            return SubscriptionResult.Invalid("O estabelecimento não possui assinatura.");
-        }
-
-        if (!subscription.IsOnTrial && subscription.TrialEndsAt is null)
-        {
-            return SubscriptionResult.Invalid(FinancialConfirmationRequired);
-        }
-
-        try
-        {
-            var today = DateOnly.FromDateTime(timeProvider.GetUtcNow().UtcDateTime);
-            subscription.CancelTrial(today);
-        }
-        catch (DomainRuleException exception)
-        {
-            return SubscriptionResult.Invalid(exception.Message);
-        }
-
-        await subscriptions.SaveChangesAsync(cancellationToken);
-
-        var plan = await plans.FindByIdAsync(subscription.EffectivePlanId, cancellationToken);
-
-        return SubscriptionResult.Succeeded(subscription, plan, null);
-    }
 
     /// <summary>
     /// Verifica se a equipe atual excede a faixa do plano e, se sim,

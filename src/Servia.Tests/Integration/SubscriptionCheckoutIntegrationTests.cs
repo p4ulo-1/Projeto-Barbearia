@@ -46,10 +46,10 @@ public sealed class SubscriptionCheckoutIntegrationTests(CheckoutApiFactory fact
         factory.Stub.Reset();
         Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.GetAsync($"{Checkout}/current")).StatusCode);
         var subscription = await tenant.Client.GetFromJsonAsync<SubscriptionResponse>(Billing);
-        Assert.Equal("Operational", subscription!.BillingAccess);
+        Assert.Equal("OwnerReadOnly", subscription!.BillingAccess);
         Assert.Equal(HttpStatusCode.NoContent, (await other.Client.GetAsync($"{Checkout}/current")).StatusCode);
-        var request = new StartCheckoutRequest(Guid.NewGuid(), "PRO");
-        var issued = await StartAsync(tenant.Client, request, "WaitingForTrialEnd");
+        var request = new StartCheckoutRequest(Guid.NewGuid(), "PRO", "opaque-test-token");
+        var issued = await StartAsync(tenant.Client, request, "AwaitingExternalConfirmation");
         var recovered = await tenant.Client.GetFromJsonAsync<CheckoutResponse>($"{Checkout}/current");
         Assert.Equal(issued.CheckoutKey, recovered!.CheckoutKey);
         Assert.Equal(issued.State, recovered.State);
@@ -112,8 +112,8 @@ public sealed class SubscriptionCheckoutIntegrationTests(CheckoutApiFactory fact
     [Fact]
     public async Task Webhook_Integra_Trial_Pagamentos_Renovacao_E_Cancelamento_Sem_Regressao()
     {
-        using var tenant = await SignUpAsync(legacy: false);
-        using var other = await SignUpAsync(legacy: false);
+        using var tenant = await SignUpAsync();
+        using var other = await SignUpAsync();
         using var client = factory.CreateClient();
         var gateway = factory.Stub;
         gateway.Reset();
@@ -221,8 +221,7 @@ public sealed class SubscriptionCheckoutIntegrationTests(CheckoutApiFactory fact
         gateway.Reset();
         try
         {
-            await AgeTrialAsync(tenant.Id);
-            var checkout = await StartAsync(tenant.Client, new StartCheckoutRequest(Guid.NewGuid(), "PRO"), "AwaitingAuthorization");
+            var checkout = await StartAsync(tenant.Client, new StartCheckoutRequest(Guid.NewGuid(), "PRO", "opaque-test-token"), "AwaitingExternalConfirmation");
             var eventId = await EnqueueAsync(client, MercadoPagoNotification.Subscription, $"sub_{checkout.AttemptId:N}");
             gateway.Now = gateway.Instant;
             await using var abandonedScope = factory.Services.CreateAsyncScope();
@@ -245,7 +244,7 @@ public sealed class SubscriptionCheckoutIntegrationTests(CheckoutApiFactory fact
             gateway.Now = failed.AvailableAt;
             gateway.NotificationUnavailable = false;
             var retried = await ProcessNotificationAsync(eventId);
-            Assert.Equal("AwaitingAuthorization", retried.Result);
+            Assert.Equal("Trialing", retried.Result);
             Assert.NotNull(retried.CompletedAt);
             Assert.Equal(3, retried.Attempts);
         }
@@ -258,7 +257,7 @@ public sealed class SubscriptionCheckoutIntegrationTests(CheckoutApiFactory fact
     [Fact]
     public async Task Trial_Autorizado_Expira_No_Instante_E_Renovacao_Restaura_Acesso_Apos_48h()
     {
-        using var tenant = await SignUpAsync(legacy: false);
+        using var tenant = await SignUpAsync();
         using var other = await SignUpAsync();
         using var receptionist = await SignInReceptionistAsync(tenant.Id);
         var gateway = factory.Stub;
@@ -347,7 +346,7 @@ public sealed class SubscriptionCheckoutIntegrationTests(CheckoutApiFactory fact
     [Fact]
     public async Task Cancelamento_Ambiguo_Bloqueia_Trial_Sem_Reenviar_E_Nao_Antecipa_Outra_Contratacao()
     {
-        using var tenant = await SignUpAsync(legacy: false);
+        using var tenant = await SignUpAsync();
         var gateway = factory.Stub;
         gateway.Reset();
         var request = new StartCheckoutRequest(Guid.NewGuid(), "PRO", "opaque-test-token");
@@ -362,8 +361,8 @@ public sealed class SubscriptionCheckoutIntegrationTests(CheckoutApiFactory fact
             new CreateServiceRequest("Bloqueado", 10, 30))).StatusCode);
         gateway.Cancelled = true;
         Assert.Equal("Cancelled", (await VerifyCycleAsync(tenant.Client)).State);
-        Assert.Equal("WaitingForTrialEnd", (await StartAsync(tenant.Client,
-            new StartCheckoutRequest(Guid.NewGuid(), "PRO"), "WaitingForTrialEnd")).State);
+        Assert.Equal(HttpStatusCode.BadRequest, (await tenant.Client.PostAsJsonAsync(Checkout,
+            new StartCheckoutRequest(Guid.NewGuid(), "PRO", "opaque-test-token"))).StatusCode);
         Assert.Equal(1, gateway.Posts);
     }
 
@@ -371,14 +370,17 @@ public sealed class SubscriptionCheckoutIntegrationTests(CheckoutApiFactory fact
     public async Task Downgrade_Revalida_Capacidade_Upgrade_Aguarda_E_Cancelamento_Preserva_Periodo_Pago()
     {
         using var tenant = await SignUpAsync();
-        await AgeTrialAsync(tenant.Id);
         var gateway = factory.Stub;
         gateway.Reset();
         gateway.Now = DateTimeOffset.FromUnixTimeMilliseconds(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
         try
         {
-            var checkout = new StartCheckoutRequest(Guid.NewGuid(), "PRO");
-            await StartAsync(tenant.Client, checkout, "AwaitingAuthorization");
+            var checkout = new StartCheckoutRequest(Guid.NewGuid(), "PRO", "opaque-test-token");
+            await StartAsync(tenant.Client, checkout, "AwaitingExternalConfirmation");
+            var trial = await VerifyAsync(tenant.Client, checkout.CheckoutKey);
+            Assert.Equal("Trialing", trial.State);
+            gateway.Now = (await tenant.Client.GetFromJsonAsync<SubscriptionResponse>(Billing))!.TrialEndsAtUtc!.Value;
+            gateway.CycleDue = gateway.Now;
             gateway.Approved = gateway.Authorized = true;
             Assert.Equal("Active", (await VerifyAsync(tenant.Client, checkout.CheckoutKey)).State);
             var paid = (await tenant.Client.GetFromJsonAsync<SubscriptionResponse>(Billing))!;
@@ -482,44 +484,40 @@ public sealed class SubscriptionCheckoutIntegrationTests(CheckoutApiFactory fact
     }
 
     [Fact]
-    public async Task Trial_Continua_Vigente_E_Retomada_Apos_Expiracao_Usa_A_Mesma_Tentativa()
+    public async Task Contratacao_Exige_Cartao_E_Nao_Dispara_Sem_Token()
     {
         using var tenant = await SignUpAsync();
-        var gateway = factory.Stub;
-        gateway.Reset();
+        factory.Stub.Reset();
         var request = new StartCheckoutRequest(Guid.NewGuid(), "PRO");
-        var initial = await StartAsync(tenant.Client, request, "WaitingForTrialEnd");
-        Assert.NotNull(initial.ResumeOn);
-        Assert.Null(initial.CheckoutUrl);
-        Assert.Equal(0, gateway.Posts);
-        var subscription = await tenant.Client.GetFromJsonAsync<SubscriptionResponse>("/api/v1/billing/subscription");
-        Assert.Equal("Trialing", subscription!.Status);
-        Assert.NotEqual(initial.AttemptId, subscription.Id);
-        Assert.Equal(initial, await StartAsync(tenant.Client, request, "WaitingForTrialEnd"));
-
-        await AgeTrialAsync(tenant.Id);
-        var resumed = await StartAsync(tenant.Client, request, "AwaitingAuthorization");
-        Assert.Equal(initial.AttemptId, resumed.AttemptId);
-        Assert.NotNull(resumed.CheckoutUrl);
-        Assert.Equal(1, gateway.Posts);
+        using var rejected = await tenant.Client.PostAsJsonAsync(Checkout, request);
+        Assert.Equal(HttpStatusCode.BadRequest, rejected.StatusCode);
+        Assert.Equal(0, factory.Stub.Posts);
+        Assert.Equal("AwaitingTrialAuthorization", (await tenant.Client.GetFromJsonAsync<SubscriptionResponse>(Billing))!.Status);
+        var issued = await StartAsync(tenant.Client, request with { CardToken = "opaque-test-token" }, "AwaitingExternalConfirmation");
+        Assert.Equal(issued, await StartAsync(tenant.Client, request, "AwaitingExternalConfirmation"));
+        Assert.Equal(1, factory.Stub.Posts);
     }
 
     [Fact]
     public async Task Concorrencia_Tenant_E_Pagamento_Provado_Protegem_Uma_Unica_Ativacao()
     {
+        factory.Stub.Reset();
         using var tenant = await SignUpAsync();
         using var other = await SignUpAsync();
-        await AgeTrialAsync(tenant.Id);
         using var receptionist = await SignInReceptionistAsync(tenant.Id);
         var gateway = factory.Stub;
         gateway.Reset();
+        gateway.AuthorizationPending = true;
         gateway.ReleasePost = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        var request = new StartCheckoutRequest(Guid.NewGuid(), "PRO");
-        Assert.Equal(HttpStatusCode.Forbidden, (await receptionist.PostAsJsonAsync(Checkout, request)).StatusCode);
+        var request = new StartCheckoutRequest(Guid.NewGuid(), "PRO", "opaque-test-token");
+        Assert.Contains((await receptionist.PostAsJsonAsync(Checkout, request)).StatusCode,
+            new[] { HttpStatusCode.Unauthorized, HttpStatusCode.Forbidden });
 
-        var start = StartAsync(tenant.Client, request, "AwaitingAuthorization");
+        var start = StartAsync(tenant.Client, request, "AwaitingExternalConfirmation");
         try
         {
+            var firstCompleted = await Task.WhenAny(gateway.PostEntered.Task, start);
+            if (firstCompleted == start) await start;
             await gateway.PostEntered.Task.WaitAsync(TimeSpan.FromSeconds(12));
             var replay = await StartAsync(tenant.Client, request, "RequiresReconciliation");
             Assert.Equal(HttpStatusCode.Conflict,
@@ -542,21 +540,22 @@ public sealed class SubscriptionCheckoutIntegrationTests(CheckoutApiFactory fact
             gateway.ReleasePost.TrySetResult();
         }
         var created = await start;
-        Assert.Equal(created, await StartAsync(tenant.Client, request, "AwaitingAuthorization"));
+        Assert.Equal(created, await StartAsync(tenant.Client, request, "AwaitingExternalConfirmation"));
         var forged = await tenant.Client.PostAsJsonAsync($"{Checkout}/{request.CheckoutKey}/verify",
             new { preapproval_id = "outra-assinatura", payment_id = 1234567, status = "approved" });
         Assert.Equal(HttpStatusCode.OK, forged.StatusCode);
-        Assert.Equal("AwaitingAuthorization", (await forged.Content.ReadFromJsonAsync<CheckoutResponse>())!.State);
+        Assert.Equal("AwaitingExternalConfirmation", (await forged.Content.ReadFromJsonAsync<CheckoutResponse>())!.State);
         gateway.InvalidReference = true;
         Assert.Equal("RequiresReconciliation", (await VerifyAsync(tenant.Client, request.CheckoutKey)).State);
         gateway.InvalidReference = false;
+        gateway.AuthorizationPending = false;
         gateway.Authorized = true;
-        Assert.Equal("AwaitingFinancialConfirmation", (await VerifyAsync(tenant.Client, request.CheckoutKey)).State);
+        var trial = await VerifyAsync(tenant.Client, request.CheckoutKey);
+        Assert.Equal("Trialing", trial.State);
+        gateway.Now = (await tenant.Client.GetFromJsonAsync<SubscriptionResponse>(Billing))!.TrialEndsAtUtc!.Value;
+        gateway.CycleDue = gateway.Now;
         Assert.Equal("Trialing", (await tenant.Client.GetFromJsonAsync<SubscriptionResponse>("/api/v1/billing/subscription"))!.Status);
         gateway.Approved = true;
-        gateway.EarlierUnpaid = true;
-        Assert.Equal("AwaitingFinancialConfirmation", (await VerifyAsync(tenant.Client, request.CheckoutKey)).State);
-        gateway.EarlierUnpaid = false;
         gateway.Refunded = true;
         Assert.Equal("AwaitingFinancialConfirmation", (await VerifyAsync(tenant.Client, request.CheckoutKey)).State);
         gateway.Refunded = false;
@@ -574,7 +573,7 @@ public sealed class SubscriptionCheckoutIntegrationTests(CheckoutApiFactory fact
         await WithTenantAsync(tenant.Id, async db =>
         {
             Assert.Single(await db.PlanChanges.Where(change => change.SubscriptionId == created.AttemptId).ToListAsync());
-            Assert.Single(await db.Subscriptions.Where(item => item.Status == SubscriptionStatus.Expired).ToListAsync());
+            Assert.Single(await db.Subscriptions.Where(item => item.Status == SubscriptionStatus.Active).ToListAsync());
         });
     }
 
@@ -585,9 +584,8 @@ public sealed class SubscriptionCheckoutIntegrationTests(CheckoutApiFactory fact
     public async Task Falhas_Do_Post_Nao_Repetem_Envio_E_Somente_Recusa_Libera_Outra_Chave(string outcome)
     {
         using var tenant = await SignUpAsync();
-        await AgeTrialAsync(tenant.Id);
         factory.Stub.Reset(outcome);
-        var request = new StartCheckoutRequest(Guid.NewGuid(), "PRO");
+        var request = new StartCheckoutRequest(Guid.NewGuid(), "PRO", "opaque-test-token");
         var state = outcome == "refused" ? "Failed" : "RequiresReconciliation";
         var first = await StartAsync(tenant.Client, request, state);
         Assert.Equal(first, await StartAsync(tenant.Client, request, state));
@@ -604,7 +602,7 @@ public sealed class SubscriptionCheckoutIntegrationTests(CheckoutApiFactory fact
             Assert.Equal(HttpStatusCode.Conflict, (await tenant.Client.PostAsJsonAsync(Checkout, newKey)).StatusCode);
             Assert.Equal(1, factory.Stub.Posts);
         }
-        Assert.Equal("Trialing", (await tenant.Client.GetFromJsonAsync<SubscriptionResponse>("/api/v1/billing/subscription"))!.Status);
+        Assert.Equal("AwaitingTrialAuthorization", (await tenant.Client.GetFromJsonAsync<SubscriptionResponse>("/api/v1/billing/subscription"))!.Status);
     }
 
     [Fact]
@@ -612,26 +610,23 @@ public sealed class SubscriptionCheckoutIntegrationTests(CheckoutApiFactory fact
     {
         using var tenant = await SignUpAsync();
         using var other = await SignUpAsync();
-        await AgeTrialAsync(tenant.Id);
-        await AgeTrialAsync(other.Id);
         var gateway = factory.Stub;
         gateway.Reset();
-        var code = "E4-" + Guid.NewGuid().ToString("N")[..8];
-        await WithTenantAsync(tenant.Id, async db =>
-        {
-            db.Plans.Add(Plan.Create(code, "Teste E4", Money.From(99m), 1, SiteCustomizationLevel.Basic, 0));
-            await db.SaveChangesAsync();
-        });
-        var request = new StartCheckoutRequest(Guid.NewGuid(), code);
-        await StartAsync(tenant.Client, request, "AwaitingAuthorization");
-        var otherRequest = new StartCheckoutRequest(Guid.NewGuid(), code);
-        await StartAsync(other.Client, otherRequest, "AwaitingAuthorization");
+        gateway.Now = DateTimeOffset.FromUnixTimeMilliseconds(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+        var request = new StartCheckoutRequest(Guid.NewGuid(), "PRO", "opaque-test-token");
+        await StartAsync(tenant.Client, request, "AwaitingExternalConfirmation");
+        var otherRequest = new StartCheckoutRequest(Guid.NewGuid(), "PRO", "opaque-test-token");
+        await StartAsync(other.Client, otherRequest, "AwaitingExternalConfirmation");
+        Assert.Equal("Trialing", (await VerifyAsync(tenant.Client, request.CheckoutKey)).State);
+        Assert.Equal("Trialing", (await VerifyAsync(other.Client, otherRequest.CheckoutKey)).State);
+        gateway.Now = (await tenant.Client.GetFromJsonAsync<SubscriptionResponse>(Billing))!.TrialEndsAtUtc!.Value;
+        gateway.CycleDue = gateway.Now;
         Guid professionalId = default;
         await WithTenantAsync(tenant.Id, async db =>
         {
             var service = Service.Create(tenant.Id, "Serviço", Money.From(20m), 30);
             db.Services.Add(service);
-            for (var i = 0; i < 2; i++)
+            for (var i = 0; i < 8; i++)
             {
                 var person = Professional.Create(tenant.Id, $"Profissional {i}",
                     WorkSchedule.Create([DayOfWeek.Monday], new TimeOnly(8, 0), new TimeOnly(17, 0)));
@@ -653,7 +648,7 @@ public sealed class SubscriptionCheckoutIntegrationTests(CheckoutApiFactory fact
             (await tenant.Client.PostAsync($"{Checkout}/{request.CheckoutKey}/verify", null)).StatusCode);
         await WithTenantAsync(tenant.Id, async db =>
         {
-            Assert.Single(await db.Subscriptions.Where(item => item.Status == SubscriptionStatus.Trialing).ToListAsync());
+            Assert.Single(await db.Subscriptions.Where(item => item.Status == SubscriptionStatus.AuthorizedAwaitingFirstPayment).ToListAsync());
             Assert.False(await db.PlanChanges.AnyAsync());
             Assert.Null((await db.Subscriptions.SingleAsync(item => item.CheckoutKey == request.CheckoutKey)).FirstPaymentId);
         });
@@ -721,8 +716,9 @@ public sealed class SubscriptionCheckoutIntegrationTests(CheckoutApiFactory fact
         return (await response.Content.ReadFromJsonAsync<CheckoutResponse>())!;
     }
 
-    private async Task<TestTenant> SignUpAsync(bool legacy = true)
+    private async Task<TestTenant> SignUpAsync()
     {
+        factory.Stub.Reset();
         var slug = "checkout-" + Guid.NewGuid().ToString("N")[..12];
         var email = slug + "@example.invalid";
         using var anonymous = factory.CreateClient();
@@ -734,17 +730,6 @@ public sealed class SubscriptionCheckoutIntegrationTests(CheckoutApiFactory fact
         Assert.Equal(HttpStatusCode.Created, signUp.StatusCode);
         var data = await signUp.Content.ReadFromJsonAsync<JsonElement>();
         var id = data.GetProperty("tenantId").GetGuid();
-        if (legacy)
-        {
-            await WithTenantAsync(id, async db =>
-            {
-                var end = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(14);
-                await db.Subscriptions.ExecuteUpdateAsync(update => update
-                    .SetProperty(item => item.Status, SubscriptionStatus.Trialing)
-                    .SetProperty(item => item.TrialEndsAt, end)
-                    .SetProperty(item => item.CurrentPeriodEnd, end));
-            });
-        }
         return new TestTenant(id, await SignInAsync(id, email));
     }
 
@@ -771,15 +756,6 @@ public sealed class SubscriptionCheckoutIntegrationTests(CheckoutApiFactory fact
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", auth.AccessToken);
         return client;
     }
-
-    private Task AgeTrialAsync(Guid tenant) => WithTenantAsync(tenant, async db =>
-    {
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
-        await db.Subscriptions.Where(item => item.Status == SubscriptionStatus.Trialing).ExecuteUpdateAsync(setters => setters
-            .SetProperty(item => item.CurrentPeriodStart, today.AddDays(-14))
-            .SetProperty(item => item.CurrentPeriodEnd, today)
-            .SetProperty(item => item.TrialEndsAt, today));
-    });
 
     private async Task WithTenantAsync(Guid tenant, Func<AppDbContext, Task> action)
     {

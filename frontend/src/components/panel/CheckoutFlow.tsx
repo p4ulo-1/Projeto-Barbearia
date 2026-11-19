@@ -6,17 +6,12 @@ import { operations as api, type Checkout, type Subscription } from "@/lib/api/o
 import { operationErrorMessage } from "@/lib/operation-feedback";
 import { CheckoutCard } from "./CheckoutCard";
 import { QueryState } from "./OperationsUI";
-import { displayDate } from "./forms";
 import { fmtDateTime } from "./status";
 
 const messages: Record<string, string> = {
-  AwaitingAuthorization: "Autorização da recorrência pendente.",
   AwaitingExternalConfirmation: "Aguardando confirmação da autorização pelo provedor.",
   RequiresReconciliation:
     "A confirmação está pendente de verificação. Não inicie outra contratação.",
-  WaitingForTrialEnd:
-    "O trial atual permanece válido; a contratação será retomada após seu vencimento.",
-  ReadyToResume: "A contratação está pronta para ser retomada.",
   Trialing: "Autorização confirmada; trial ativo.",
   AwaitingFinancialConfirmation:
     "Primeira cobrança aguardando confirmação. O plano pago ainda não foi ativado.",
@@ -49,10 +44,10 @@ export function CheckoutFlow({
     await qc.invalidateQueries({ queryKey: ["panel"] });
   };
   const start = useMutation({
-    mutationFn: async ({ token, legacy }: { token?: string; legacy?: boolean }) => {
+    mutationFn: async (token: string) => {
       const key = inFlightKey.current ?? crypto.randomUUID();
       inFlightKey.current = key;
-      return api.startCheckout(key, selectedPlan, legacy ? undefined : token);
+      return api.startCheckout(key, selectedPlan, token);
     },
     onSuccess: async (data) => {
       setResult(data);
@@ -91,12 +86,11 @@ export function CheckoutFlow({
     !current.isPending &&
     !!selectedPlan;
   const isNewTrial = subscription?.status === "AwaitingTrialAuthorization";
-  const legacy = subscription?.status === "Trialing" && !subscription.trialStartedAtUtc;
-  async function begin(token?: string, legacy = false) {
+  async function begin(token: string) {
     if (submissionLock.current || !startAllowed) return;
     submissionLock.current = true;
     try {
-      await start.mutateAsync({ ...(token ? { token } : {}), legacy });
+      await start.mutateAsync(token);
     } catch {
       /* feedback is displayed by the mutation */
     } finally {
@@ -125,7 +119,6 @@ export function CheckoutFlow({
                   {messages[attempt.state] ??
                     "A contratação está em verificação. Consulte novamente o estado."}
                 </p>
-                {attempt.resumeOn && <p>Retomada prevista em {displayDate(attempt.resumeOn)}.</p>}
                 {attempt.planCode && <p>Plano da tentativa: {attempt.planCode}.</p>}
                 {attempt.state === "Trialing" && attempt.trialStartsAt && attempt.trialEndsAt && (
                   <p>
@@ -133,12 +126,6 @@ export function CheckoutFlow({
                     {fmtDateTime(attempt.trialEndsAt)}. Primeira cobrança prevista para o
                     vencimento.
                   </p>
-                )}
-                {attempt.state === "AwaitingAuthorization" && (
-                  <Alert>
-                    A autorização hospedada está indisponível até confirmar a restrição a cartão de
-                    crédito.
-                  </Alert>
                 )}
                 <Button
                   type="button"
@@ -149,11 +136,6 @@ export function CheckoutFlow({
                 >
                   Consultar contratação
                 </Button>
-                {attempt.state === "ReadyToResume" && (
-                  <Alert>
-                    A retomada está indisponível até confirmar a restrição a cartão de crédito.
-                  </Alert>
-                )}
                 {attempt.state === "Failed" && !current.data && (
                   <Button
                     type="button"
@@ -176,13 +158,7 @@ export function CheckoutFlow({
               ) : (
                 <p>Selecione um plano para autorizar o cartão.</p>
               ))}
-            {!attempt && legacy && (
-              <p>
-                A contratação após o trial anterior está indisponível até confirmar a restrição a
-                cartão de crédito.
-              </p>
-            )}
-            {!attempt && !isNewTrial && !legacy && (
+            {!attempt && !isNewTrial && (
               <p>
                 A contratação de um novo plano não está disponível para o estado atual da
                 assinatura.

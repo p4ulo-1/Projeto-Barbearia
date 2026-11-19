@@ -239,7 +239,7 @@ public sealed class BillingController(
         return Ok(ToResponse(result));
     }
 
-    /// <summary>Solicita encerramento da recorrência ou cancela um trial legado.</summary>
+    /// <summary>Solicita encerramento da recorrência.</summary>
     [HttpPost("subscription/cancel")]
     [RequirePermission(Permission.ManageBilling)]
     [ProducesResponseType<LifecycleResponse>(StatusCodes.Status200OK)]
@@ -344,12 +344,11 @@ public sealed record StartCheckoutRequest(Guid CheckoutKey, [Required, MaxLength
     [MaxLength(200)] string? CardToken = null);
 
 public sealed record CheckoutResponse(Guid CheckoutKey, Guid AttemptId, string State,
-    string? CheckoutUrl, DateOnly? ResumeOn, DateTimeOffset? TrialStartsAt = null, DateTimeOffset? TrialEndsAt = null,
+    DateTimeOffset? TrialStartsAt = null, DateTimeOffset? TrialEndsAt = null,
     string? PlanCode = null)
 {
     public static CheckoutResponse From(CheckoutResult result) =>
         new(result.Attempt.CheckoutKey!.Value, result.Attempt.Id, result.State,
-            result.State == "AwaitingAuthorization" ? result.Attempt.CheckoutUrl : null, result.ResumeOn,
             result.Attempt.TrialStartedAtUtc, result.Attempt.TrialDeadline);
 }
 

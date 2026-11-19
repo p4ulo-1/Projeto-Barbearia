@@ -39,7 +39,8 @@ public sealed partial class MercadoPagoGateway
 
     public async Task<RecurringAuthorization> CreateAsync(RecurringCheckoutRequest checkout, CancellationToken cancellationToken)
     {
-        if (!CanStartCheckout) throw new RecurringCheckoutGatewayException();
+        if (!CanStartCheckout || string.IsNullOrWhiteSpace(checkout.TrialPlanId)
+            || string.IsNullOrWhiteSpace(checkout.CardToken)) throw new RecurringCheckoutGatewayException();
         var returnUrl = new UriBuilder(_returnUrl) { Query = $"checkoutKey={checkout.CheckoutKey:D}" };
         using var request = new HttpRequestMessage(HttpMethod.Post, "/preapproval")
         {
@@ -49,16 +50,9 @@ public sealed partial class MercadoPagoGateway
                 payer_email = checkout.PayerEmail,
                 external_reference = checkout.ExternalReference,
                 back_url = returnUrl.Uri.AbsoluteUri,
-                status = checkout.TrialPlanId is null ? "pending" : "authorized",
+                status = "authorized",
                 preapproval_plan_id = checkout.TrialPlanId,
-                card_token_id = checkout.CardToken,
-                auto_recurring = checkout.TrialPlanId is not null ? null : new
-                {
-                    frequency = checkout.IntervalMonths,
-                    frequency_type = "months",
-                    transaction_amount = checkout.Amount.Amount,
-                    currency_id = checkout.Amount.Currency
-                }
+                card_token_id = checkout.CardToken
             }, options: CheckoutJson)
         };
 
@@ -105,10 +99,6 @@ public sealed partial class MercadoPagoGateway
         }
         throw new RecurringCheckoutGatewayException();
     }
-
-    public Task<RecurringCycleEvidence> FindFirstPaymentAsync(
-        string subscriptionId, Money amount, CancellationToken cancellationToken)
-        => FindPaymentAsync(subscriptionId, null, amount, cancellationToken);
 
     public Task<RecurringCycleEvidence> FindCyclePaymentAsync(string subscriptionId, DateTimeOffset dueAt,
         Money amount, CancellationToken cancellationToken) => FindPaymentAsync(subscriptionId, dueAt, amount, cancellationToken);
@@ -261,16 +251,9 @@ public sealed partial class MercadoPagoGateway
     private static RecurringAuthorization ToAuthorization(Preapproval item)
     {
         var id = IsExternalId(item.Id) ? item.Id : null;
-        var url = id is not null && item.InitPoint is { Length: <= 2048 } link
-            && Uri.TryCreate(link, UriKind.Absolute, out var uri) && uri.Scheme == Uri.UriSchemeHttps
-            && uri.IsDefaultPort && string.IsNullOrEmpty(uri.UserInfo) && string.IsNullOrEmpty(uri.Fragment)
-            && uri.Host is "www.mercadopago.com.br" or "mercadopago.com.br"
-            && uri.AbsolutePath == "/subscriptions/checkout" && uri.Query == $"?preapproval_id={id}"
-            ? link
-            : null;
         return new RecurringAuthorization(id, item.ExternalReference, item.Status,
             item.AutoRecurring?.TransactionAmount, item.AutoRecurring?.CurrencyId,
-            item.AutoRecurring?.Frequency, item.AutoRecurring?.FrequencyType, url,
+            item.AutoRecurring?.Frequency, item.AutoRecurring?.FrequencyType,
             item.PreapprovalPlanId, item.DateCreated, item.NextPaymentDate);
     }
 
@@ -280,7 +263,7 @@ public sealed partial class MercadoPagoGateway
     private sealed record PreapprovalSearch(InvoicePaging? Paging, PreapprovalSearchItem[]? Results);
     private sealed record PreapprovalSearchItem(string? Id, JsonElement ExternalReference);
     private sealed record Preapproval(string? Id, string? ExternalReference, string? Status,
-        string? InitPoint, Recurrence? AutoRecurring, string? PreapprovalPlanId,
+        Recurrence? AutoRecurring, string? PreapprovalPlanId,
         DateTimeOffset? DateCreated, DateTimeOffset? NextPaymentDate);
     private sealed record TrialPlan(string? Id, string? Status, Recurrence? AutoRecurring,
         AllowedPaymentMethods? PaymentMethodsAllowed);

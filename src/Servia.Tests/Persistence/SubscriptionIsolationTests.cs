@@ -48,7 +48,7 @@ public class SubscriptionIsolationTests : IAsyncLifetime
         await using var context = _database.CreateContext(ContextFor(tenantId));
 
         var plan = await context.Plans.FirstAsync(plan => plan.Code == "ESSENCIAL");
-        var subscription = Subscription.StartTrial(tenantId, plan.Id, Today);
+        var subscription = TestSubscriptionFactory.AuthorizedTrial(tenantId, plan.Id, Today);
 
         context.Subscriptions.Add(subscription);
         await context.SaveChangesAsync();

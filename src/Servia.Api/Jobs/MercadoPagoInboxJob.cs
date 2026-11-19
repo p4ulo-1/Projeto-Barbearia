@@ -99,9 +99,9 @@ public sealed class MercadoPagoInboxJob(
         return payment?.PaymentStatus switch
         {
             "approved" when state is "AwaitingFinancialConfirmation" or "PaymentPending" or "PaymentRejected"
-                or "AwaitingAuthorization" or "AwaitingExternalConfirmation" or "FirstPaymentRejected" => "UnconfirmedPayment",
+                or "AwaitingExternalConfirmation" or "FirstPaymentRejected" => "UnconfirmedPayment",
             "rejected" when state is "AwaitingFinancialConfirmation" or "PaymentPending"
-                or "AwaitingAuthorization" or "AwaitingExternalConfirmation" => "UnconfirmedPayment",
+                or "AwaitingExternalConfirmation" => "UnconfirmedPayment",
             _ => state
         };
     }

@@ -14,7 +14,7 @@ public class SubscriptionTests
     private static readonly DateOnly Today = new(2026, 11, 10);
 
     private static Subscription NewTrial() =>
-        Subscription.StartTrial(TenantId, PlanId, Today, "cus_123");
+        TestSubscriptionFactory.AuthorizedTrial(TenantId, PlanId, Today, "cus_123");
 
     // ---------- Trial ----------
 
@@ -34,14 +34,14 @@ public class SubscriptionTests
     public void Iniciar_Trial_Sem_Tenant_Lanca_Excecao()
     {
         Assert.Throws<DomainRuleException>(() =>
-            Subscription.StartTrial(Guid.Empty, PlanId, Today));
+            TestSubscriptionFactory.AuthorizedTrial(Guid.Empty, PlanId, Today));
     }
 
     [Fact]
     public void Iniciar_Trial_Sem_Plano_Lanca_Excecao()
     {
         Assert.Throws<DomainRuleException>(() =>
-            Subscription.StartTrial(TenantId, Guid.Empty, Today));
+            TestSubscriptionFactory.AuthorizedTrial(TenantId, Guid.Empty, Today));
     }
 
     [Fact]
@@ -67,10 +67,15 @@ public class SubscriptionTests
 
     private static Subscription Authorized(Plan plan)
     {
-        var checkout = Subscription.StartCheckout(TenantId, plan, Guid.NewGuid(), Today);
+        var start = Subscription.AtUtc(Today.AddDays(-14));
+        var checkout = Subscription.StartCheckout(TenantId, plan, Guid.NewGuid(), Today.AddDays(-14));
+        checkout.UseAuthorizedTrial("trial-plan", plan.Id);
+        checkout.MarkCheckoutDispatched(start);
         checkout.BindCheckout("sub_456");
         checkout.AwaitConfirmation();
         checkout.ConfirmAuthorization("sub_456");
+        checkout.BeginAuthorizedTrial("sub_456", start, start.AddDays(14));
+        checkout.ExpireTrial(Subscription.AtUtc(Today));
         return checkout;
     }
 
@@ -98,15 +103,18 @@ public class SubscriptionTests
         Assert.Throws<DomainRuleException>(() => checkout.ConfirmAuthorization("outra"));
         checkout.ConfirmAuthorization("sub_456");
         Assert.False(checkout.IsActive);
+        Assert.Throws<DomainRuleException>(() => checkout.ConfirmFirstPayment("sub_456", "pay_1", plan, 0, Today, Today.AddMonths(1)));
+        // A autorização antecede o trial; o pagamento só pode ativar após seu vencimento.
+        var authorizedTrial = Authorized(plan);
         Assert.Throws<DomainRuleException>(() =>
-            checkout.ConfirmFirstPayment("sub_456", "pay_1", plan, 4, Today, Today.AddMonths(1)));
-        Assert.Equal(SubscriptionStatus.AuthorizedAwaitingFirstPayment, checkout.Status);
-        Assert.Null(checkout.FirstPaymentId);
-        checkout.ConfirmFirstPayment("sub_456", "pay_1", plan, 3, Today, Today.AddMonths(1));
-        Assert.True(checkout.IsActive);
-        Assert.Equal("pay_1", checkout.FirstPaymentId);
+            authorizedTrial.ConfirmFirstPayment("sub_456", "pay_1", plan, 4, Today, Today.AddMonths(1)));
+        Assert.Equal(SubscriptionStatus.AuthorizedAwaitingFirstPayment, authorizedTrial.Status);
+        Assert.Null(authorizedTrial.FirstPaymentId);
+        authorizedTrial.ConfirmFirstPayment("sub_456", "pay_1", plan, 3, Today, Today.AddMonths(1));
+        Assert.True(authorizedTrial.IsActive);
+        Assert.Equal("pay_1", authorizedTrial.FirstPaymentId);
         Assert.Throws<DomainRuleException>(() =>
-            checkout.ConfirmFirstPayment("sub_456", "pay_2", plan, 3, Today, Today.AddMonths(1)));
+            authorizedTrial.ConfirmFirstPayment("sub_456", "pay_2", plan, 3, Today, Today.AddMonths(1)));
     }
 
     [Fact]
@@ -145,11 +153,11 @@ public class SubscriptionTests
     public void Trial_Cancela_Imediatamente_E_Pago_Encerra_Apenas_Ao_Fim_Do_Periodo_Confirmado()
     {
         var trial = NewTrial();
-        trial.CancelTrial(Today);
+        trial.RequestCancellation(Today);
+        trial.ConfirmCancellation(trial.GatewaySubscriptionId!, Subscription.AtUtc(Today));
         Assert.Equal(SubscriptionStatus.Cancelled, trial.Status);
         Assert.Equal(Today, trial.CancellationEffectiveOn);
         var paid = Paid(NewPlan());
-        Assert.Throws<DomainRuleException>(() => paid.CancelTrial(Today));
         paid.RequestCancellation(Today);
         Assert.True(paid.IsActive);
         Assert.Null(paid.CancellationEffectiveOn);

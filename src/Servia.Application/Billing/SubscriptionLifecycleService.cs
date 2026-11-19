@@ -8,7 +8,6 @@ public sealed class SubscriptionLifecycleService(
     ISubscriptionRepository repository,
     IPlanRepository plans,
     IProfessionalCountReader professionals,
-    SubscriptionService localSubscriptions,
     IEnumerable<IRecurringCheckoutGateway> gateways,
     TimeProvider clock)
 {
@@ -23,9 +22,7 @@ public sealed class SubscriptionLifecycleService(
         }
         if (snapshot.GatewaySubscriptionId is null)
         {
-            var result = await localSubscriptions.CancelAsync(tenantId, cancellationToken);
-            return result.Success ? new LifecycleResult(result.Subscription!, "Cancelled")
-                : throw new DomainRuleException(result.FailureReason!);
+            throw new DomainRuleException("O cancelamento exige confirmação da recorrência.");
         }
         var stored = await repository.ExecuteSerializableAsync(async token =>
         {

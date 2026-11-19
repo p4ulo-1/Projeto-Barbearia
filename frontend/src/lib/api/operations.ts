@@ -122,8 +122,6 @@ export interface Checkout {
   checkoutKey: string;
   attemptId: string;
   state: string;
-  checkoutUrl: string | null;
-  resumeOn: string | null;
   trialStartsAt: string | null;
   trialEndsAt: string | null;
   planCode?: string | null;

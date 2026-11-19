@@ -106,9 +106,6 @@ function BillingDetails() {
                           vencimento.
                         </p>
                       )}
-                    {data.status === "Trialing" && !data.trialStartedAtUtc && data.trialEndsAt && (
-                      <p>Fim do teste em {displayDate(data.trialEndsAt)}.</p>
-                    )}
                     {data.nextChargeAtUtc && (
                       <p>Próxima cobrança prevista: {fmtDateTime(data.nextChargeAtUtc)}.</p>
                     )}

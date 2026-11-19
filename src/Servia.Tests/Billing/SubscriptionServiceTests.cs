@@ -24,7 +24,7 @@ public class SubscriptionServiceTests
     private readonly FakeProfessionalCountReader _counts = new();
 
     private SubscriptionService NewService() =>
-        new(_subscriptions, _plans, _counts, new FixedTimeProvider(Now));
+        new(_subscriptions, _plans, _counts);
 
     private void SeedPlans()
     {
@@ -39,7 +39,7 @@ public class SubscriptionServiceTests
     private async Task<Subscription> SeedTrialAsync(string planCode)
     {
         var plan = (await _plans.FindByCodeAsync(planCode))!;
-        var trial = Subscription.StartTrial(TenantId, plan.Id, DateOnly.FromDateTime(Now.UtcDateTime));
+        var trial = TestSubscriptionFactory.AuthorizedTrial(TenantId, plan.Id, DateOnly.FromDateTime(Now.UtcDateTime));
         await _subscriptions.AddAsync(trial);
         return trial;
     }
@@ -93,52 +93,6 @@ public class SubscriptionServiceTests
         Assert.Null(await service.SuggestUpgradeAsync(TenantId));
     }
 
-    // ---------- F16.3: cancelar ----------
-
-    [Fact]
-    public async Task Cancelar_Assinatura()
-    {
-        SeedPlans();
-        var service = NewService();
-        await SeedTrialAsync("ESSENCIAL");
-
-        var result = await service.CancelAsync(TenantId);
-
-        Assert.True(result.Success);
-        Assert.Equal(SubscriptionStatus.Cancelled, result.Subscription!.Status);
-        Assert.Equal(DateOnly.FromDateTime(Now.UtcDateTime), result.Subscription.CancellationEffectiveOn);
-    }
-
-    [Fact]
-    public async Task Cancelamento_Pago_Local_Nao_Altera_Periodo_Ou_Estado()
-    {
-        SeedPlans();
-        var plan = (await _plans.FindByCodeAsync("ESSENCIAL"))!;
-        var today = DateOnly.FromDateTime(Now.UtcDateTime);
-        var paid = Subscription.StartCheckout(TenantId, plan, Guid.NewGuid(), today);
-        paid.BindCheckout("subscription");
-        paid.ConfirmAuthorization("subscription");
-        paid.ConfirmFirstPayment("subscription", "paid", plan, 0, today, today.AddMonths(1));
-        await _subscriptions.AddAsync(paid);
-
-        var result = await NewService().CancelAsync(TenantId);
-
-        Assert.False(result.Success);
-        Assert.Contains("confirmação financeira", result.FailureReason);
-        Assert.Equal(SubscriptionStatus.Active, paid.Status);
-        Assert.Equal(today.AddMonths(1), paid.CurrentPeriodEnd);
-        Assert.Null(paid.CancellationRequestedOn);
-    }
-
-    [Fact]
-    public async Task Cancelar_Sem_Assinatura_Falha()
-    {
-        SeedPlans();
-
-        var result = await NewService().CancelAsync(TenantId);
-
-        Assert.False(result.Success);
-    }
 
 }
 

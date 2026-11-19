@@ -58,7 +58,7 @@ public class PlanSlotConcurrencyTests : IAsyncLifetime
 
         var today = DateOnly.FromDateTime(Now.UtcDateTime);
 
-        context.Subscriptions.Add(Subscription.StartTrial(TenantId, plan.Id, today));
+        context.Subscriptions.Add(TestSubscriptionFactory.AuthorizedTrial(TenantId, plan.Id, today));
 
         await context.SaveChangesAsync();
 

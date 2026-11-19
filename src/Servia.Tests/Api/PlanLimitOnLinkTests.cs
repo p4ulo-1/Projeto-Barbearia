@@ -81,7 +81,7 @@ public class PlanLimitOnLinkTests : IClassFixture<IsolatedApiFactory>
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
 
         context.Subscriptions.Add(
-            Subscription.StartTrial(TenantId, plan.Id, today));
+            TestSubscriptionFactory.AuthorizedTrial(TenantId, plan.Id, today));
 
         context.SaveChanges();
     }

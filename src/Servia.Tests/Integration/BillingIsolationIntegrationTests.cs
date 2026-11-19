@@ -38,7 +38,7 @@ public class BillingIsolationIntegrationTests : MultiTenantIntegrationTestBase
             var plan = await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions
                 .FirstAsync(context.Plans, item => item.Code == "ESSENCIAL");
 
-            var subscription = Subscription.StartTrial(tenantId, plan.Id, Today);
+            var subscription = TestSubscriptionFactory.AuthorizedTrial(tenantId, plan.Id, Today);
 
             context.Subscriptions.Add(subscription);
             await context.SaveChangesAsync();

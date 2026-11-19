@@ -150,20 +150,20 @@ public class JobTests
     [Fact]
     public async Task Trial_Expirado_Encerra_Vigencia()
     {
-        var subscription = Subscription.StartTrial(
+        var subscription = TestSubscriptionFactory.AuthorizedTrial(
             TenantId, Guid.NewGuid(), Today.AddDays(-20));
 
         _repository.AddSubscription(subscription);
 
         await new DelinquencyJob(_repository, new FixedTimeProvider(Now)).ExecuteAsync();
 
-        Assert.Equal(SubscriptionStatus.Expired, subscription.Status);
+        Assert.Equal(SubscriptionStatus.AuthorizedAwaitingFirstPayment, subscription.Status);
     }
 
     [Fact]
     public async Task Trial_Vigente_Nao_Eh_Alterado()
     {
-        var subscription = Subscription.StartTrial(TenantId, Guid.NewGuid(), Today);
+        var subscription = TestSubscriptionFactory.AuthorizedTrial(TenantId, Guid.NewGuid(), Today);
 
         _repository.AddSubscription(subscription);
 

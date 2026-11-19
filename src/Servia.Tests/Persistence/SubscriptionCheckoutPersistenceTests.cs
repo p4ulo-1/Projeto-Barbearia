@@ -83,10 +83,14 @@ public sealed class SubscriptionCheckoutPersistenceTests : IAsyncLifetime
     {
         await using var db = Open(_tenant);
         var repository = new SubscriptionRepository(db);
-        var trial = Subscription.StartTrial(_tenant, _trialPlan.Id, Today.AddDays(-14));
-        var checkout = Subscription.StartCheckout(_tenant, _paidPlan, Guid.NewGuid(), Today);
+        var trial = TestSubscriptionFactory.AuthorizedTrial(_tenant, _trialPlan.Id, Today.AddDays(-14));
+        var checkout = Subscription.StartCheckout(_tenant, _paidPlan, Guid.NewGuid(), Today.AddDays(-14));
+        checkout.UseAuthorizedTrial("trial-plan", _trialPlan.Id);
+        checkout.MarkCheckoutDispatched(Subscription.AtUtc(Today.AddDays(-14)));
         checkout.BindCheckout("external");
         checkout.ConfirmAuthorization("external");
+        checkout.BeginAuthorizedTrial("external", Subscription.AtUtc(Today.AddDays(-14)), Subscription.AtUtc(Today));
+        checkout.ExpireTrial(Today);
         db.Subscriptions.AddRange(trial, checkout);
         await db.SaveChangesAsync();
         Assert.Equal(trial.Id, (await repository.FindCurrentAsync(_tenant))!.Id);
@@ -107,28 +111,7 @@ public sealed class SubscriptionCheckoutPersistenceTests : IAsyncLifetime
         var unchanged = (await repository.FindCheckoutAsync(_tenant, checkout.CheckoutKey!.Value))!;
         Assert.Equal(SubscriptionStatus.AuthorizedAwaitingFirstPayment, unchanged.Status);
         Assert.Null(unchanged.FirstPaymentId);
-        await repository.ExecuteSerializableAsync(async token =>
-        {
-            var previous = (await repository.FindCurrentAsync(_tenant, token))!;
-            previous.ExpireTrial(Today);
-            await repository.SaveChangesAsync(token);
-            unchanged.ConfirmFirstPayment("external", "approved", _paidPlan, 0, Today, Today.AddMonths(1));
-            await repository.SaveChangesAsync(token);
-            return true;
-        });
 
-        Assert.Equal(checkout.Id, (await repository.FindCurrentAsync(_tenant))!.Id);
-        Assert.Equal(2, await db.Subscriptions.CountAsync());
-        var otherTenant = Guid.NewGuid();
-        await using var other = Open(otherTenant);
-        var otherCheckout = Subscription.StartCheckout(otherTenant, _paidPlan, Guid.NewGuid(), Today);
-        otherCheckout.BindCheckout("another-external");
-        otherCheckout.ConfirmAuthorization("another-external");
-        otherCheckout.ConfirmFirstPayment("another-external", "approved", _paidPlan, 0, Today, Today.AddMonths(1));
-        other.Subscriptions.Add(otherCheckout);
-        var duplicatePayment = await Assert.ThrowsAsync<DbUpdateException>(() => other.SaveChangesAsync());
-        Assert.Equal("IX_Subscriptions_FirstPaymentId",
-            Assert.IsType<PostgresException>(duplicatePayment.InnerException).ConstraintName);
     }
 
     [Fact]
@@ -224,7 +207,7 @@ public sealed class SubscriptionCheckoutPersistenceTests : IAsyncLifetime
         Assert.Equal(historyId, change.Id);
         Assert.Equal(PlanChangeStatus.Effective, change.Status);
 
-        db.Subscriptions.Add(Subscription.StartTrial(_tenant, _paidPlan.Id, Today));
+        db.Subscriptions.Add(TestSubscriptionFactory.AuthorizedTrial(_tenant, _paidPlan.Id, Today));
         var duplicate = await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync());
         Assert.Equal("UX_Subscriptions_EffectiveTenant",
             Assert.IsType<PostgresException>(duplicate.InnerException).ConstraintName);

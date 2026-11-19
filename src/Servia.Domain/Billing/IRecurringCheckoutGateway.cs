@@ -10,8 +10,6 @@ public interface IRecurringCheckoutGateway
     Task<RecurringAuthorization> FindAsync(string subscriptionId, CancellationToken cancellationToken);
     Task<IReadOnlyList<string>> SearchByCorrelationAsync(string? payerEmail, string? trialPlanId,
         string externalReference, CancellationToken cancellationToken);
-    Task<RecurringCycleEvidence> FindFirstPaymentAsync(string subscriptionId, Money amount,
-        CancellationToken cancellationToken);
     Task<RecurringCycleEvidence> FindCyclePaymentAsync(string subscriptionId, DateTimeOffset dueAt,
         Money amount, CancellationToken cancellationToken);
     Task RequestCancellationAsync(string subscriptionId, CancellationToken cancellationToken);
@@ -23,7 +21,7 @@ public sealed record RecurringCheckoutRequest(Guid CheckoutKey, string ExternalR
     Money Amount, int IntervalMonths, string? TrialPlanId = null, string? CardToken = null);
 
 public sealed record RecurringAuthorization(string? Id, string? ExternalReference, string? Status,
-    decimal? Amount, string? Currency, int? Frequency, string? FrequencyType, string? CheckoutUrl,
+    decimal? Amount, string? Currency, int? Frequency, string? FrequencyType,
     string? TrialPlanId = null, DateTimeOffset? CreatedAt = null, DateTimeOffset? NextChargeAt = null);
 
 public sealed record ApprovedRecurringPayment(string Id, DateTimeOffset DueAt, DateTimeOffset ApprovedAt);

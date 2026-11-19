@@ -78,7 +78,6 @@ public sealed class Subscription : ITenantScoped
     public DateTimeOffset? CheckoutDispatchedAt { get; private set; }
     public string? CheckoutPayerEmail { get; private set; }
 
-    public string? CheckoutUrl { get; private set; }
 
     public decimal? ContractPriceAmount { get; private set; }
 
@@ -100,8 +99,7 @@ public sealed class Subscription : ITenantScoped
     public DateTimeOffset? CancellationDeadline => CancellationEffectiveOn is { } date
         ? (IsActive || Status == SubscriptionStatus.PastDue ? ChargeDeadline ?? AtUtc(date) : AtUtc(date)) : null;
 
-    public DateTimeOffset? TrialDeadline => TrialEndsAtUtc
-        ?? (TrialEndsAt is { } date ? AtUtc(date) : null);
+    public DateTimeOffset? TrialDeadline => TrialEndsAtUtc;
 
     public DateTimeOffset? ChargeDeadline => NextChargeAtUtc
         ?? (Status is SubscriptionStatus.Active or SubscriptionStatus.PastDue && TrialEndsAt is null
@@ -117,40 +115,6 @@ public sealed class Subscription : ITenantScoped
 
     public static Subscription AwaitTrialAuthorization(Guid tenantId, Guid planId, DateOnly today) =>
         new(Guid.NewGuid(), tenantId, planId, SubscriptionStatus.AwaitingTrialAuthorization, today, today, null);
-
-    /// <summary>
-    /// Inicia o trial de 14 dias pelo provisionamento do estabelecimento.
-    /// </summary>
-    public static Subscription StartTrial(
-        Guid tenantId,
-        Guid planId,
-        DateOnly today,
-        string? gatewayCustomerId = null)
-    {
-        if (tenantId == Guid.Empty)
-        {
-            throw new DomainRuleException("O estabelecimento é obrigatório.");
-        }
-
-        if (planId == Guid.Empty)
-        {
-            throw new DomainRuleException("O plano é obrigatório.");
-        }
-
-        var trialEnd = today.AddDays(TrialDays);
-
-        return new Subscription(
-            Guid.NewGuid(),
-            tenantId,
-            planId,
-            SubscriptionStatus.Trialing,
-            today,
-            trialEnd,
-            trialEnd)
-        {
-            GatewayCustomerId = gatewayCustomerId
-        };
-    }
 
     /// <summary>Registra uma tentativa separada do plano efetivo.</summary>
     public static Subscription StartCheckout(Guid tenantId, Plan plan, Guid checkoutKey, DateOnly today)
@@ -209,7 +173,7 @@ public sealed class Subscription : ITenantScoped
         Status = SubscriptionStatus.Trialing;
     }
 
-    public void BindCheckout(string gatewaySubscriptionId, string? checkoutUrl = null)
+    public void BindCheckout(string gatewaySubscriptionId)
     {
         var id = NormalizeExternalId(gatewaySubscriptionId);
         if (Status != SubscriptionStatus.PendingCheckout || (GatewaySubscriptionId is not null && GatewaySubscriptionId != id))
@@ -218,7 +182,6 @@ public sealed class Subscription : ITenantScoped
         }
         GatewaySubscriptionId = id;
         CheckoutPayerEmail = null;
-        CheckoutUrl = checkoutUrl ?? CheckoutUrl;
     }
 
     public void AwaitConfirmation()
@@ -238,7 +201,6 @@ public sealed class Subscription : ITenantScoped
             throw new DomainRuleException("A autorização exige uma tentativa pendente.");
         }
         Status = SubscriptionStatus.AuthorizedAwaitingFirstPayment;
-        CheckoutUrl = null;
     }
 
     /// <summary>Consome evidência já verificada pelo backend. A capacidade deve ser lida na mesma transação.</summary>
@@ -247,7 +209,8 @@ public sealed class Subscription : ITenantScoped
     {
         RequireGatewaySubscription(gatewaySubscriptionId);
         var paymentId = NormalizeExternalId(approvedPaymentId);
-        if (Status != SubscriptionStatus.AuthorizedAwaitingFirstPayment || plan.Id != PlanId
+        if (Status != SubscriptionStatus.AuthorizedAwaitingFirstPayment || TrialStartedAtUtc is null
+            || TrialEndsAtUtc is not { } deadline || periodStart < DateOnly.FromDateTime(deadline.UtcDateTime) || plan.Id != PlanId
             || !plan.AllowsProfessionals(eligibleProfessionals) || periodStart < CurrentPeriodStart || periodEnd <= periodStart)
         {
             throw new DomainRuleException("O primeiro pagamento não pode efetivar esta assinatura ou capacidade.");
@@ -271,7 +234,6 @@ public sealed class Subscription : ITenantScoped
         }
         CheckoutFailedOn = today;
         CheckoutPayerEmail = null;
-        CheckoutUrl = null;
         Status = SubscriptionStatus.Cancelled;
     }
 
@@ -286,7 +248,7 @@ public sealed class Subscription : ITenantScoped
         {
             throw new DomainRuleException("A vigência do trial ainda não terminou.");
         }
-        Status = GatewayTrialPlanId is null ? SubscriptionStatus.Expired : SubscriptionStatus.AuthorizedAwaitingFirstPayment;
+        Status = SubscriptionStatus.AuthorizedAwaitingFirstPayment;
     }
 
     public void MarkPastDue(DateTimeOffset now)
@@ -359,17 +321,6 @@ public sealed class Subscription : ITenantScoped
         PlanId = plan.Id;
         ContractPriceAmount = recurringAmount.Amount;
         ContractCurrency = recurringAmount.Currency;
-    }
-
-    public void CancelTrial(DateOnly today)
-    {
-        if (!IsOnTrial || today < CurrentPeriodStart)
-        {
-            throw new DomainRuleException("Apenas um trial vigente pode ser cancelado localmente.");
-        }
-        CancellationRequestedOn = today;
-        CancellationEffectiveOn = today;
-        Status = SubscriptionStatus.Cancelled;
     }
 
     public void RequestCancellation(DateOnly today)

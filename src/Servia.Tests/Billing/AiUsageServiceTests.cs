@@ -32,7 +32,7 @@ public class AiUsageServiceTests
 
         _plans.Add(plan);
         _repository.SetSubscription(
-            Subscription.StartTrial(TenantId, plan.Id, Today));
+            TestSubscriptionFactory.AuthorizedTrial(TenantId, plan.Id, Today));
     }
 
     private Task<UsageQuota?> QuotaAsync() =>

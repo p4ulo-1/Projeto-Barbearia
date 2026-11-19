@@ -183,7 +183,7 @@ public class BusinessEntityForeignKeyTests : IAsyncLifetime
         // Plan e global: nao tem TenantId, entao a FK e simples.
         var plan = await context.Plans.FirstAsync(item => item.Code == "ESSENCIAL");
 
-        var subscription = Subscription.StartTrial(TenantA, plan.Id, Today);
+        var subscription = TestSubscriptionFactory.AuthorizedTrial(TenantA, plan.Id, Today);
         context.Subscriptions.Add(subscription);
         await context.SaveChangesAsync();
 

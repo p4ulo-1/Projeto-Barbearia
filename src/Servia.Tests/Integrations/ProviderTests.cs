@@ -84,20 +84,17 @@ public class ProviderTests
                 new MercadoPagoOptions()));
     }
 
-    [Theory]
-    [InlineData("https://www.mercadopago.com.br/subscriptions/checkout?preapproval_id=sub_123", true)]
-    [InlineData("https://www.mercadopago.com.br.example.org/subscriptions/checkout?preapproval_id=sub_123", false)]
-    [InlineData("https://www.mercadopago.com.br/subscriptions/checkout?preapproval_id=other", false)]
-    public async Task MercadoPago_Checkout_Valida_Origem_E_Assinatura_Da_Url(string url, bool accepted)
+    [Fact]
+    public async Task MercadoPago_Consulta_Autorizacao_E_Valor_Recorrente()
     {
         var body = System.Text.Json.JsonSerializer.Serialize(new
         {
-            id = "sub_123", external_reference = "reference", status = "pending", init_point = url,
+            id = "sub_123", external_reference = "reference", status = "authorized",
             auto_recurring = new { frequency = 1, frequency_type = "months", transaction_amount = "99.00", currency_id = "BRL" }
         });
         var gateway = NewMercadoPago(new StubHandler(HttpStatusCode.OK, body));
         var result = await gateway.FindAsync("sub_123", default);
-        Assert.Equal(accepted ? url : null, result.CheckoutUrl);
+        Assert.Equal("authorized", result.Status);
         Assert.Equal(99m, result.Amount);
     }
 
